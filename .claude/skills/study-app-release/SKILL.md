@@ -46,8 +46,13 @@ description: Use this skill when building and releasing the Study Buddy Flutter 
      -keyalg RSA -keysize 2048 -validity 10000 -alias study-buddy
    ```
 2. **配置 GitHub Secrets**（仓库 Settings → Secrets and variables → Actions）:
-   - `ANDROID_KEYSTORE_BASE64` — `base64 study-buddy-release-key.jks`（Windows: `certutil -encode` 后去头尾，或用 `openssl base64`）
-   - `ANDROID_KEYSTORE_PASSWORD` — keystore 密码
+   - `ANDROID_KEYSTORE_BASE64` — keystore 的 base64 编码。**务必用干净的单行 base64（无换行、无头尾标记）**，否则 CI 的 `base64 -d` 会报 `invalid input` 导致发布失败。推荐用 Python 生成并通过 stdin 写入：
+     ```bash
+     python -c "import base64; print(base64.b64encode(open('study-buddy-release-key.jks','rb').read()).decode(), end='')" \
+       | gh secret set ANDROID_KEYSTORE_BASE64 --body -
+     ```
+     ⚠️ 避免 `certutil -encode`（带 `-----BEGIN-----`/`END-----` 头尾）或带 CRLF 的输出，二者都会让 `base64 -d` 失败。用 `gh secret set --body -`（stdin）而非命令行传参，避免长度截断。
+   - `ANDROID_KEYSTORE_PASSWORD` — keystore 密码（`gh secret set ANDROID_KEYSTORE_PASSWORD --body "密码"`，勿用 `GH_TOKEN=` 前缀覆盖已登录 token）
    - `ANDROID_KEY_ALIAS` — 别名（如 `study-buddy`）
 3. **本地**（可选，用于本地预检 release 构建）: 在 `study_buddy/android/key.properties` 填入上述信息（该文件已被 `.gitignore` 忽略）。
 

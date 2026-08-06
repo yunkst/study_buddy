@@ -208,8 +208,20 @@ jobs:
             echo "   （首次发布前需配置 Android release 签名 keystore，详见 .claude/skills/study-app-release/SKILL.md）"
             exit 1
           fi
+          # 诊断:打印 secret 原始长度(应为 3632)。若不符,说明写入时被截断/污染。
+          echo "keystore base64 原始长度: ${#ANDROID_KEYSTORE_BASE64}"
+          # 容错:去除可能混入的 CR/LF/空格(Windows stdin 写入或 certutil 残留),
+          # 再解码。纯 base64 经 tr 不影响内容,但能消除导致 'base64: invalid input' 的换行。
+          CLEAN_B64=$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n[:space:]')
+          echo "清理后长度: ${#CLEAN_B64}"
           # keystore 放在 android 根目录（rootProject），key.properties 中的 storeFile 用相对路径解析
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/study-buddy-release-key.jks
+          printf '%s' "$CLEAN_B64" | base64 -d > android/study-buddy-release-key.jks
+          KS_SIZE=$(wc -c < android/study-buddy-release-key.jks)
+          echo "解码后 keystore 字节数: $KS_SIZE (预期 2722)"
+          if [ "$KS_SIZE" -lt 1000 ]; then
+            echo "❌ keystore 解码后过小,base64 内容可能损坏"
+            exit 1
+          fi
           cat > android/key.properties <<EOF
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyPassword=$ANDROID_KEYSTORE_PASSWORD
