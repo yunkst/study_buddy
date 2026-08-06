@@ -26,6 +26,14 @@ TAG_EDITMSG_TMP
 __pycache__/
 *.pyc
 
+# Android release 签名(绝不入库)
+*.jks
+*.keystore
+key.properties
+
+# 本地生成的一次性密码/临时文件(发布配置时由 Claude 写入,任务结束自删)
+.jks_pass.tmp
+
 # 根级实验/脚本产物（非 study_buddy 工程文件，勿入库）
 # 包括题库抓取实验、node 脚本、运行时 JSON 缓存等
 node_modules/
