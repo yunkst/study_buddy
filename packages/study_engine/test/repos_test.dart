@@ -57,4 +57,32 @@ void main() {
     await domains.insert(TopicDomain(subjectId: math.id!, name: '代数', createdAt: DateTime.now()));
     expect(await domains.queryBySubject(math.id!), hasLength(1));
   });
+
+  test('LlmConfigRepository.getDefault 视觉优先', () async {
+    final repo = LlmConfigRepository(sdb);
+    await repo.insert(LlmConfig(name: 'text', apiUrl: 'u', apiKey: 'k', model: 'm', isDefault: true, createdAt: DateTime.now()));
+    await repo.insert(LlmConfig(name: 'vision', apiUrl: 'u', apiKey: 'k', model: 'mv', supportsVision: true, isDefault: true, createdAt: DateTime.now()));
+    final d = await repo.getDefault(vision: true);
+    expect(d?.supportsVision, isTrue);
+    final plain = await repo.getDefault();
+    expect(plain, isNotNull);
+  });
+
+  test('AgentMemoryRepository 增删改查', () async {
+    final repo = AgentMemoryRepository(sdb);
+    final id = await repo.add('study', '经验1');
+    expect(await repo.queryByScenario('study'), hasLength(1));
+    await repo.update(id, '经验1改');
+    expect((await repo.queryByScenario('study')).first.content, '经验1改');
+    await repo.delete(id);
+    expect(await repo.queryByScenario('study'), isEmpty);
+  });
+
+  test('ChatRepository 建会话+存消息', () async {
+    final repo = ChatRepository(sdb);
+    final sid = await repo.createSession('study', '测试会话');
+    await repo.addMessage(sid, const ChatMessage(role: 'user', content: '你好'));
+    final rows = await sdb.db.query('chat_message', where: 'session_id = ?', whereArgs: [sid]);
+    expect(rows, hasLength(1));
+  });
 }
