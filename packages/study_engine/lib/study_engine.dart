@@ -4,3 +4,5 @@
 library study_engine;
 
 export 'src/models/models.dart';
+export 'src/db/database_migrations.dart' show kCurrentDbVersion, migrateDatabase;
+export 'src/db/database.dart';
