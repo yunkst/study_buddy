@@ -32,7 +32,7 @@ study_buddy 地基已就绪（Agent ReAct 循环 + LLM Provider + SQLite 数据�
 | WebView 组件 | `flutter_inappwebview`（非官方 webview_flutter） |
 | 登录方式 | WebView 内由 study.keyky.cn 自有登录页处理，APP 不介入 |
 | 截图能力 | `flutter_inappwebview` 的 `InAppWebViewController.takeScreenshot()` |
-| AI 触发 | 截图 → base64 → ImageUrlPart → StudyScenario 多模态输入 |
+| AI 触发 | 截图 → base64 → ImageUrlPart → StudyScenario 多模态输入（vision 由 LLM 原生处理；不新增工具） |
 | 知识库存储 | 复用 study_engine 现有 topic / mastery_log 表（不新增表） |
 | UI 框架 | 复用现有 Riverpod + go_router |
 | 范围控制 | MVP：只读体验 + AI 助手；不做进度同步、不做本地刷题缓存 |
@@ -60,12 +60,13 @@ study_buddy 地基已就绪（Agent ReAct 循环 + LLM Provider + SQLite 数据�
 └────────────────────┬────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────────┐
-│ Engine Layer (study_engine, 复用 + 1 个新工具)              │
+│ Engine Layer (study_engine, 完全复用，零改动)                │
 │                                                             │
 │   StudyScenario (已有)                                       │
-│     + 新工具：describe_question_image                         │
+│     工具：save_topic / query_topics（已有，不变）             │
 │   AgentLoop / AgentEvent / ContextCompactor (已有)           │
 │   Vision content (已有 ContentPart.TextPart / ImageUrlPart)  │
+│   └ 图片分析是 LLM 原生能力，不需要包装成 function 工具      │
 └────────────────────┬────────────────────────────────────────┘
                      │
                    SQLite（app 沙盒文件，topic/mastery_log 已建）
@@ -110,7 +111,7 @@ FloatingAiButton.onPressed()
 webViewScreenshotService.takeScreenshot()
   ├─ controller.takeScreenshot() → Uint8List? pngBytes
   ├─ 若 null（无页面 / 截图失败）：弹 toast「请稍候再试」
-  └─ bytes → Image.memory 预览 → 写入 path_provider 临时目录
+  └─ bytes → Image.memory 预览（仅内存，不落盘）
   ↓
 AiPanelSheet 弹出（modalBottomSheet）
   ├─ 顶部：截图缩略图 + 「重拍」按钮
@@ -125,17 +126,21 @@ User 点「开始分析」
   ├─ agentSessionProvider.run([...])   ← 复用 StudyScenario
   └─ 监听 Stream<AgentEvent> 增量更新
   ↓
+LLM 直接读图（vision 原生能力） → 流式输出分析文本
+  ↓
 面板流式显示：
   - TextDeltaEvent → 追加到 AI 回复 TextField
-  - ToolCallStartEvent → 显示「正在调用 XXX 工具」
+  - ToolCallStartEvent → 显示「正在调用 XXX 工具」（如 save_topic）
   - ToolCallEndEvent → 显示工具结果摘要
   - AgentDoneEvent → 关闭 loading，AI 回复显示完整
   - AgentErrorEvent → 弹错误对话框
   ↓
-若 AI 调用了 save_topic
+若 LLM 自主决定调 save_topic
   → 知识点落入 study_buddy 本地 topic 表（用户可在 APP 内「知识库」看到）
   → 面板显示「已保存到知识库」徽标
 ```
+
+> **关于「图片分析」为何不包装成工具**：图像理解是 LLM 的原生能力（多模态模型直接看 `ImageUrlPart` 输出文本），属于纯认知任务；function calling 工具是为「需要执行副作用」的动作设计的（如入库、查库、HTTP 请求）。把图片分析做成工具反而增加了一次无意义的工具往返，得不偿失。
 
 ### 4.4 错误处理
 
@@ -146,7 +151,7 @@ User 点「开始分析」
 | LLM 调用失败 | AgentErrorEvent → 弹错误对话框，可重试 |
 | LLM 调用了不允许的工具 | scenario.executeTool 抛错 → 显示工具结果「执行失败」 |
 | 图片过大（>10MB） | 截图前压缩到长边 1920px，压缩到 base64 后控制在 5MB 内 |
-| 网络断开 | 截图本地缓存，AI 请求队列等待恢复（不实现队列；MVP 仅弹错让用户重试） |
+| 网络断开 | 截图仅在内存中保留到当前会话结束，AI 请求失败即丢弃；不缓存到磁盘、不入库（下次启动不留存） |
 
 ## 5. 数据层扩展
 
@@ -155,7 +160,10 @@ User 点「开始分析」
 - `mastery_log`（可选，由 save_topic 触发）
 - `chat_session` / `chat_message`（已有，agent 对话历史自动写入）
 
-图片用 `path_provider.getTemporaryDirectory()` 存放，文件名 `<timestamp>.png`，OS 临时目录策略自动清理，**不入库**。
+图片**不落盘、不入库、不缓存**——`takeScreenshot()` 返回的 `Uint8List` 仅在内存中持有：
+- 转 base64 后直接构造 `ImageUrlPart('data:image/png;base64,...')` 喂给 LLM
+- 抽屉关闭（会话结束）即随 widget 销毁释放
+- `path_provider` 依赖因此**不需要**（见 §7 依赖清单已移除）
 
 ## 6. 关键文件清单
 
@@ -170,23 +178,17 @@ study_buddy/lib/features/external_qbank/
   providers/
     webview_screenshot_provider.dart # 截图 service
     ai_panel_provider.dart           # 控制 sheet 状态 + agent session
-
-study_engine/lib/src/agent/tools/
-  describe_question_image.dart       # 新工具：describe_question_image（图片→知识点）
-
-study_engine/test/
-  describe_question_image_test.dart  # 新工具单测
 ```
 
 ### 修改
 
 ```
-study_buddy/pubspec.yaml             # + flutter_inappwebview, path_provider
+study_buddy/pubspec.yaml             # + flutter_inappwebview（无需 path_provider，截图纯内存）
 study_buddy/lib/router.dart          # 新路由 /external-qbank
 study_buddy/lib/features/home/home_page.dart  # 增加「进入题库」入口
-study_engine/lib/src/agent/scenarios/study_scenario.dart  # 注册 describe_question_image 工具
-study_engine/lib/study_engine.dart   # 导出新工具
 ```
+
+> **engine 层零改动** —— StudyScenario、save_topic/query_topics、AgentLoop、vision content 全部直接复用。无需新增工具、无需改 migration、无需新增测试。
 
 ## 7. 依赖与初始化
 
@@ -195,14 +197,14 @@ study_engine/lib/study_engine.dart   # 导出新工具
 ```yaml
 dependencies:
   flutter_inappwebview: ^6.x     # WebView 容器（支持 takeScreenshot）
-  path_provider: ^2.x            # 截图临时目录
+  # 不引入 path_provider：截图全程在内存中，不落盘
 ```
 
 ### Android 配置
 
 - `minSdkVersion >= 21`（flutter_inappwebview 要求）
 - `AndroidManifest.xml`：网络权限（已有）
-- 若 WebView 内需微信 OAuth：单独处理（**MVP 用手机号登录规避**）
+- 登录方式完全由 study.keyky.cn 自处理（扫码 / 手机号 / 微信 等），APP 不介入；MVP 无需额外适配
 
 ### iOS 配置
 
@@ -216,18 +218,16 @@ dependencies:
 
 ## 8. 验收标准
 
-1. **静态检查**：`flutter analyze` 全绿（app + engine 两个包）。
-2. **引擎层单测**：`flutter test` 通过，含：
-   - `describe_question_image` 工具的 schema 测试（OpenAI function calling 结构合法）。
-   - StudyScenario 注册新工具后，工具列表长度 = 3。
+1. **静态检查**：`flutter analyze` 全绿（app + engine 两个包；engine 包零改动，回归原有规则）。
+2. **引擎层单测**：`flutter test` 全部通过（验证 engine 包未破坏；无需新增测试）。
 3. **APP 启动**：`flutter run -d windows` / Android / iOS 任一平台能跑。
 4. **手工验收**（含敏感项验证）：
    - [ ] APP 首页有「进入题库」入口。
    - [ ] 点入口打开 ExternalQbankPage，WebView 加载 study.keyky.cn，未登录可看到首页。
-   - [ ] WebView 内完成登录（手机号），正常刷题。
+   - [ ] WebView 内通过网站登录页（扫码 / 手机号等，由网站自身处理）完成登录，正常刷题。
    - [ ] 点击 FloatingAiButton → AiPanelSheet 弹出，截图预览可见。
    - [ ] 点「开始分析」→ 流式显示 AI 回复文本。
-   - [ ] 若 AI 调用 save_topic → 回到 HomePage，进入「知识库」（后续子项目）可见新知识点。
+   - [ ] 若 LLM 自主调 save_topic → 知识点落入 study_buddy 本地 topic 表。
    - [ ] **代码与 git 历史中无任何 study.keyky.cn 鉴权凭据字面值**（token / cookie / Authorization 均不得出现）。
 5. **平台兼容**：
    - Windows：可运行（WebView 在 Windows 表现可能与移动端不同，仅保证不崩溃）。
@@ -248,10 +248,13 @@ dependencies:
 
 ## 10. 后续演进方向（不在本 spec 范围）
 
-1. **题库本地索引（只读）** — 调网站 API 拉 789 套题库列表缓存到本地，APP 内提供浏览/搜索入口。届时仍走 WebView 鉴权，不写 token。
-2. **进度同步层** — 从 WebView 的 cookieStorage 读进度状态，APP 端展示；不回写网站。
-3. **多 WebView 实例** — 同时打开多个题库对比刷题（复杂度高，慎入）。
-4. **AI 主动模式** — 网站端暴露 postMessage，AI 自动在错题时触发分析（需双方协议，非 MVP）。
+> 用户已明确：不考虑网站是哪个、APP 不缓存任何网站内容、不写回网站。
+> 因此所有「调用网站 API」「缓存网站数据」「网站笔记同步」方向均不列入演进清单。
+> 后续仅围绕 APP 自身能力（如：知识库详情 UI、掌握度看板、错题本的本地结构）扩展。
+
+1. **知识库详情 UI** — 复用 topic 表，可视化 AI 已入库的知识点列表与详情。
+2. **多 WebView 实例** — 同时打开多个题库对比刷题（复杂度高，慎入）。
+3. **AI 主动模式** — APP 端检测到截图后自动触发分析（无需用户点浮窗）。
 
 ## 11. 风险与缓解
 
