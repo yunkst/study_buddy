@@ -2,3 +2,5 @@
 ///
 /// 后续任务的模型、Repository、LLM、Agent 导出会逐步追加到此处。
 library study_engine;
+
+export 'src/models/models.dart';

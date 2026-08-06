@@ -1,0 +1,296 @@
+/// study_engine 数据模型。对应数据库表，不依赖 Flutter。
+library;
+
+/// 学科。
+class Subject {
+  final int? id;
+  final String name;
+  final DateTime createdAt;
+  const Subject({this.id, required this.name, required this.createdAt});
+
+  factory Subject.fromMap(Map<String, Object?> m) => Subject(
+        id: m['id'] as int?,
+        name: m['name'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'name': name,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+}
+
+/// 知识点。
+class Topic {
+  final int? id;
+  final int subjectId;
+  final int? parentTopicId; // 前置/父子关系，nullable
+  final String? domain; // 领域标签，nullable
+  final String title;
+  final String? summary; // AI 生成后存入
+  final DateTime createdAt;
+  const Topic({
+    this.id,
+    required this.subjectId,
+    this.parentTopicId,
+    this.domain,
+    required this.title,
+    this.summary,
+    required this.createdAt,
+  });
+
+  factory Topic.fromMap(Map<String, Object?> m) => Topic(
+        id: m['id'] as int?,
+        subjectId: m['subject_id'] as int,
+        parentTopicId: m['parent_topic_id'] as int?,
+        domain: m['domain'] as String?,
+        title: m['title'] as String,
+        summary: m['summary'] as String?,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'subject_id': subjectId,
+        if (parentTopicId != null) 'parent_topic_id': parentTopicId,
+        if (domain != null) 'domain': domain,
+        'title': title,
+        if (summary != null) 'summary': summary,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+}
+
+/// 学科内领域分类。
+class TopicDomain {
+  final int? id;
+  final int subjectId;
+  final String name;
+  final DateTime createdAt;
+  const TopicDomain({this.id, required this.subjectId, required this.name, required this.createdAt});
+
+  factory TopicDomain.fromMap(Map<String, Object?> m) => TopicDomain(
+        id: m['id'] as int?,
+        subjectId: m['subject_id'] as int,
+        name: m['name'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'subject_id': subjectId,
+        'name': name,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+}
+
+/// 掌握状态枚举。
+enum MasteryStatus { unknown, learning, mastered, weak }
+
+extension MasteryStatusX on MasteryStatus {
+  String get wire => name;
+  static MasteryStatus fromWire(String s) =>
+      MasteryStatus.values.firstWhere((e) => e.name == s, orElse: () => MasteryStatus.unknown);
+}
+
+/// 掌握状态变更日志。
+class MasteryLog {
+  final int? id;
+  final int topicId;
+  final MasteryStatus status;
+  final String? reason;
+  final DateTime changedAt;
+  const MasteryLog({
+    this.id,
+    required this.topicId,
+    required this.status,
+    this.reason,
+    required this.changedAt,
+  });
+
+  factory MasteryLog.fromMap(Map<String, Object?> m) => MasteryLog(
+        id: m['id'] as int?,
+        topicId: m['topic_id'] as int,
+        status: MasteryStatusX.fromWire(m['status'] as String),
+        reason: m['reason'] as String?,
+        changedAt: DateTime.fromMillisecondsSinceEpoch(m['changed_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'topic_id': topicId,
+        'status': status.wire,
+        if (reason != null) 'reason': reason,
+        'changed_at': changedAt.millisecondsSinceEpoch,
+      };
+}
+
+/// LLM 供应商配置。
+class LlmConfig {
+  final int? id;
+  final String name;
+  final String apiUrl;
+  final String apiKey;
+  final String model;
+  final bool supportsVision;
+  final bool isDefault;
+  final int sortOrder;
+  final DateTime createdAt;
+  const LlmConfig({
+    this.id,
+    required this.name,
+    required this.apiUrl,
+    required this.apiKey,
+    required this.model,
+    this.supportsVision = false,
+    this.isDefault = false,
+    this.sortOrder = 0,
+    required this.createdAt,
+  });
+
+  factory LlmConfig.fromMap(Map<String, Object?> m) => LlmConfig(
+        id: m['id'] as int?,
+        name: m['name'] as String,
+        apiUrl: m['api_url'] as String,
+        apiKey: m['api_key'] as String,
+        model: m['model'] as String,
+        supportsVision: (m['supports_vision'] as int) == 1,
+        isDefault: (m['is_default'] as int) == 1,
+        sortOrder: m['sort_order'] as int,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'name': name,
+        'api_url': apiUrl,
+        'api_key': apiKey,
+        'model': model,
+        'supports_vision': supportsVision ? 1 : 0,
+        'is_default': isDefault ? 1 : 0,
+        'sort_order': sortOrder,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+}
+
+/// agent 经验记忆。
+class AgentMemory {
+  final int? id;
+  final String scenarioId;
+  final String content;
+  final DateTime createdAt;
+  const AgentMemory({this.id, required this.scenarioId, required this.content, required this.createdAt});
+
+  factory AgentMemory.fromMap(Map<String, Object?> m) => AgentMemory(
+        id: m['id'] as int?,
+        scenarioId: m['scenario_id'] as String,
+        content: m['content'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'scenario_id': scenarioId,
+        'content': content,
+        'created_at': createdAt.millisecondsSinceEpoch,
+      };
+}
+
+/// 对话会话。
+class ChatSession {
+  final int? id;
+  final String scenarioId;
+  final String title;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const ChatSession({
+    this.id,
+    required this.scenarioId,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ChatSession.fromMap(Map<String, Object?> m) => ChatSession(
+        id: m['id'] as int?,
+        scenarioId: m['scenario_id'] as String,
+        title: m['title'] as String,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(m['updated_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'scenario_id': scenarioId,
+        'title': title,
+        'created_at': createdAt.millisecondsSinceEpoch,
+        'updated_at': updatedAt.millisecondsSinceEpoch,
+      };
+}
+
+// ===== vision content parts =====
+
+/// ChatMessage content 的一个片段。sealed，仅 TextPart / ImageUrlPart。
+sealed class ContentPart {
+  const ContentPart();
+}
+
+class TextPart extends ContentPart {
+  final String text;
+  const TextPart(this.text);
+}
+
+class ImageUrlPart extends ContentPart {
+  final String url; // base64 data URI 或 http URL
+  final String? detail; // low / high / auto
+  const ImageUrlPart(this.url, {this.detail});
+}
+
+/// 对话消息。content 既可纯文本，也可为 ContentPart 列表（vision）。
+class ChatMessage {
+  final String role;
+  final Object content; // String 或 List<ContentPart>
+  final List<ToolCall>? toolCalls;
+  final String? toolCallId;
+  const ChatMessage({
+    required this.role,
+    required this.content,
+    this.toolCalls,
+    this.toolCallId,
+  });
+
+  /// 序列化为 OpenAI 兼容 JSON 结构（含 vision content 数组）。
+  Map<String, Object?> toJson() {
+    Object jsonContent;
+    if (content is String) {
+      jsonContent = content as String;
+    } else {
+      final parts = content as List<ContentPart>;
+      jsonContent = parts.map(_partToJson).toList();
+    }
+    final m = <String, Object?>{'role': role, 'content': jsonContent};
+    if (toolCalls != null) {
+      m['tool_calls'] = toolCalls!.map((t) => t.toJson()).toList();
+    }
+    if (toolCallId != null) m['tool_call_id'] = toolCallId;
+    return m;
+  }
+
+  static Map<String, Object?> _partToJson(ContentPart p) {
+    switch (p) {
+      case TextPart(:final text):
+        return {'type': 'text', 'text': text};
+      case ImageUrlPart(:final url, :final detail):
+        final img = <String, Object?>{'url': url};
+        if (detail != null) img['detail'] = detail;
+        return {'type': 'image_url', 'image_url': img};
+    }
+  }
+}
+
+/// OpenAI function calling 的工具调用。
+class ToolCall {
+  final String id; // 如 "call_abc"
+  final String name;
+  final String arguments; // 原始 JSON 字符串
+  const ToolCall({required this.id, required this.name, required this.arguments});
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'type': 'function',
+        'function': {'name': name, 'arguments': arguments},
+      };
+}
