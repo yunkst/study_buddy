@@ -3,3 +3,5 @@
 library;
 
 export '../models/models.dart' show ChatMessage, ToolCall, ContentPart, TextPart, ImageUrlPart, LlmConfig;
+export 'llm_provider_client.dart';
+export 'llm_provider_sse.dart';
