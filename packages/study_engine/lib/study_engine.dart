@@ -19,3 +19,4 @@ export 'src/agent/agent_scenario.dart';
 export 'src/agent/context_compactor.dart';
 export 'src/agent/agent_tools.dart';
 export 'src/agent/agent_loop.dart';
+export 'src/agent/scenarios/study_scenario.dart';
