@@ -14,3 +14,6 @@ export 'src/repos/llm_config_repository.dart';
 export 'src/repos/agent_memory_repository.dart';
 export 'src/repos/chat_repository.dart';
 export 'src/llm/llm_provider.dart';
+export 'src/agent/agent_event.dart';
+export 'src/agent/agent_scenario.dart';
+export 'src/agent/context_compactor.dart';
