@@ -74,6 +74,7 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     try {
       final session = ref.read(agentSessionProvider);
       final stream = await session.run(messages);
+      if (!mounted) return;
       _sub = stream.listen(
         (event) {
           if (!mounted) return;
