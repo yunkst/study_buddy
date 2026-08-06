@@ -17,3 +17,5 @@ export 'src/llm/llm_provider.dart';
 export 'src/agent/agent_event.dart';
 export 'src/agent/agent_scenario.dart';
 export 'src/agent/context_compactor.dart';
+export 'src/agent/agent_tools.dart';
+export 'src/agent/agent_loop.dart';
