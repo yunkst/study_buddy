@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # GitHub Actions 版本更新
+  - package-ecosystem: "github-actions"
+    directory: "/.github/workflows"
+    schedule:
+      interval: "weekly"
+    commit:
+      message: "chore(ci): update GitHub Actions versions"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # study_buddy 应用包依赖更新
+  - package-ecosystem: "pub"
+    directory: "/study_buddy"
+    schedule:
+      interval: "weekly"
+    commit:
+      message: "chore(flutter): update study_buddy dependencies"
+    labels:
+      - "dependencies"
+      - "flutter"
+
+  # study_engine 纯 Dart 包依赖更新
+  - package-ecosystem: "pub"
+    directory: "/packages/study_engine"
+    schedule:
+      interval: "weekly"
+    commit:
+      message: "chore(engine): update study_engine dependencies"
+    labels:
+      - "dependencies"
+      - "engine"

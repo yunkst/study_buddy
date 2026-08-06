@@ -1,17 +1,42 @@
 # Dart / Flutter
-- .dart_tool/
-- .packages
-- build/
-- .flutter-plugins
-- .flutter-plugins-dependencies
-- pubspec.lock
-- !packages/**/pubspec.lock
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+# pubspec.lock: 应用包应提交 lock 以保证 CI/本地一致；纯 Dart 包(package)则忽略。
+# 此处忽略根级与 packages/ 下的 lock，保留 study_buddy/ 应用包的 lock（见 study_buddy/.gitignore 未忽略）。
+/pubspec.lock
+/packages/**/pubspec.lock
 
 # IDE
-- .idea/
-- .vscode/
-- *.iml
+.idea/
+.vscode/
+*.iml
 
 # OS
-- .DS_Store
-- Thumbs.db
+.DS_Store
+Thumbs.db
+
+# Claude / Superpowers 工作区（本地 scratch，不入库）
+.superpowers/
+
+# 发布脚本临时文件
+TAG_EDITMSG_TMP
+__pycache__/
+*.pyc
+
+# 根级实验/脚本产物（非 study_buddy 工程文件，勿入库）
+# 包括题库抓取实验、node 脚本、运行时 JSON 缓存等
+node_modules/
+package.json
+package-lock.json
+keyky_*.js
+.h5_index.js
+.html
+.err
+.r.json
+.q.json
+.qd.json
+.qblist.json
+.member.json

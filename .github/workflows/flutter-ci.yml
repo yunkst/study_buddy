@@ -1,0 +1,88 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'study_buddy/**'
+      - 'packages/study_engine/**'
+      - '.github/workflows/flutter-ci.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'study_buddy/**'
+      - 'packages/study_engine/**'
+      - '.github/workflows/flutter-ci.yml'
+
+jobs:
+  # study_engine 是纯 Dart 包（绝不依赖 Flutter），独立分析与测试。
+  engine:
+    name: Engine (study_engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/study_engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.18.0
+        with:
+          flutter-version: '3.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        # study_engine 启用了 lints/recommended.yaml，--no-fatal-infos 避免信息级提示阻断。
+        run: dart analyze --no-fatal-infos
+
+      - name: Run tests
+        # sqflite_common_ffi 在 CI 需要本地 sqlite 动态库；ubuntu-latest 已自带。
+        # -j 1 串行：部分测试通过共享数据库文件操作，并发会互相干扰。
+        run: |
+          rm -rf .dart_tool/sqflite_common_ffi 2>/dev/null || true
+          dart test -j 1
+
+  # study_buddy 是 Flutter 应用，依赖 study_engine（path 引用）。
+  app:
+    name: App (study_buddy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: study_buddy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.18.0
+        with:
+          flutter-version: '3.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        # path 依赖 study_engine 会一并 pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests with coverage
+        run: |
+          rm -rf .dart_tool/sqflite_common_ffi 2>/dev/null || true
+          flutter test --no-pub --coverage -j 1
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-coverage
+          path: study_buddy/coverage/
+          retention-days: 14
