@@ -148,6 +148,12 @@ def run_preflight(project_root: Path) -> bool:
     Returns:
         是否全部通过
     """
+    # Flutter 引擎制品(io.flutter:*_release / flutter_embedding_release)仅存在于
+    # download.flutter.io,默认源 storage.googleapis.com 在国内被墙,本地 release build
+    # 会因解析不到引擎制品而失败。设 FLUTTER_STORAGE_BASE_URL 走国内镜像。
+    # setdefault:不覆盖用户已显式设置的值;CI(ubuntu,官方源可达)不经过本脚本,不受影响。
+    os.environ.setdefault("FLUTTER_STORAGE_BASE_URL", "https://storage.flutter-io.cn")
+
     engine_dir = get_engine_dir(project_root)
     app_dir = get_flutter_app_dir(project_root)
 
@@ -266,14 +272,22 @@ def run_preflight(project_root: Path) -> bool:
     if rc != 0:
         print(f"\n  ❌ flutter build apk --release 失败 (exit code: {rc})")
         print(f"  请修复构建错误后重新运行发布脚本")
-        if stderr:
-            error_lines = [l for l in stderr.split("\n") if "Error" in l or "error" in l or "FAILURE" in l]
-            if error_lines:
-                print(f"  错误详情:")
-                for line in error_lines[:10]:
-                    print(f"    {line}")
-            else:
-                print(f"  stderr (前500字符): {stderr[:500]}")
+        # Flutter/Gradle 真实错误(* What went wrong / Could not find / Execution failed)
+        # 输出在 stdout 中段而非 stderr,且末尾还有 * Try / BUILD FAILED。故从 stdout+stderr
+        # 合并提取关键错误块(原写法只看 stderr 且过滤 Error/error/FAILURE,会吞掉真实原因)。
+        combined = (stdout + "\n" + stderr).split("\n")
+        error_markers = ("What went wrong", "Could not find", "Could not resolve",
+                         "Execution failed", "FAILURE:", "> ")
+        error_lines = [l for l in combined if any(m in l for m in error_markers)]
+        if error_lines:
+            print(f"  错误详情:")
+            for line in error_lines[:15]:
+                print(f"    {line}")
+        else:
+            print(f"  stdout 末尾输出:")
+            tail = stdout.strip().split("\n")[-20:] if stdout.strip() else []
+            for line in tail:
+                print(f"    {line}")
         return False
     print("  ✅ flutter build apk --release 通过")
 
