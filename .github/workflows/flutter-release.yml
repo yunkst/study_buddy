@@ -44,7 +44,7 @@ jobs:
 
       - name: Engine - Analyze
         working-directory: packages/study_engine
-        run: dart analyze --no-fatal-infos
+        run: dart analyze
 
       - name: Engine - Run tests
         working-directory: packages/study_engine

@@ -38,8 +38,10 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        # study_engine 启用了 lints/recommended.yaml，--no-fatal-infos 避免信息级提示阻断。
-        run: dart analyze --no-fatal-infos
+        # study_engine 启用了 lints/recommended.yaml。
+        # 注意:dart analyze 不支持 --no-fatal-infos(那是 flutter analyze 的参数);
+        # dart analyze 的 --fatal-infos 默认就是关闭的,无需指定。
+        run: dart analyze
 
       - name: Run tests
         # sqflite_common_ffi 在 CI 需要本地 sqlite 动态库；ubuntu-latest 已自带。

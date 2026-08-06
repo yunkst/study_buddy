@@ -158,10 +158,10 @@ def run_preflight(project_root: Path) -> bool:
     # ============================================================
     # 1.1 study_engine（纯 Dart 包）
     # ============================================================
-    print("\n  [1.1/5] study_engine: dart analyze --no-fatal-infos")
+    print("\n  [1.1/5] study_engine: dart analyze")
     print("  " + "-" * 40)
     rc, stdout, stderr = run_command(
-        ["dart", "analyze", "--no-fatal-infos"],
+        ["dart", "analyze"],
         engine_dir,
     )
 
