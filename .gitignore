@@ -20,6 +20,7 @@ Thumbs.db
 
 # Claude / Superpowers 工作区（本地 scratch，不入库）
 .superpowers/
+.claude/worktrees/
 
 # 发布脚本临时文件
 TAG_EDITMSG_TMP
