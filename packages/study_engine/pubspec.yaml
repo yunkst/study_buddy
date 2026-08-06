@@ -1,0 +1,17 @@
+name: study_engine
+description: "study_buddy 的引擎层：Agent、LLM Provider、数据层。不依赖 Flutter。"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  sqflite_common: ^2.5.4
+  path: ^1.9.0
+  meta: ^1.16.0
+
+dev_dependencies:
+  sqflite_common_ffi: ^2.3.4
+  test: ^1.25.0
+  lints: ^5.0.0
