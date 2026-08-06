@@ -8,3 +8,5 @@ export 'src/db/database_migrations.dart' show kCurrentDbVersion, migrateDatabase
 export 'src/db/database.dart';
 export 'src/repos/subject_repository.dart';
 export 'src/repos/topic_repository.dart';
+export 'src/repos/mastery_repository.dart';
+export 'src/repos/topic_domain_repository.dart';

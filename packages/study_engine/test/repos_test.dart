@@ -35,4 +35,26 @@ void main() {
     expect(await topics.queryBySubject(math.id!), hasLength(1));
     expect(await topics.queryBySubject(math.id!, domain: '几何'), isEmpty);
   });
+
+  test('MasteryRepository 日志驱动当前状态', () async {
+    final subjects = SubjectRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final mastery = MasteryRepository(sdb);
+    final math = await subjects.ensureCreate('数学');
+    final tid = await topics.insert(Topic(subjectId: math.id!, title: 't', createdAt: DateTime.now()));
+
+    expect(await mastery.currentStatus(tid), MasteryStatus.unknown);
+    await mastery.log(tid, MasteryStatus.learning);
+    await mastery.log(tid, MasteryStatus.mastered);
+    expect(await mastery.currentStatus(tid), MasteryStatus.mastered);
+    expect(await mastery.timeline(tid), hasLength(2));
+  });
+
+  test('TopicDomainRepository 增查', () async {
+    final subjects = SubjectRepository(sdb);
+    final domains = TopicDomainRepository(sdb);
+    final math = await subjects.ensureCreate('数学');
+    await domains.insert(TopicDomain(subjectId: math.id!, name: '代数', createdAt: DateTime.now()));
+    expect(await domains.queryBySubject(math.id!), hasLength(1));
+  });
 }
