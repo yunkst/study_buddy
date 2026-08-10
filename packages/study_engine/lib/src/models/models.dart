@@ -1,6 +1,8 @@
 /// study_engine 数据模型。对应数据库表，不依赖 Flutter。
 library;
 
+import 'dart:convert';
+
 /// 分类节点。自引用树，承载 学科→模块→章节。学科是顶级节点（parent_id 为 null）。
 class Category {
   final int? id;
@@ -314,4 +316,67 @@ class ToolCall {
         'type': 'function',
         'function': {'name': name, 'arguments': arguments},
       };
+}
+
+/// 批改明细中单题的结构。
+class ReviewItem {
+  final int seq;
+  final String question;
+  final String? userAnswer;
+  final String verdict; // correct | partial | wrong
+  final String analysis;
+  final List<int> topicIds;
+  const ReviewItem({
+    required this.seq,
+    required this.question,
+    this.userAnswer,
+    required this.verdict,
+    required this.analysis,
+    this.topicIds = const [],
+  });
+
+  Map<String, Object?> toJson() => {
+        'seq': seq,
+        'question': question,
+        if (userAnswer != null) 'user_answer': userAnswer,
+        'verdict': verdict,
+        'analysis': analysis,
+        'topic_ids': topicIds,
+      };
+
+  factory ReviewItem.fromJson(Map<String, Object?> j) => ReviewItem(
+        seq: j['seq'] as int,
+        question: j['question'] as String,
+        userAnswer: j['user_answer'] as String?,
+        verdict: j['verdict'] as String,
+        analysis: j['analysis'] as String,
+        topicIds: (j['topic_ids'] as List).map((e) => e as int).toList(),
+      );
+}
+
+/// 一次批改记录(对应 review 表一行,items 反序列化为 ReviewItem 列表)。
+class Review {
+  final int? id;
+  final int? chatSessionId;
+  final String summary;
+  final List<ReviewItem> items;
+  final DateTime createdAt;
+  const Review({
+    this.id,
+    this.chatSessionId,
+    required this.summary,
+    required this.items,
+    required this.createdAt,
+  });
+
+  factory Review.fromMap(Map<String, Object?> m) {
+    final itemsRaw = jsonDecode(m['items'] as String) as List;
+    return Review(
+      id: m['id'] as int?,
+      chatSessionId: m['chat_session_id'] as int?,
+      summary: m['summary'] as String,
+      items: itemsRaw.map((e) => ReviewItem.fromJson(e as Map<String, Object?>)).toList(),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+    );
+  }
 }
