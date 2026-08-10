@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- app 私有文件目录：覆盖 getApplicationDocumentsDirectory()/updates/ -->
+    <files-path name="updates" path="updates/" />
+    <files-path name="files_root" path="." />
+
+    <!-- 兜底：根目录（应对意外路径） -->
+    <root-path name="root" path="." />
+</paths>
