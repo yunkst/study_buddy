@@ -24,6 +24,7 @@ class StudyScenario implements AgentScenario {
   String buildSystemPrompt(AgentScenarioContext ctx) {
     final mem = _memCache;
     final memBlock = mem.isEmpty ? '（暂无）' : mem.asMap().entries.map((e) => '[${e.key + 1}] ${e.value}').join('\n');
+    final topicBlock = _currentTopicBlock(ctx);
     return '''你是学习伴侣 AI。职责是分析题目、整理知识库、跟踪掌握状态。
 
 ## 知识点粒度原则（最高优先级）
@@ -48,7 +49,33 @@ class StudyScenario implements AgentScenario {
 - 仅在分析出明确关系时建边，不要滥连。
 
 ## 经验记忆
-$memBlock''';
+$memBlock${topicBlock.isEmpty ? '' : '\n$topicBlock'}''';
+  }
+
+  /// 渲染「当前知识点」一节。ctx.extra['current_topic'] 为用户正在查看的知识点详情。
+  /// 无 current_topic 或格式不符时返回空串（调用方不拼接该节）。
+  String _currentTopicBlock(AgentScenarioContext ctx) {
+    final t = ctx.extra['current_topic'];
+    if (t is! Map) return '';
+    final m = t.cast<String, Object?>();
+    final edges = m['edges'] as List? ?? [];
+    final edgeLines = edges.isEmpty
+        ? '（无）'
+        : edges.map((e) {
+            final em = (e as Map).cast<String, Object?>();
+            return '- ${em['type']}: ${em['other_title']}(id=${em['other_id']})';
+          }).join('\n');
+    return '''
+## 当前知识点（用户正在查看）
+- 标题：${m['title']}
+- 路径：${m['path']}
+- 引子：${m['question']}
+- 原文：${m['summary']}
+- 关联：
+$edgeLines
+
+用户想就这个知识点深入交流。你可 get_topic/search_topics 查相关知识点辅助讲解，
+可用 update_topic 补充/修正当前知识点原文，可用 link_topics 建关联边。''';
   }
 
   List<String> _memCache = const [];

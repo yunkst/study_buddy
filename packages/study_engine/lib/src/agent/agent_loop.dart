@@ -20,10 +20,19 @@ class AgentLoop {
     this.maxRounds = 50,
   }) : compactor = compactor ?? const ContextCompactor();
 
-  /// 运行 agent。messages 为初始消息（含 system）。返回实时事件流。
+  /// 运行 agent。messages 为初始消息（可选含 system）。返回实时事件流。
+  /// 若调用方未传 system 消息，自动注入 scenario.buildSystemPrompt（含 context 动态信息）。
   Stream<AgentEvent> run(List<ChatMessage> messages, {AgentScenarioContext? context}) async* {
     yield AgentStartedEvent();
     final msgs = [...messages];
+    // 注入场景 system prompt（含 context 动态信息）。调用方已传 system 则跳过。
+    if (msgs.isEmpty || msgs.first.role != 'system') {
+      await scenario.getMemories(); // 填充经验记忆缓存，供 buildSystemPrompt 使用
+      final sysPrompt = scenario.buildSystemPrompt(
+        context ?? const AgentScenarioContext(),
+      );
+      msgs.insert(0, ChatMessage(role: 'system', content: sysPrompt));
+    }
     var round = 0;
     try {
       while (round < maxRounds) {
