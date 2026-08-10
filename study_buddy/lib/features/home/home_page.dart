@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,7 +66,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _Masthead(),
+          // SafeArea 让出状态栏 inset:移除默认 AppBar 后,刊头需自行避让系统状态栏。
+          const SafeArea(bottom: false, child: _Masthead()),
           Expanded(
             child: dbAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -201,47 +203,46 @@ class _Article extends StatelessWidget {
         ],
       ),
       // Stack 叠四角 L 形订书钉角标(容器内部四角,还原 .article::before/::after)。
+      // HTML 原型:左上角标画 top+left 边(开口朝右下)、右下角标画 bottom+right 边(开口朝左上)。
       child: Stack(
         children: [
           child,
-          _cornerMark(theme.colorScheme.outlineVariant,
-              top: 8, left: 8, borders: const [BoxShapeCorner.right, BoxShapeCorner.bottom]),
-          _cornerMark(theme.colorScheme.outlineVariant,
-              bottom: 8, right: 8, borders: const [BoxShapeCorner.left, BoxShapeCorner.top]),
+          Positioned(
+            top: 8,
+            left: 8,
+            child: CustomPaint(
+              size: const Size(18, 18),
+              painter: _CornerMarkPainter(
+                color: theme.colorScheme.outlineVariant,
+                corner: _CornerMark.topLeft,
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: CustomPaint(
+              size: const Size(18, 18),
+              painter: _CornerMarkPainter(
+                color: theme.colorScheme.outlineVariant,
+                corner: _CornerMark.bottomRight,
+              ),
+            ),
+          ),
         ],
-      ),
-    );
-  }
-
-  /// 单个 L 形角标:由 [borders] 指定哪两条边可见。
-  Widget _cornerMark(
-    Color color, {
-    double? top,
-    double? bottom,
-    double? left,
-    double? right,
-    required List<BoxShapeCorner> borders,
-  }) {
-    return Positioned(
-      top: top,
-      bottom: bottom,
-      left: left,
-      right: right,
-      child: CustomPaint(
-        size: const Size(18, 18),
-        painter: _CornerMarkPainter(color: color, corners: borders.toSet()),
       ),
     );
   }
 }
 
-enum BoxShapeCorner { top, bottom, left, right }
+/// 订书钉角标类型:左上画 top+left 边,右下画 bottom+right 边。
+enum _CornerMark { topLeft, bottomRight }
 
 class _CornerMarkPainter extends CustomPainter {
-  const _CornerMarkPainter({required this.color, required this.corners});
+  const _CornerMarkPainter({required this.color, required this.corner});
 
   final Color color;
-  final Set<BoxShapeCorner> corners;
+  final _CornerMark corner;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -249,24 +250,22 @@ class _CornerMarkPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
-    // 左上角为原点,顺时针:top 边在 y=0,bottom 边在 y=height,left 边在 x=0,right 边在 x=width。
-    if (corners.contains(BoxShapeCorner.top)) {
-      canvas.drawLine(Offset.zero, Offset(size.width, 0), paint);
-    }
-    if (corners.contains(BoxShapeCorner.bottom)) {
-      canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), paint);
-    }
-    if (corners.contains(BoxShapeCorner.left)) {
-      canvas.drawLine(Offset.zero, Offset(0, size.height), paint);
-    }
-    if (corners.contains(BoxShapeCorner.right)) {
-      canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height), paint);
+    // 左上角为原点:top 边在 y=0,left 边在 x=0,bottom 边在 y=height,right 边在 x=width。
+    switch (corner) {
+      case _CornerMark.topLeft:
+        // top + left:L 形开口朝右下,还原 .article::before(border-right:none;border-bottom:none)。
+        canvas.drawLine(Offset.zero, Offset(size.width, 0), paint);
+        canvas.drawLine(Offset.zero, Offset(0, size.height), paint);
+      case _CornerMark.bottomRight:
+        // bottom + right:L 形开口朝左上,还原 .article::after(border-left:none;border-top:none)。
+        canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), paint);
+        canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height), paint);
     }
   }
 
   @override
   bool shouldRepaint(covariant _CornerMarkPainter oldDelegate) =>
-      color != oldDelegate.color || corners != oldDelegate.corners;
+      color != oldDelegate.color || corner != oldDelegate.corner;
 }
 
 /// 悬浮窗状态文章块:article-label + 印章 + drop-cap lede + tip-card + 未授权按钮。
@@ -375,15 +374,11 @@ class _Stamp extends StatelessWidget {
         label = '…';
     }
     return Transform.rotate(
-      angle: -3 * 3.14159265 / 180, // -3°
+      // 印章倾斜 -3°,与 02-paper.html `.stamp` 一致。
+      angle: -3 * math.pi / 180,
+      // 外层 Container 用 3px padding 让出间隙,虚线环画在外层边界,
+      // 恰好落在实线框外 3px,还原 HTML `.stamp::after{inset:-3px}` 的外扩虚线环。
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(color: borderColor, width: 2),
-          color: bgColor,
-        ),
-        // 内层虚线内圈:DashedBorder 套在外层 Container 之外,
-        // 用 ShapeBorder 包一层以达到 `inset: -3px dashed` 效果。
         foregroundDecoration: ShapeDecoration(
           shape: DashedBorder(
             radius: 0,
@@ -393,14 +388,22 @@ class _Stamp extends StatelessWidget {
             width: 1,
           ),
         ),
-        child: Text(
-          label,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontFamily: 'NotoSerifSC',
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-            letterSpacing: 3,
-            color: textColor,
+        padding: const EdgeInsets.all(3),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: borderColor, width: 2),
+            color: bgColor,
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              letterSpacing: 3,
+              color: textColor,
+            ),
           ),
         ),
       ),
@@ -431,13 +434,17 @@ class _Lede extends StatelessWidget {
         firstChar = '正';
         rest = '在检查悬浮窗权限状态,请稍候……';
     }
-    return RichText(
-      textAlign: TextAlign.start,
-      text: TextSpan(
-        children: [
-          TextSpan(
-            text: firstChar,
-            // drop-cap:首字 NotoSerifSC 大号朱砂(primary)。
+    // drop-cap 还原 02-paper.html `.drop-cap{float:left;margin:4px 8px 0 0}`:
+    // 首字 NotoSerifSC 48px 朱砂独占左侧,正文在其右侧流动换行。
+    // Flutter 无 CSS float,改用 Row + Expanded:首字固定宽,正文占剩余宽自然换行,
+    // 视觉与原型首字下沉+右侧流动一致(原型首字高 ≈ 正文两行高,环绕余量极小)。
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4, right: 8),
+          child: Text(
+            firstChar,
             style: TextStyle(
               fontFamily: 'NotoSerifSC',
               fontSize: 48,
@@ -446,17 +453,18 @@ class _Lede extends StatelessWidget {
               color: theme.colorScheme.primary,
             ),
           ),
-          const TextSpan(text: ' '),
-          TextSpan(
-            text: rest,
+        ),
+        Expanded(
+          child: Text(
+            rest,
             style: theme.textTheme.bodyLarge?.copyWith(
               fontFamily: 'NotoSerifSC',
               fontSize: 15,
               height: 1.9,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
