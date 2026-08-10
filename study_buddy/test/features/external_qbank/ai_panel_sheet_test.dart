@@ -45,6 +45,16 @@ class _ControllableAgentSession extends AgentSession {
 Uint8List _pngBytes() => Uint8List.fromList(base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC'));
 
+/// 查找 [SelectableText.rich] 中包含 [text] 的 widget。
+///
+/// 纸感化后 assistant 回复用 `SelectableText.rich`（知识点 ※ 解析），
+/// `find.text` 无法命中（含 `findRichText: true` 也不行——底层是
+/// `EditableText`/`RenderEditable` 而非 `RichText`），故按 textSpan 明文匹配。
+Finder _selectableTextContaining(String text) =>
+    find.byWidgetPredicate((w) =>
+        w is SelectableText &&
+        (w.textSpan?.toPlainText() ?? '').contains(text));
+
 void main() {
   testWidgets('首轮:截图预览可见,发送后显示 user 与 assistant 气泡', (tester) async {
     final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
@@ -74,7 +84,7 @@ void main() {
 
     // user 消息与 assistant 消息都渲染
     expect(find.text('分析这道题涉及的知识点'), findsOneWidget);
-    expect(find.text('这是分析'), findsOneWidget);
+    expect(_selectableTextContaining('这是分析'), findsOneWidget);
   });
 
   testWidgets('追问:输入框可连续输入,加图按钮存在', (tester) async {
