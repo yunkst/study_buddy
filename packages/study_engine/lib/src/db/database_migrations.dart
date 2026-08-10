@@ -1,7 +1,7 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 2;
+const int kCurrentDbVersion = 3;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 Future<void> migrateDatabase(Database db, int from, int to) async {
@@ -13,6 +13,9 @@ Future<void> migrateDatabase(Database db, int from, int to) async {
         break;
       case 2:
         _v2(batch);
+        break;
+      case 3:
+        _v3(batch);
         break;
       default:
         throw StateError('未知数据库版本: $v');
@@ -172,4 +175,31 @@ void _v2(Batch batch) {
   ''');
   batch.execute('CREATE INDEX idx_topic_edge_from ON topic_edge(from_topic_id)');
   batch.execute('CREATE INDEX idx_topic_edge_to ON topic_edge(to_topic_id)');
+}
+
+/// v3：专注时钟。新增 focus_session（会话）与 focus_session_topic（会话-知识点关联）。
+/// 非破坏性：仅加表与索引，不动现有 v1/v2 表。
+void _v3(Batch batch) {
+  batch.execute('''
+    CREATE TABLE focus_session (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      duration_ms INTEGER
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_focus_session_started ON focus_session(started_at)');
+
+  batch.execute('''
+    CREATE TABLE focus_session_topic (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      topic_id INTEGER NOT NULL,
+      linked_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES focus_session(id) ON DELETE CASCADE,
+      FOREIGN KEY (topic_id) REFERENCES topic(id) ON DELETE CASCADE,
+      UNIQUE(session_id, topic_id)
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_fst_session ON focus_session_topic(session_id)');
 }
