@@ -102,7 +102,7 @@ enum ReviewFeedback { forgot, remembered, easy }
 | `upsert(ReviewSchedule s)` | 插入或更新（topic_id 主键） | 背诵反馈落地 |
 | `findDue(DateTime now, {int limit = 200})` | `next_review_at <= now` 升序，限量 | 到期复习队列 |
 
-注意：**今日新增不在此仓库**——它看 topic 的 `created_at` 而非 schedule（schedule 懒建，可能用户今天才第一次背昨天存的点），统一放 `ReviewQueueRepository`（见 3.5）。`startOfDay` 由调用方传入（本地时区当天 00:00 的毫秒时间戳）。
+注意：**今日新增不在此仓库**——它看 topic 的 `created_at` 而非 schedule（schedule 懒建，可能用户今天才第一次背昨天存的点），统一放 `ReviewQueueRepository`（见 3.5）。`startOfDay` 由调用方传入（本地时区当天 00:00 的毫秒时间戳）。todayNewQueue 会 LEFT JOIN 排除已建 schedule 的 topic——背过即移出今日新增，避免同会话二次 apply 导致 SM-2 interval 复合跳增。
 
 ### 3.4 SpacedRepetitionService（新增，纯函数无 DB）
 
@@ -140,10 +140,10 @@ class SpacedRepetitionService {
             : (prev.intervalDays * ease).round();
         break;
       case ReviewFeedback.easy:
-        ease = (ease + 0.1).clamp(kMinEase, kMaxEase).toDouble();
         interval = prev.intervalDays == 0
             ? 2                              // 首学轻松：2 天后
-            : (prev.intervalDays * ease * 1.3).round();
+            : (prev.intervalDays * ease * 1.3).round(); // 先用旧 ease 算 interval
+        ease = (ease + 0.1).clamp(kMinEase, kMaxEase).toDouble(); // 再 ease+0.1
         break;
     }
     interval = interval < 1 ? 1 : interval;  // 下限 1 天
@@ -171,8 +171,8 @@ class SpacedRepetitionService {
 
 | 方法 | 返回 | 语义 |
 |---|---|---|
-| `dueQueue(DateTime now, {int limit = 200})` | `List<ReviewQueueItem>` | 到期复习：委托 `ReviewScheduleRepository.findDue`，升序，限量 |
-| `todayNewQueue(DateTime startOfDay)` | `List<ReviewQueueItem>` | 今日新增：**直接查 topic 表** `created_at >= startOfDay`，按 created_at 升序 |
+| `dueQueue(DateTime now, {int limit = 200})` | `List<ReviewQueueItem>` | 到期复习：自建 JOIN 一次查询（schedule JOIN topic），升序，限量 |
+| `todayNewQueue(DateTime startOfDay)` | `List<ReviewQueueItem>` | 今日新增：LEFT JOIN review_schedule 排除已建 schedule 的 topic，`created_at >= startOfDay`，按 created_at 升序 |
 
 ```dart
 class ReviewQueueItem {
@@ -182,11 +182,15 @@ class ReviewQueueItem {
   ReviewQueueItem(this.topicId, this.title, this.question);
 }
 
-/// todayNewQueue SQL 思路（不依赖 schedule——懒建，今日新增可能尚无 schedule）：
-/// SELECT id, title, question FROM topic WHERE created_at >= ? ORDER BY created_at ASC;
+/// todayNewQueue SQL 思路（LEFT JOIN 排除已建 schedule 的 topic——背过即移出今日新增，
+/// 避免「再来一轮」对同一卡二次 apply 导致 SM-2 interval 复合跳增）：
+/// SELECT t.id, t.title, t.question
+/// FROM topic t LEFT JOIN review_schedule s ON s.topic_id = t.id
+/// WHERE t.created_at >= ? AND s.topic_id IS NULL
+/// ORDER BY t.created_at ASC;
 ```
 
-**懒初始化语义在此闭合**：`todayNewQueue` 直接查 topic 表（覆盖无 schedule 的今日新增）；`dueQueue` 查 `review_schedule.next_review_at`（依赖 schedule）。背诵卡片加载时：`getByTopic` 返回 null → 视为首学 → 用 `SpacedRepetitionService.initial` 构造内存中的初始 schedule → 反馈后 `apply` → `upsert` 落地。
+**懒初始化语义在此闭合**：`todayNewQueue` LEFT JOIN review_schedule 查 topic 表（覆盖无 schedule 的今日新增，已建 schedule 的自动移出）；`dueQueue` 自建 JOIN 查 `review_schedule.next_review_at`（依赖 schedule）。背诵卡片加载时：`getByTopic` 返回 null → 视为首学 → 用 `SpacedRepetitionService.initial` 构造内存中的初始 schedule → 反馈后 `apply` → `upsert` 落地。
 
 ### 3.6 barrel 导出
 
@@ -381,7 +385,7 @@ Repository 类无状态，provider 每次从 db 构造（和现有 `agentSession
 
 **ReviewQueueRepository**：
 - `dueQueue` 返回带 title/question 的轻量项，限量生效
-- `todayNewQueue` 直接查 topic.created_at，含无 schedule 的今日新增；跨天边界（昨天的不算今天）
+- `todayNewQueue` 查 topic.created_at（LEFT JOIN 排除已建 schedule 的 topic），含无 schedule 的今日新增；跨天边界（昨天的不算今天）
 
 **db_test.dart 扩展**：v3 迁移建 `review_schedule` 表断言（表名 + 列）；CASCADE 回归（删 topic 连带删 schedule）。
 

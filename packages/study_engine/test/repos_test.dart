@@ -252,7 +252,7 @@ void main() {
     expect(capped, isEmpty);
   });
 
-  test('ReviewQueueRepository todayNewQueue 含无 schedule 的今日新增 + 跨天边界', () async {
+  test('ReviewQueueRepository todayNewQueue 排除已建 schedule + 跨天边界', () async {
     final cats = CategoryRepository(sdb);
     final topics = TopicRepository(sdb);
     final repo = ReviewQueueRepository(sdb);
@@ -260,15 +260,18 @@ void main() {
     final dayStart = DateTime(2026, 8, 10, 0, 0);
     final today = dayStart.add(const Duration(hours: 10));
     final yesterday = dayStart.subtract(const Duration(minutes: 1));
-    // 今天新存（无 schedule）
-    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: '今天新增', summary: 's', createdAt: today, updatedAt: today));
-    // 昨天存（有 schedule，不算今日新增）
-    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: '昨天', summary: 's', createdAt: yesterday, updatedAt: yesterday));
-    await ReviewScheduleRepository(sdb).upsert(SpacedRepetitionService.initial(b, yesterday));
+    // 今天新存（无 schedule）——应返回
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: '今天新增未背', summary: 's', createdAt: today, updatedAt: today));
+    // 今天新存且已背（建了 schedule）——应排除（背过即移出今日新增，防二次 apply）
+    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: '今天新增已背', summary: 's', createdAt: today, updatedAt: today));
+    await ReviewScheduleRepository(sdb).upsert(SpacedRepetitionService.initial(b, today));
+    // 昨天存（有 schedule，不算今日新增）——应排除
+    final c = await topics.insert(Topic(categoryId: catId, question: 'q3', title: '昨天', summary: 's', createdAt: yesterday, updatedAt: yesterday));
+    await ReviewScheduleRepository(sdb).upsert(SpacedRepetitionService.initial(c, yesterday));
 
     final q = await repo.todayNewQueue(dayStart);
-    expect(q.map((i) => i.topicId), [a]); // b 排除
-    expect(q.first.title, '今天新增');
+    expect(q.map((i) => i.topicId), [a]); // 仅未背的今日新增返回
+    expect(q.first.title, '今天新增未背');
   });
 
   test('findOrCreateByTopic 首次建会话、二次复用', () async {

@@ -32,15 +32,17 @@ class ReviewQueueRepository {
         .toList();
   }
 
-  /// 今日新增队列：topic.created_at >= startOfDay，按创建升序。
-  /// 直接查 topic 表——不依赖 schedule（懒建，今日新增可能尚无调度）。
+  /// 今日新增队列：topic.created_at >= startOfDay 且尚未建 schedule 的 topic，
+  /// 按 created_at 升序。LEFT JOIN 排除已建 schedule 的 topic——背过即移出今日新增，
+  /// 避免「再来一轮」对同一卡二次 apply 导致 SM-2 interval 复合跳增。
   Future<List<ReviewQueueItem>> todayNewQueue(DateTime startOfDay) async {
     final rows = await _db.db.rawQuery(
       '''
-      SELECT id, title, question
-      FROM topic
-      WHERE created_at >= ?
-      ORDER BY created_at ASC
+      SELECT t.id, t.title, t.question
+      FROM topic t
+      LEFT JOIN review_schedule s ON s.topic_id = t.id
+      WHERE t.created_at >= ? AND s.topic_id IS NULL
+      ORDER BY t.created_at ASC
       ''',
       [startOfDay.millisecondsSinceEpoch],
     );
