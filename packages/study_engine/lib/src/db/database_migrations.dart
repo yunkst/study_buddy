@@ -1,7 +1,7 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 2;
+const int kCurrentDbVersion = 3;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 Future<void> migrateDatabase(Database db, int from, int to) async {
@@ -13,6 +13,9 @@ Future<void> migrateDatabase(Database db, int from, int to) async {
         break;
       case 2:
         _v2(batch);
+        break;
+      case 3:
+        _v3(batch);
         break;
       default:
         throw StateError('未知数据库版本: $v');
@@ -172,4 +175,48 @@ void _v2(Batch batch) {
   ''');
   batch.execute('CREATE INDEX idx_topic_edge_from ON topic_edge(from_topic_id)');
   batch.execute('CREATE INDEX idx_topic_edge_to ON topic_edge(to_topic_id)');
+}
+
+/// v3：学习计划三表。只增不改既有表。
+void _v3(Batch batch) {
+  batch.execute('''
+    CREATE TABLE plan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      exam_date INTEGER NOT NULL,
+      exam_content TEXT NOT NULL,
+      target TEXT NOT NULL,
+      daily_minutes INTEGER NOT NULL,
+      current_level TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  ''');
+  batch.execute('''
+    CREATE TABLE milestone (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      target_date INTEGER NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (plan_id) REFERENCES plan(id) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_milestone_plan ON milestone(plan_id)');
+  batch.execute('''
+    CREATE TABLE assessment (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL,
+      score INTEGER,
+      note TEXT,
+      assessed_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (plan_id) REFERENCES plan(id) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_assessment_plan ON assessment(plan_id, assessed_at)');
 }
