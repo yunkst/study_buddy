@@ -16,7 +16,7 @@ void main() {
     );
     final names = tables.map((r) => r['name'] as String).toSet();
     for (final t in [
-      'subject', 'topic', 'topic_domain', 'mastery_log',
+      'category', 'topic', 'topic_edge', 'mastery_log',
       'llm_config', 'agent_memory', 'chat_session', 'chat_message',
     ]) {
       expect(names, contains(t), reason: '缺表: $t');
