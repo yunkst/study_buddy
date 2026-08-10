@@ -73,7 +73,7 @@ study_buddy 当前的 AI 交互是**单次任务式**：用户截图 → `ai_pan
 ┌──────────────────────▼──────────────────────────────────┐
 │ Engine  (study_engine)  ← 仅补强事件流                    │
 │   AgentLoop.run(messages) → ReAct 循环 (已支持任意历史)   │
-│   AgentDoneEvent +toolCalls  ← 唯一引擎改动(解法2)        │
+│   AgentRoundEndEvent(newMessages) ← 唯一引擎改动(每轮完整消息)│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -113,66 +113,61 @@ study_buddy 当前的 AI 交互是**单次任务式**：用户截图 → `ai_pan
 
 > **续聊的本质**：`AgentLoop.run()` 内部 `msgs = [...messages]` 起步（`agent_loop.dart:26`），把传入的完整历史作为上下文。所以"多轮"不是引擎新能力，而是 UI 层终于把历史**喂进去**了。
 
-### 3.2 事件回填与消息重建（解法2）
+### 3.2 事件回填与消息回填（AgentRoundEndEvent）
 
 **事件流 → state 映射**
 ```
-stream.listen（监听期间维护 Map<String,String> _resultsByToolCallId）:
+stream.listen:
   AgentStartedEvent     → (busy 已置 true,无操作)
   TextDeltaEvent(delta) → state.streamingText += delta     ← 实时打字效果
   ToolCallStartEvent(n,id) → toolEvents.add(ToolEvent(n,'进行中'))
-  ToolCallEndEvent(n,result,id) → _resultsByToolCallId[id] = result
-                                  + 更新该 ToolEvent 结果
+  ToolCallEndEvent(n,result,id) → 更新该 ToolEvent 结果
                                   + n=='save_topic' → saved=true
   ToolProgressEvent(p)  → toolEvents 追加进度文本
   CompactionEvent       → toolEvents 标记"上下文已压缩"
   RetryEvent(attempt)   → toolEvents 标记"重试第 N 次"
-  AgentDoneEvent(text, toolCalls) → 【消息重建,见下】
-                                    → streamingText 清空 → busy=false
+  AgentRoundEndEvent(newMessages) → 【逐轮回填完整消息,见下】
+                                   → streamingText 清空(本轮文本已入 assistant 消息)
+  AgentDoneEvent(finalText) → finalText==null → maxRounds 错误(busy=false)
+                             否则 busy=false + streamingText 清空
   AgentErrorEvent(msg)  → state.error=msg → busy=false
 ```
 
-**`AgentDoneEvent` 的消息重建（多轮格式正确性的关键）**
+**`AgentRoundEndEvent` 的消息回填（多轮格式正确性的关键）**
 
-流式期间 LLM 输出的 assistant 文本和工具调用是分片到达的，不能边到边 append（会破坏 OpenAI 多轮格式）。`AgentDoneEvent` 一次性提供本轮终态，Notifier 据此组装完整消息序列：
+流式期间 LLM 输出的 assistant 文本和工具调用分片到达，不能边到边 append（会破坏 OpenAI 多轮格式）。引擎在**每个工具调用轮结束时**，把该轮已产出的合法消息序列一次性 yield 出来：`[assistant(含 toolCalls 与最终文本), tool(每个调用一条,含 result), ...]`。Notifier 对此零格式知识——直接把 `newMessages` append 到 `state.messages`：
 
 ```
-AgentDoneEvent(text, toolCalls):
-  if toolCalls 空:
-    append ChatMessage(role:'assistant', content:text) → state.messages
-  else:
-    append ChatMessage(role:'assistant', content:text, toolCalls:toolCalls)
-    for tc in toolCalls:
-      append ChatMessage(role:'tool',
-                         content: _resultsByToolCallId[tc.id] ?? '',
-                         toolCallId: tc.id) → state.messages
-  streamingText 清空; busy=false
+AgentRoundEndEvent(newMessages = [assistant(含toolCalls), tool, tool, ...]):
+  state.messages += newMessages     ← 引擎已保证序列合法
+  streamingText 清空                 ← 本轮文本已落入 assistant 消息
 ```
+
+纯文本回答的轮不 yield RoundEnd（无消息需回填），本轮文本经 `AgentDoneEvent` 的 `finalText` 呈现（流式时在 `streamingText`）。
 
 下一轮 `send` 时，`state.messages` 已含完整合法序列，`AgentLoop.run([...messages, newUser])` 续聊。
 
-**为什么选解法2（架构可维护性）：**
+**为什么选 AgentRoundEndEvent（架构可维护性）：**
 
-`ToolCall` 模型要求 `id`/`name`/`arguments` 三字段（`models.dart:285-289`），续聊下一轮构造合法 assistant 消息缺一不可。曾考虑"Notifier 从事件流自己重建"（解法1），但查证发现事件流 `ToolCallStartEvent`/`ToolCallEndEvent` **不带 arguments**，Notifier 无法重建 `ToolCall`——要走解法1 仍需改引擎补字段，不如直接改到位。
+曾考虑两条路均不可行：**解法1**（Notifier 从事件流重建消息）查证发现 `ToolCallStartEvent`/`ToolCallEndEvent` **不带 arguments**，且 `ToolCall` 模型要求 `id`/`name`/`arguments` 三字段（`models.dart:285-289`），无法重建；**解法2**（`AgentDoneEvent +toolCalls`）发现 `AgentDoneEvent` 每轮 run 只发**一次**，无法携带中间轮的工具调用，只对"单轮工具调用"有效。
 
-解法2 让 `AgentDoneEvent` 携带 `List<ToolCall>`（ToolCall 自带 arguments），Notifier 用 Done 的 toolCalls + EndEvent 的 result（按 toolCallId 配对）组装完整消息。职责分配清晰：**引擎负责产出合法的 ToolCall 列表（含 arguments），Notifier 负责把 ToolCall + result 配对成消息序列**。`toolCallId` 是稳定标识符，配对不泄漏引擎内部协议。
+最终采用 `AgentRoundEndEvent`：引擎在轮末直接产出合法消息批（含 arguments 与 result），Notifier 只做 `append`——职责分配清晰，**引擎负责消息序列合法性，Notifier 零格式知识**。这正是最初设想的最彻底形态，实现代价仅一个事件类 + 工具分支一处 yield，并未更大。
 
-> 注：曾考虑更彻底的"解法2'（Done 直接带完整消息列表，Notifier 零格式知识）"，但需改 AgentLoop 返回结构，幅度更大。解法2 在改动量与职责清晰度间取平衡，Notifier 的配对工作局限在内部且基于稳定 ID，可接受。
-
-### 3.3 引擎唯一改动（解法2）
+### 3.3 引擎唯一改动（AgentRoundEndEvent）
 
 ```dart
-// agent_event.dart
-class AgentDoneEvent extends AgentEvent {
-  final String? finalText;
-  final List<ToolCall> toolCalls;   // 新增:本轮 assistant 的工具调用(空列表表示无)
-  AgentDoneEvent(this.finalText, [this.toolCalls = const []]);
+// agent_event.dart — 新增 sealed 子类
+class AgentRoundEndEvent extends AgentEvent {
+  final List<ChatMessage> newMessages; // [assistant(含toolCalls), tool, tool, ...]
+  AgentRoundEndEvent(this.newMessages);
 }
 ```
 
-`AgentLoop` 改动点（`agent_loop.dart:47` 和 `:75`）：`yield AgentDoneEvent(buf.toString(), agg)`——把本轮已累积的 `agg`（`List<ToolCall>`）随 Done 吐出。两处各一行。
+`AgentLoop` 改动点（`agent_loop.dart` 工具调用分支）：`for (final tc in agg)` 循环结束后，`yield AgentRoundEndEvent(roundNewMsgs)`——`roundNewMsgs` 收集本轮 assistant 消息 + 各 tool 消息。纯文本轮不 yield。
 
-22 个现有测试不受影响（`AgentDoneEvent` 第二参数有默认值 `[]`，旧调用处不破）。
+`AgentDoneEvent` **保持原样**（`AgentDoneEvent(this.finalText)`，无 toolCalls 字段）——仍只在循环末尾发一次，`finalText==null` 表示达 maxRounds。
+
+22 个现有测试不受影响（新事件只是追加 yield，旧事件流不变）。
 
 ## 4. 组件清单
 
@@ -213,7 +208,7 @@ final currentChatProvider =
     StateNotifierProvider<ChatSessionNotifier, ChatSessionState>(...);
 ```
 - **职责单一**：只管"当前会话的内存状态 + 事件回填"。不直接持有 LLM/scenario（仍经 `agentSessionProvider`）。
-- **`send` 内部**：append user 消息 → `ref.read(agentSessionProvider).run([...state.messages])` → `listen` 事件流回填。assistant+tool 消息在 `AgentDoneEvent` 时组装 append（保证多轮格式正确）。
+- **`send` 内部**：append user 消息 → `ref.read(agentSessionProvider).run([...state.messages])` → `listen` 事件流回填。assistant+tool 消息在 `AgentRoundEndEvent` 时逐轮批量 append（引擎已保证序列合法，Notifier 零格式知识）。
 
 ### 修改
 
@@ -256,8 +251,8 @@ final currentChatProvider =
 
 | 层 | 策略 | 数量预估 |
 |---|---|---|
-| **引擎** | 22 个现有测试全绿（硬约束验证）；**新增 1 个**：mock LLM 返回工具调用 → 断言 `AgentDoneEvent.toolCalls` 与 round 内 agg 一致；mock LLM 无工具调用 → 断言 `toolCalls` 为空列表 | +1 |
-| **Notifier 单元** | `ChatSessionNotifier` 用 mock `AgentSession`（返回预制事件流）测：① 首轮带图 → messages 含 user+assistant；② 二轮续聊 → run 入参含完整历史；③ 工具调用轮 → Done 后 messages 含 assistant(toolCalls)+ tool 消息且 toolCallId 配对；④ busy 守卫；⑤ 构造期抛错回滚；⑥ clear() | ~6 |
+| **引擎** | 22 个现有测试全绿（硬约束验证）；**新增 2 个**：mock LLM 返回工具调用 → 断言 `AgentRoundEndEvent.newMessages` 携带 assistant(含 toolCalls)+tool 消息；mock LLM 无工具调用 → 断言不 yield RoundEnd | +2 |
+| **Notifier 单元** | `ChatSessionNotifier` 用 mock `AgentSession`（返回预制事件流）测：① 首轮带图 → messages 含 user+assistant；② 二轮续聊 → run 入参含完整历史；③ 工具调用轮 → 经 RoundEnd 后 messages 含 assistant(含 toolCalls)+ tool 消息；④ busy 守卫；⑤ 构造期抛错回滚；⑥ clear() | ~7 |
 | **Widget** | `ai_panel_sheet`：① 首轮截图预览 + 发送；② 追问输入框 + 加图按钮；③ 消息列表渲染 user/assistant 气泡；④ busy 时输入禁用；⑤ 流式 streamingText 实时显示 | ~4 |
 | **不写** | 真实 LLM 集成（manual）；引擎 ReAct 循环（已有覆盖） | — |
 
@@ -277,16 +272,16 @@ final currentChatProvider =
 
 | 风险 | 缓解 |
 |---|---|
-| 多轮消息格式不合法导致下一轮 LLM 报错 | 解法2 让 `AgentDoneEvent` 带完整 toolCalls（含 arguments），Notifier 按 toolCallId 配对 result 组装 tool 消息；Notifier 单元测试覆盖配对逻辑 |
+| 多轮消息格式不合法导致下一轮 LLM 报错 | `AgentRoundEndEvent` 由引擎在轮末产出完整合法消息序列（assistant 含 toolCalls/arguments + 逐条 tool 消息带 result），Notifier 零格式知识直接 append；Notifier 单元测试覆盖回填逻辑 |
 | 长会话上下文膨胀 | 引擎 `ContextCompactor` 已有压缩机制；Notifier 不干涉，`CompactionEvent` 仅展示提示 |
 | 截图随多轮累积占内存 | 纯内存设计，抽屉关闭即 `clear()` 释放；单会话内图片数量由用户控制（每轮最多 1 张） |
-| `AgentDoneEvent` 改动破旧测试 | 第二参数有默认值 `[]`，旧 `AgentDoneEvent(text)` 调用不破；22 测试回归验证 |
+| `AgentRoundEndEvent` 新增破旧测试 | 新事件只在工具轮追加 yield，旧事件流不变；sealed `AgentEvent` 下游 switch 须补分支（Task 3 重写 `ai_panel_sheet.dart` 时已覆盖）；22 测试回归验证 |
 | 抽屉关闭时流未取消 | `clear()` 显式 cancel StreamSubscription；AgentLoop 纯 async* 无订阅者自动取消 |
 
 ## 9. 硬约束自检
 
 1. **纯内存，不持久化**：`ChatRepository` 不接入，`chat_session`/`chat_message` 表仍为预留件。截图与对话随 `currentChatProvider` 内存生命周期，`clear()` 即清。
-2. **引擎业务逻辑零改动**：`AgentScenario`/`StudyScenario`/工具/`ChatRepository` 不动，22 测试通过。唯一引擎改动是 `AgentDoneEvent +toolCalls`（事件流信息补强，非业务逻辑）。
+2. **引擎业务逻辑零改动**：`AgentScenario`/`StudyScenario`/工具/`ChatRepository` 不动，22 测试通过。唯一引擎改动是新增 `AgentRoundEndEvent` 事件类 + 工具分支一处 yield（事件流信息补强，非业务逻辑）。`AgentDoneEvent` 保持原样。
 3. **截图纯内存**：`CapturedScreenshot` 只活在 `ChatMessage` 的 `ImageUrlPart`，随会话内存释放，不落盘不入库。
 4. **AgentSession 保持无状态**：`run(List<ChatMessage>)` 不变，多轮状态下沉到 `currentChatProvider`。
 
