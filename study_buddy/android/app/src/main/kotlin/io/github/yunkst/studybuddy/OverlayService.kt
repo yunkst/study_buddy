@@ -45,6 +45,17 @@ class OverlayService : Service() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForeground(NOTIFICATION_ID, buildNotification())
+        // 闭合 IMP-1：截图完成 notifyCaptureFinished → startForegroundService → 此处恢复悬浮球。
+        // 首次启动 onCreate→onStartCommand 会重复 startForeground（无害），showFloatBall 因 floatView 非 null 跳过。
+        // 截图后 onStartCommand→floatView==null→showFloatBall 恢复。
+        if (floatView == null && Settings.canDrawOverlays(this)) {
+            showFloatBall()
+        }
+        return START_STICKY
+    }
+
     private fun showFloatBall() {
         val size = (56 * resources.displayMetrics.density).toInt()
         params = WindowManager.LayoutParams(

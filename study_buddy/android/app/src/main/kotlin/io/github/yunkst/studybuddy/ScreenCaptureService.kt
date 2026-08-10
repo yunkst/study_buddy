@@ -39,6 +39,8 @@ class ScreenCaptureService : Service() {
     private var width = 0
     private var height = 0
     private var density = 1
+    /** 取首帧守卫：避免 VirtualDisplay 持续镜像导致 listener 重复收帧 → 重复 showCropOverlay。 */
+    private val frameCaptured = java.util.concurrent.atomic.AtomicBoolean(false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,13 +66,25 @@ class ScreenCaptureService : Service() {
     }
 
     private fun setupSession(authIntent: Intent) {
+        // 闭合 C：释放旧会话，避免重复 setupSession 泄漏 + 多 listener（MVP 会话制每次重新授权）
+        virtualDisplay?.release(); virtualDisplay = null
+        imageReader?.close(); imageReader = null
+        projection?.stop(); projection = null
+
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         // Android 14+：必须先 startForeground（onCreate 已做）再 getMediaProjection
         projection = mpm.getMediaProjection(Activity.RESULT_OK, authIntent)
+        if (projection == null) {
+            // 闭合 D：getMediaProjection 失败 → 释放已建资源（此时 imageReader 尚未建，仅作保险）
+            imageReader?.close(); imageReader = null
+            return
+        }
         projection?.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 projection = null
                 virtualDisplay?.release(); virtualDisplay = null
+                // 闭合 D：projection 停止时关闭 imageReader（onDestroy 已有，此处覆盖运行期 stop）
+                imageReader?.close(); imageReader = null
             }
         }, Handler(Looper.getMainLooper()))
 
@@ -80,10 +94,14 @@ class ScreenCaptureService : Service() {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader!!.surface, null, null
         )
+        // 闭合 B：AtomicBoolean 守卫，取首帧后移除 listener，避免重复 showCropOverlay
+        frameCaptured.set(false)
         imageReader!!.setOnImageAvailableListener({ reader ->
+            if (!frameCaptured.compareAndSet(false, true)) return@setOnImageAvailableListener
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             val bmp = image.toBitmap()
             image.close()
+            reader.setOnImageAvailableListener(null, null)  // 停止收帧
             // 取到全屏 Bitmap → 交 CropOverlayView（Task 6）
             showCropOverlay(bmp)
         }, Handler(Looper.getMainLooper()))
@@ -101,17 +119,17 @@ class ScreenCaptureService : Service() {
         return Bitmap.createBitmap(bmp, 0, 0, width, height)
     }
 
-    /** 弹全屏选区悬浮窗（Task 6 实现 CropOverlayView）。 */
+    /** 弹全屏选区悬浮窗，裁剪后暂存并拉回主 App。 */
     private fun showCropOverlay(fullBitmap: Bitmap) {
-        // Task 6 接入：
-        // CropOverlayView.show(this, fullBitmap) { croppedBytes ->
-        //     PendingScreenshotHolder.get().put(croppedBytes)
-        //     launchMainApp()
-        //     OverlayService.notifyCaptureFinished(this)
-        // }
-        // 占位：暂存全屏图，恢复悬浮球
-        android.widget.Toast.makeText(this, "选区 UI 接入中（Task 6）", android.widget.Toast.LENGTH_SHORT).show()
-        OverlayService.notifyCaptureFinished(this)
+        CropOverlayView.show(this, fullBitmap) { croppedBytes ->
+            if (croppedBytes != null) {
+                // 检测全黑（FLAG_SECURE 页面）→ 提示而非当 bug
+                // 简化：直接暂存，黑屏由 AI 侧或用户感知（MVP 不做像素级黑屏检测）
+                PendingScreenshotHolder.get().put(croppedBytes)
+                launchMainApp()
+            }
+            OverlayService.notifyCaptureFinished(this)
+        }
     }
 
     private fun launchMainApp() {
