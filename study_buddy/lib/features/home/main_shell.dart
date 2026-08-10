@@ -4,7 +4,7 @@ import '../../../main.dart' show PendingScreenshotStore;
 import '../../features/external_qbank/ai_panel_sheet.dart';
 import '../knowledge/knowledge_base_page.dart';
 import '../review/review_page.dart';
-import 'overlay_settings_page.dart';
+import 'home_page.dart';
 
 /// 应用主壳：底部三 Tab（知识库 / 背诵 / 悬浮窗）。
 class MainShell extends StatefulWidget {
@@ -19,7 +19,8 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    // 冷启动降级：弹出待处理截图的 AI 面板（原 HomePage 的 _consumePendingScreenshot 移此）
+    // 冷启动降级：弹出待处理截图的 AI 面板（原 HomePage 的 _consumePendingScreenshot 移此，
+    // 避免 MainShell 与 HomePage 双消费）
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pending = PendingScreenshotStore.pending;
       if (pending != null && mounted) {
@@ -37,7 +38,7 @@ class _MainShellState extends State<MainShell> {
         children: const [
           KnowledgeBasePage(),
           ReviewPage(),
-          OverlaySettingsPage(),
+          HomePage(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
