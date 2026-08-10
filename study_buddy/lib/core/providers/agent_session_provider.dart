@@ -27,14 +27,16 @@ class AgentSession {
         'is_default=1 且 supports_vision=1 的记录。',
       );
     }
-    final subjects = SubjectRepository(db);
+    final categories = CategoryRepository(db);
     final topics = TopicRepository(db);
+    final edgesRepo = TopicEdgeRepository(db);
     final memories = AgentMemoryRepository(db);
 
     final llm = LlmProvider(config: cfg);
     final scenario = StudyScenario(
-      subjects: subjects,
+      categories: categories,
       topics: topics,
+      edges: edgesRepo,
       memories: memories,
     );
     final loop = AgentLoop(llm: llm, scenario: scenario);
