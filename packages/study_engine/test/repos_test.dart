@@ -164,4 +164,28 @@ void main() {
     expect(got?.summary, '新答案');
     expect(got!.updatedAt.isAfter(now) || got.updatedAt == now, isTrue);
   });
+
+  test('TopicEdgeRepository 建边与双向查询', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final edges = TopicEdgeRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: '洛必达法则', summary: 's1', createdAt: now, updatedAt: now));
+    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: '导数', summary: 's2', createdAt: now, updatedAt: now));
+
+    await edges.insert(a, b, 'prerequisite');
+    // UNIQUE 冲突忽略：重复建边不报错
+    await edges.insert(a, b, 'prerequisite');
+
+    final fromA = await edges.findByTopic(a);
+    expect(fromA, hasLength(1));
+    expect(fromA.first.type, 'prerequisite');
+    expect(fromA.first.otherTitle, '导数');
+
+    // 双向：从 b 也能查到这条边
+    final fromB = await edges.findByTopic(b);
+    expect(fromB, hasLength(1));
+    expect(fromB.first.otherTitle, '洛必达法则');
+  });
 }
