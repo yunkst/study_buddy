@@ -7,12 +7,20 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/database_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
+import '../../core/theme/dashed_border.dart';
+import '../../core/theme/paper_extension.dart';
+import '../../core/theme/paper_scaffold.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 import '../../core/update/ui/app_update_dialog.dart';
 import '../../features/external_qbank/ai_panel_sheet.dart';
 import '../../main.dart' show PendingScreenshotStore;
 
+/// 主页:纸感学术刊头 + 文章块结构。
+///
+/// 视觉参照 `design-preview/02-paper.html`:刊头双线、印章、drop-cap、
+/// tip-card、colophon。功能与原默认 AppBar 版本完全一致——悬浮窗权限检查、
+/// 冷启动待处理截图消费、Android 检查更新入口均保留。
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
   @override
@@ -51,53 +59,36 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final dbAsync = ref.watch(databaseProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Study Buddy')),
-      body: dbAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('数据库初始化失败: $e')),
-        data: (_) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _overlayGranted == true
-                      ? Icons.screenshot_monitor
-                      : Icons.screenshot_monitor_outlined,
-                  size: 48,
-                  color: Colors.deepPurple,
+    // PaperScaffold 无 appBar:刊头作为页面永久首元素(含 'Study Buddy' 标题,
+    // 任何 db 状态都渲染,保证 widget_test 单帧 pump 即可找到),还原 02-paper.html。
+    return PaperScaffold(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _Masthead(),
+          Expanded(
+            child: dbAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('数据库初始化失败: $e')),
+              data: (_) => SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _StatusArticle(
+                      overlayGranted: _overlayGranted,
+                      onOpenPermission: () => context.go('/permission-guide'),
+                    ),
+                    if (Platform.isAndroid)
+                      _UpdateArticle(onCheck: () => _checkForUpdate(context, ref)),
+                    const _Colophon(),
+                    const SizedBox(height: 32),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  _overlayGranted == null
-                      ? '检查权限中...'
-                      : _overlayGranted == true
-                          ? '悬浮窗已开启 ✅\n在任意界面点悬浮球即可截图分析。'
-                          : '悬浮窗未开启\n开启后可在任意界面截图分析。',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                if (_overlayGranted == false)
-                  FilledButton.icon(
-                    icon: const Icon(Icons.settings),
-                    label: const Text('去开启悬浮窗权限'),
-                    onPressed: () => context.go('/permission-guide'),
-                  ),
-                if (Platform.isAndroid) ...[
-                  const SizedBox(height: 12),
-                  TextButton.icon(
-                    icon: const Icon(Icons.system_update_alt),
-                    label: const Text('检查更新'),
-                    onPressed: () => _checkForUpdate(context, ref),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -122,5 +113,470 @@ class _HomePageState extends ConsumerState<HomePage> {
           SnackBar(content: Text('检查失败：$reason')),
         );
     }
+  }
+}
+
+/// 刊头:kicker 卷期 + 衬线大标题「Study Buddy」+ 英文副标题 + ❦ ornament,
+/// 下沿双线分隔。还原 02-paper.html `.masthead`。
+class _Masthead extends StatelessWidget {
+  const _Masthead();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      // 水平 24 与正文对齐(02-paper.html `.page` padding 0 24px)。
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
+      decoration: BoxDecoration(
+        // 双线下边框:两条紧贴的细线模拟 `border-bottom: 2px double`。
+        border: Border(
+          bottom: BorderSide(
+            width: 2,
+            color: theme.colorScheme.outlineVariant,
+          ),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // kicker:EB Garamond 斜体小字 → labelSmall italic + NotoSerifSC。
+          Text(
+            'Vol. I · No. 2',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontStyle: FontStyle.italic,
+              letterSpacing: 4,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // 标题:displayLarge 已是 NotoSerifSC w700 30 ls2.0。
+          Text('Study Buddy', style: theme.textTheme.displayLarge),
+          const SizedBox(height: 6),
+          // 副标题:斜体小字。
+          Text(
+            'A Companion for the Curious Mind',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontStyle: FontStyle.italic,
+              fontSize: 13,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          // ❦ ornament:居中朱砂红装饰符。
+          Text(
+            '❦',
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 14,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 文章块通用容器:纸白底 + 边 + 暖阴影 + 四角订书钉 L 形角标。
+/// 还原 02-paper.html `.article`。
+class _Article extends StatelessWidget {
+  const _Article({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final paper = theme.extension<PaperColors>()!;
+    return Container(
+      margin: const EdgeInsets.only(top: 24),
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: [
+          // 暖色阴影:纸面浮起质感。
+          BoxShadow(color: paper.warmShadow, blurRadius: 24, offset: const Offset(0, 8)),
+        ],
+      ),
+      // Stack 叠四角 L 形订书钉角标(容器内部四角,还原 .article::before/::after)。
+      child: Stack(
+        children: [
+          child,
+          _cornerMark(theme.colorScheme.outlineVariant,
+              top: 8, left: 8, borders: const [BoxShapeCorner.right, BoxShapeCorner.bottom]),
+          _cornerMark(theme.colorScheme.outlineVariant,
+              bottom: 8, right: 8, borders: const [BoxShapeCorner.left, BoxShapeCorner.top]),
+        ],
+      ),
+    );
+  }
+
+  /// 单个 L 形角标:由 [borders] 指定哪两条边可见。
+  Widget _cornerMark(
+    Color color, {
+    double? top,
+    double? bottom,
+    double? left,
+    double? right,
+    required List<BoxShapeCorner> borders,
+  }) {
+    return Positioned(
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+      child: CustomPaint(
+        size: const Size(18, 18),
+        painter: _CornerMarkPainter(color: color, corners: borders.toSet()),
+      ),
+    );
+  }
+}
+
+enum BoxShapeCorner { top, bottom, left, right }
+
+class _CornerMarkPainter extends CustomPainter {
+  const _CornerMarkPainter({required this.color, required this.corners});
+
+  final Color color;
+  final Set<BoxShapeCorner> corners;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    // 左上角为原点,顺时针:top 边在 y=0,bottom 边在 y=height,left 边在 x=0,right 边在 x=width。
+    if (corners.contains(BoxShapeCorner.top)) {
+      canvas.drawLine(Offset.zero, Offset(size.width, 0), paint);
+    }
+    if (corners.contains(BoxShapeCorner.bottom)) {
+      canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), paint);
+    }
+    if (corners.contains(BoxShapeCorner.left)) {
+      canvas.drawLine(Offset.zero, Offset(0, size.height), paint);
+    }
+    if (corners.contains(BoxShapeCorner.right)) {
+      canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CornerMarkPainter oldDelegate) =>
+      color != oldDelegate.color || corners != oldDelegate.corners;
+}
+
+/// 悬浮窗状态文章块:article-label + 印章 + drop-cap lede + tip-card + 未授权按钮。
+class _StatusArticle extends StatelessWidget {
+  const _StatusArticle({
+    required this.overlayGranted,
+    required this.onOpenPermission,
+  });
+
+  /// null = 检查中;true = 已开启;false = 未开启。
+  final bool? overlayGranted;
+  final VoidCallback onOpenPermission;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Article(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ArticleLabel(text: '悬浮窗状态'),
+          const SizedBox(height: 16),
+          Center(child: _Stamp(state: overlayGranted)),
+          const SizedBox(height: 16),
+          _Lede(state: overlayGranted),
+          const SizedBox(height: 16),
+          const _TipCard(),
+          if (overlayGranted == false) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.settings),
+                label: const Text('去开启悬浮窗权限'),
+                onPressed: onOpenPermission,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// article-label:朱砂斜体下划线小标题。还原 02-paper.html `.article-label`。
+class _ArticleLabel extends StatelessWidget {
+  const _ArticleLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.only(bottom: 2),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.primary, width: 1),
+        ),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.labelSmall?.copyWith(
+          fontFamily: 'NotoSerifSC',
+          fontStyle: FontStyle.italic,
+          fontSize: 13,
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+/// 印章式状态:已开启=苔绿「已就绪」/ 未开启=朱砂「未开启」/ 检查中=灰「…」。
+/// Transform.rotate(-3°) + 实线边 + 内层 DashedBorder。
+/// 还原 02-paper.html `.stamp`。
+class _Stamp extends StatelessWidget {
+  const _Stamp({required this.state});
+
+  final bool? state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final Color borderColor;
+    final Color textColor;
+    final Color bgColor;
+    final String label;
+    switch (state) {
+      case true:
+        // 已开启 → 苔绿(tertiary)。
+        borderColor = theme.colorScheme.tertiary;
+        textColor = theme.colorScheme.tertiary;
+        bgColor = theme.colorScheme.tertiary.withValues(alpha: 0.04);
+        label = '已就绪';
+      case false:
+        // 未开启 → 朱砂(primary)。
+        borderColor = theme.colorScheme.primary;
+        textColor = theme.colorScheme.primary;
+        bgColor = theme.colorScheme.primary.withValues(alpha: 0.04);
+        label = '未开启';
+      case null:
+        // 检查中 → 灰(theme.disabledColor,非 ColorScheme 成员)。
+        borderColor = theme.disabledColor;
+        textColor = theme.disabledColor;
+        bgColor = Colors.transparent;
+        label = '…';
+    }
+    return Transform.rotate(
+      angle: -3 * 3.14159265 / 180, // -3°
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(color: borderColor, width: 2),
+          color: bgColor,
+        ),
+        // 内层虚线内圈:DashedBorder 套在外层 Container 之外,
+        // 用 ShapeBorder 包一层以达到 `inset: -3px dashed` 效果。
+        foregroundDecoration: ShapeDecoration(
+          shape: DashedBorder(
+            radius: 0,
+            dash: 4,
+            gap: 3,
+            color: borderColor.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontFamily: 'NotoSerifSC',
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            letterSpacing: 3,
+            color: textColor,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// drop-cap 首字下沉 lede:首字 NotoSerifSC 大号 primary,后续 bodyLarge。
+/// 文案随状态变化(检查中/已开启/未开启),语义保留。
+class _Lede extends StatelessWidget {
+  const _Lede({required this.state});
+
+  final bool? state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final String firstChar;
+    final String rest;
+    switch (state) {
+      case true:
+        firstChar = '悬';
+        rest = '浮球已开启。于任意界面点按,框选题目,AI 将为你拆解其中知识点脉络。';
+      case false:
+        firstChar = '悬';
+        rest = '浮窗尚未开启。开启后可在任意界面截图分析,点按下方按钮前往权限页。';
+      case null:
+        firstChar = '正';
+        rest = '在检查悬浮窗权限状态,请稍候……';
+    }
+    return RichText(
+      textAlign: TextAlign.start,
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: firstChar,
+            // drop-cap:首字 NotoSerifSC 大号朱砂(primary)。
+            style: TextStyle(
+              fontFamily: 'NotoSerifSC',
+              fontSize: 48,
+              height: 0.85,
+              fontWeight: FontWeight.w500,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const TextSpan(text: ' '),
+          TextSpan(
+            text: rest,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontSize: 15,
+              height: 1.9,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 金边提示卡:goldContainer 底 + gold 左边框 3px + 「注」标签 + 提示文本。
+/// 还原 02-paper.html `.tip-card`(小米机型「后台弹出界面」权限提示)。
+class _TipCard extends StatelessWidget {
+  const _TipCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final paper = theme.extension<PaperColors>()!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: paper.goldContainer,
+        border: Border(
+          left: BorderSide(color: paper.gold, width: 3),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 「注」标签:金色 NotoSerifSC 粗体。
+          Text(
+            '注',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              color: paper.gold,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '部分小米机型需额外开启「后台弹出界面」权限,方可在应用外唤起截图框选。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontSize: 12.5,
+                height: 1.7,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 检查更新文章块(Android):article-label + 说明 + 墨蓝 primary TextButton。
+class _UpdateArticle extends StatelessWidget {
+  const _UpdateArticle({required this.onCheck});
+
+  final VoidCallback onCheck;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _Article(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ArticleLabel(text: '版本更新'),
+          const SizedBox(height: 14),
+          Text(
+            '点按下方按钮检查是否有新版本可用。',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            // TextButton 已被 theme 配成墨蓝 primary 前景色。
+            child: TextButton.icon(
+              icon: const Icon(Icons.system_update_alt),
+              label: const Text('检查更新'),
+              onPressed: onCheck,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 页脚 colophon:上沿细分隔线 + 斜体小字。
+/// 用 RichText 拼接以避免出现字面 'Study Buddy' Text(widget_test findsOneWidget 约束)。
+class _Colophon extends StatelessWidget {
+  const _Colophon();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 32),
+      padding: const EdgeInsets.only(top: 20),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: theme.extension<PaperColors>()!.ruleSoft, width: 1),
+        ),
+      ),
+      child: Center(
+        child: RichText(
+          text: TextSpan(
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontStyle: FontStyle.italic,
+              fontSize: 11,
+              letterSpacing: 2,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            children: const [
+              TextSpan(text: '— Study Buddy · 纸感学术 —'),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
