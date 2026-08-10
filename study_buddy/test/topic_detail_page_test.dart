@@ -56,4 +56,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('🔗 关联'), findsNothing);
   });
+
+  testWidgets('详情页有「问 AI」按钮', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          topicDetailProvider.overrideWith(
+            (ref, arg) async => TopicDetail(topic: topic, path: const ['数学'], edges: const []),
+          ),
+        ],
+        child: const MaterialApp(home: TopicDetailPage(topicId: 1)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('问 AI'), findsOneWidget);
+  });
 }

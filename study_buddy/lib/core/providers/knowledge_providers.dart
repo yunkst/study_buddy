@@ -67,6 +67,11 @@ final reviewQueueRepositoryProvider =
   return ReviewQueueRepository(db);
 });
 
+final chatRepositoryProvider = FutureProvider<ChatRepository>((ref) async {
+  final db = await ref.watch(databaseProvider.future);
+  return ChatRepository(db);
+});
+
 // ---- 聚合 providers ----
 
 /// 某层列表：子分类（前置）+ 直挂知识点。parentId 为 null 表根级。

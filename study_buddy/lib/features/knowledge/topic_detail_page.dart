@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/providers/knowledge_providers.dart';
+import 'topic_chat_sheet.dart';
 
 class TopicDetailPage extends ConsumerWidget {
   const TopicDetailPage({super.key, required this.topicId});
@@ -66,6 +67,16 @@ class TopicDetailPage extends ConsumerWidget {
                     onTap: () => context.push('/topic/${e.otherId}'),
                   )),
             ],
+            const SizedBox(height: 24),
+            FilledButton.tonalIcon(
+              onPressed: () => showTopicChat(
+                context,
+                topicId: detail.topic.id!,
+                title: detail.topic.title,
+              ),
+              icon: const Icon(Icons.chat_bubble_outline),
+              label: const Text('问 AI'),
+            ),
           ],
         ),
       ),
