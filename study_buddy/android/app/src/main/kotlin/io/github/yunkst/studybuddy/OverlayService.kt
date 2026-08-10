@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -113,15 +114,10 @@ class OverlayService : Service() {
 
     /**
      * 点击悬浮球 → 隐藏悬浮球 → 启动 TrampolineActivity 走 MediaProjection 授权 + 截图。
-     * Task 5 接入 TrampolineActivity；此前先 Toast 占位。
      */
     private fun triggerScreenshot() {
         hideOverlay()
-        // Task 5 接入：
-        // startActivity(Intent(this, TrampolineActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        android.widget.Toast.makeText(this, "截图功能接入中（Task 5）", android.widget.Toast.LENGTH_SHORT).show()
-        // 占位：1.5s 后恢复悬浮球，避免测试时永久消失
-        android.os.Handler(mainLooper).postDelayed({ showOverlayInternal() }, 1500)
+        startActivity(Intent(this, TrampolineActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     fun hideOverlay() {
@@ -156,5 +152,15 @@ class OverlayService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 1001
+
+        /** 截图流程结束（完成/取消/失败）→ 恢复悬浮球。 */
+        fun notifyCaptureFinished(ctx: Context) {
+            val intent = Intent(ctx, OverlayService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
+        }
     }
 }
