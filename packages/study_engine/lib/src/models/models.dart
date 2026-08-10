@@ -315,3 +315,59 @@ class ToolCall {
         'function': {'name': name, 'arguments': arguments},
       };
 }
+
+/// 一次专注学习会话。endedAt/durationMs 为 null 表示进行中。
+class FocusSession {
+  final int? id;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final int? durationMs;
+  const FocusSession({
+    this.id,
+    required this.startedAt,
+    this.endedAt,
+    this.durationMs,
+  });
+
+  factory FocusSession.fromMap(Map<String, Object?> m) => FocusSession(
+        id: m['id'] as int?,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(m['started_at'] as int),
+        endedAt: m['ended_at'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(m['ended_at'] as int)
+            : null,
+        durationMs: m['duration_ms'] as int?,
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'started_at': startedAt.millisecondsSinceEpoch,
+        if (endedAt != null) 'ended_at': endedAt!.millisecondsSinceEpoch,
+        if (durationMs != null) 'duration_ms': durationMs,
+      };
+}
+
+/// 专注会话与知识点的关联（多对多，不记时长）。UNIQUE(session_id, topic_id)。
+class FocusSessionTopic {
+  final int? id;
+  final int sessionId;
+  final int topicId;
+  final DateTime linkedAt;
+  const FocusSessionTopic({
+    this.id,
+    required this.sessionId,
+    required this.topicId,
+    required this.linkedAt,
+  });
+
+  factory FocusSessionTopic.fromMap(Map<String, Object?> m) => FocusSessionTopic(
+        id: m['id'] as int?,
+        sessionId: m['session_id'] as int,
+        topicId: m['topic_id'] as int,
+        linkedAt: DateTime.fromMillisecondsSinceEpoch(m['linked_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'session_id': sessionId,
+        'topic_id': topicId,
+        'linked_at': linkedAt.millisecondsSinceEpoch,
+      };
+}
