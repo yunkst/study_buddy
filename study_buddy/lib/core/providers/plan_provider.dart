@@ -61,11 +61,18 @@ class PlanSession {
 
     final llm = LlmProvider(config: cfg);
     final scenario = PlanScenario(plans: plans, memories: memories);
-    final loop = AgentLoop(llm: llm, scenario: scenario);
-    return loop.run(messages, context: AgentScenarioContext(extra: {
+    final ctx = AgentScenarioContext(extra: {
       'today': today,
       'plan_summary': planSummary,
-    }));
+    });
+    // AgentLoop.run 不读取 context 参数（废弃残留），system prompt 由调用方前置。
+    // 见 agent_loop.dart:24 注释"messages 为初始消息（含 system）"。
+    final systemPrompt = ChatMessage(
+      role: 'system',
+      content: scenario.buildSystemPrompt(ctx),
+    );
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    return loop.run([systemPrompt, ...messages]);
   }
 }
 

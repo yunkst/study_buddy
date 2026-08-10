@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/providers/plan_provider.dart';
 import 'assessment_entry_sheet.dart';
@@ -25,6 +26,31 @@ class PlanDetailPage extends ConsumerWidget {
               await showPlanChat(context, planId: planId, planName: name);
               // 对话可能改了计划，刷新
               ref.invalidate(planDetailProvider(planId));
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '删除计划',
+            onPressed: () async {
+              final name = detailAsync.maybeWhen(data: (d) => d.plan.name, orElse: () => null);
+              if (name == null) return;
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('删除计划'),
+                  content: Text('确定删除「$name」及其所有节点和测评记录？此操作不可撤销。'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
+                    FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('删除')),
+                  ],
+                ),
+              );
+              if (ok != true) return;
+              final repo = await ref.read(planRepositoryAsyncProvider.future);
+              await repo.deletePlan(planId);
+              if (!context.mounted) return;
+              ref.invalidate(planListProvider);
+              context.go('/');
             },
           ),
         ],
@@ -114,8 +140,11 @@ class PlanDetailPage extends ConsumerWidget {
     );
   }
 
-  int? _extractScore(String target) {
-    final m = RegExp(r'\d+').firstMatch(target);
-    return m == null ? null : int.tryParse(m.group(0)!);
+  int? _extractScore(String text) {
+    final m = RegExp(r'(\d+)\s*分').firstMatch(text);
+    if (m != null) return int.tryParse(m.group(1)!);
+    // 回退：纯数字（无"分"字时）
+    final m2 = RegExp(r'\d+').firstMatch(text);
+    return m2 == null ? null : int.tryParse(m2.group(0)!);
   }
 }

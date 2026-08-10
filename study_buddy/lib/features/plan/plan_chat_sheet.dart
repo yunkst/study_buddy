@@ -32,6 +32,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
   final TextEditingController _inputCtrl = TextEditingController();
   final StringBuffer _aiText = StringBuffer();
   final List<String> _toolEvents = [];
+  final List<ChatMessage> _history = [];
   bool _busy = false;
   String? _errorText;
   int? _createdPlanId;
@@ -48,6 +49,8 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
     if (_busy) return;
     final userText = _inputCtrl.text.trim();
     if (userText.isEmpty) return;
+    // 当前用户消息先入历史，多轮对话保留完整上下文
+    _history.add(ChatMessage(role: 'user', content: userText));
     setState(() {
       _busy = true;
       _errorText = null;
@@ -55,7 +58,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
       _toolEvents.clear();
     });
 
-    final messages = <ChatMessage>[ChatMessage(role: 'user', content: userText)];
+    final messages = [..._history];
     try {
       // 启动新流前取消旧订阅，避免流事件串进同一 _aiText/_toolEvents 与双重 onDone
       await _sub?.cancel();
@@ -96,8 +99,9 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               case AgentDoneEvent():
                 _busy = false;
                 break;
-              case AgentRoundEndEvent():
-                // 本轮 ReAct 结束，newMessages 已由 AgentLoop 内部维护；UI 无需额外处理
+              case AgentRoundEndEvent(:final newMessages):
+                // 本轮新增的 assistant/tool 消息全部并入历史，供下一轮引用
+                _history.addAll(newMessages);
                 break;
               case AgentErrorEvent(:final message):
                 _errorText = message;

@@ -160,4 +160,22 @@ void main() {
     expect(prompt, contains('create_plan'));
     await sdb.close();
   });
+
+  test('场景8 create_plan current_level 含年份时优先抽"数字+分"', () async {
+    final sdb = await _fresh();
+    final scenario = newScenario(sdb);
+    final repo = PlanRepository(sdb);
+
+    await scenario.executeTool('create_plan', {
+      'name': '考研', 'exam_date': '2026-12-21', 'exam_content': '408',
+      'target': '380', 'daily_minutes': 180,
+      'current_level': '2026 年估 300 分，数学最弱',
+    });
+    final pid = (await repo.findAllPlans()).first.id!;
+    final a = (await repo.findAssessmentsByPlan(pid)).first;
+    // 不能误抽年份 2026，应抽到 300
+    expect(a.score, 300);
+    expect(a.score, isNot(2026));
+    await sdb.close();
+  });
 }

@@ -128,10 +128,13 @@ $memBlock''';
     return jsonEncode({'ok': true, 'plan_id': planId, 'message': '已创建计划「$name」(id=$planId)，起点测评 $score 分'});
   }
 
-  /// 从文本抽取第一个整数作为分数。抽不到返回 null。
+  /// 从文本抽取分数，优先匹配"数字+分"，回退纯数字。抽不到返回 null。
   int? _extractScore(String text) {
-    final m = RegExp(r'\d+').firstMatch(text);
-    return m == null ? null : int.tryParse(m.group(0)!);
+    final m = RegExp(r'(\d+)\s*分').firstMatch(text);
+    if (m != null) return int.tryParse(m.group(1)!);
+    // 回退：纯数字（无"分"字时）
+    final m2 = RegExp(r'\d+').firstMatch(text);
+    return m2 == null ? null : int.tryParse(m2.group(0)!);
   }
 
   Future<String> _getPlan(int planId) async {
