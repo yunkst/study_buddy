@@ -230,4 +230,44 @@ void main() {
     await sdb.db.delete('topic', where: 'id = ?', whereArgs: [tid]);
     expect(await repo.getByTopic(tid), isNull, reason: 'FK 未启用，删 topic 后调度残留');
   });
+
+  test('ReviewQueueRepository dueQueue JOIN 一次查 + 限量', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final repo = ReviewQueueRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime(2026, 8, 10, 12, 0);
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: '洛必达', summary: 's', createdAt: now, updatedAt: now));
+    await topics.insert(Topic(categoryId: catId, question: 'q2', title: '夹逼', summary: 's', createdAt: now, updatedAt: now));
+    final sched = ReviewScheduleRepository(sdb);
+    await sched.upsert(SpacedRepetitionService.initial(a, now.subtract(const Duration(days: 1))));
+
+    final q = await repo.dueQueue(now);
+    expect(q, hasLength(1));
+    expect(q.first.topicId, a);
+    expect(q.first.title, '洛必达');
+    expect(q.first.question, 'q1');
+
+    final capped = await repo.dueQueue(now, limit: 0);
+    expect(capped, isEmpty);
+  });
+
+  test('ReviewQueueRepository todayNewQueue 含无 schedule 的今日新增 + 跨天边界', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final repo = ReviewQueueRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final dayStart = DateTime(2026, 8, 10, 0, 0);
+    final today = dayStart.add(const Duration(hours: 10));
+    final yesterday = dayStart.subtract(const Duration(minutes: 1));
+    // 今天新存（无 schedule）
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: '今天新增', summary: 's', createdAt: today, updatedAt: today));
+    // 昨天存（有 schedule，不算今日新增）
+    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: '昨天', summary: 's', createdAt: yesterday, updatedAt: yesterday));
+    await ReviewScheduleRepository(sdb).upsert(SpacedRepetitionService.initial(b, yesterday));
+
+    final q = await repo.todayNewQueue(dayStart);
+    expect(q.map((i) => i.topicId), [a]); // b 排除
+    expect(q.first.title, '今天新增');
+  });
 }
