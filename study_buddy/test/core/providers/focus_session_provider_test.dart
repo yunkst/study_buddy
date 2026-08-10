@@ -125,4 +125,42 @@ void main() {
     expect(await repo.findOpenSession(), isNull);
     expect(container.read(focusSessionProvider).running, isFalse);
   });
+
+  test('recoverOrphan 恢复分支:原生在跑则恢复 running + offset 重算', () async {
+    // 预置未结束会话（用过去时间，保证 offset 非零）
+    final repo = FocusSessionRepository(sdb);
+    final startedAt = DateTime.now().subtract(const Duration(minutes: 5));
+    await repo.start(startedAt);
+
+    // 该测试让 isRunning 返回 true（覆盖恢复分支）
+    // 注：setUp 设的全局 mock 固定返回 false，此处单独覆盖 handler。
+    // tearDown 会 setMock 为 null 清理，无需在此手动恢复。
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'isRunning') return true;
+      return null;
+    });
+
+    final container = makeContainer();
+    final notifier = container.read(focusSessionProvider.notifier);
+    await notifier.recoverOrphan();
+
+    final state = container.read(focusSessionProvider);
+    expect(state.running, isTrue);
+    expect(state.sessionId, isNotNull);
+    // offset 至少 5 分钟
+    expect(state.elapsed.inMinutes, greaterThanOrEqualTo(5));
+    await notifier.stop();
+  });
+
+  test('start 后 tick 每秒推进 elapsed', () async {
+    final container = makeContainer();
+    final notifier = container.read(focusSessionProvider.notifier);
+    await notifier.start();
+    // tick 周期 1s，等 ≥1100ms 让首个 tick 触发
+    await Future.delayed(const Duration(milliseconds: 1100));
+    final state = container.read(focusSessionProvider);
+    expect(state.elapsed.inSeconds, greaterThanOrEqualTo(1));
+    await notifier.stop();
+  });
 }
