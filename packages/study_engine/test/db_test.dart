@@ -7,7 +7,7 @@ void main() {
     sqfliteFfiInit();
   });
 
-  test('建库后 8 张表存在', () async {
+  test('建库后 9 张表存在', () async {
     final factory = databaseFactoryFfi;
     final dbPath = inMemoryDatabasePath;
     final sdb = await StudyDatabase.open(factory: factory, path: dbPath);
