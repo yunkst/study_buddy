@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/providers/screenshot_provider.dart';
+import 'core/theme/app_theme.dart';
 import 'router.dart';
 import 'main.dart';
 
@@ -47,7 +48,9 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'Study Buddy',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       routerConfig: buildRouter(),
     );
   }
