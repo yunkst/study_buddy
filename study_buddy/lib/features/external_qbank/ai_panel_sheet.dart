@@ -1,31 +1,36 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
-import '../../core/providers/agent_session_provider.dart';
+import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/webview_screenshot_provider.dart';
 
-/// 弹出底部抽屉：截图预览 + 用户输入 + agent 流式回复。
+/// 弹出底部抽屉：消息列表 + 连续输入框 + 可选附图。
 ///
-/// 截图来自 [CapturedScreenshot]，纯内存持有；会话结束即释放（widget dispose）。
+/// 截图来自 [CapturedScreenshot]，纯内存持有；会话结束即释放。
+/// 抽屉关闭后通过 [ProviderScope.containerOf] 取容器清空会话（纯内存），
+/// 避免在 widget dispose 阶段修改 provider state（Riverpod 3.x 禁止）。
 Future<void> showAiPanel(
   BuildContext context, {
   required CapturedScreenshot screenshot,
-}) {
-  return showModalBottomSheet(
+}) async {
+  await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     isDismissible: true,
     enableDrag: true,
-    builder: (_) => _AiPanelSheet(screenshot: screenshot),
+    builder: (_) => _AiPanelSheet(initialScreenshot: screenshot),
   );
+  // 抽屉关闭后清空会话（纯内存）。此时 outer widget tree 仍活跃，
+  // container 未被 dispose，notifier 仍 mounted。
+  if (!context.mounted) return;
+  final container = ProviderScope.containerOf(context, listen: false);
+  container.read(currentChatProvider.notifier).clear();
 }
 
 class _AiPanelSheet extends ConsumerStatefulWidget {
-  const _AiPanelSheet({required this.screenshot});
-  final CapturedScreenshot screenshot;
+  const _AiPanelSheet({required this.initialScreenshot});
+  final CapturedScreenshot initialScreenshot;
 
   @override
   ConsumerState<_AiPanelSheet> createState() => _AiPanelSheetState();
@@ -33,109 +38,58 @@ class _AiPanelSheet extends ConsumerStatefulWidget {
 
 class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
   final TextEditingController _inputCtrl = TextEditingController();
-  final StringBuffer _aiText = StringBuffer();
-  final List<String> _toolEvents = []; // 工具调用轨迹
-  bool _busy = false;
-  bool _saved = false; // save_topic 调用过
-  String? _errorText;
-  StreamSubscription<AgentEvent>? _sub;
+  final ScrollController _scrollCtrl = ScrollController();
+  CapturedScreenshot? _pendingImage; // 追问轮待附加的图
+  bool _firstSent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 首轮：用入口截图作为首条消息的图。但不自动发送——等用户点"开始分析"。
+    _pendingImage = widget.initialScreenshot;
+    // 监听会话状态变化：仅在有新消息/流式增量时滚动到底部。
+    // 不在 build() 里调 addPostFrameCallback——那会导致每帧都调度新帧，
+    // pumpAndSettle 永不 settle。
+    ref.listenManual(currentChatProvider, (prev, next) {
+      if (prev == null) return;
+      final grew = next.messages.length != prev.messages.length ||
+          next.streamingText.length != prev.streamingText.length;
+      if (grew) _scheduleScrollToBottom();
+    });
+  }
+
+  void _scheduleScrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+      }
+    });
+  }
 
   @override
   void dispose() {
-    _sub?.cancel();
     _inputCtrl.dispose();
-    // 显式置空让 GC 释放 bytes 与 base64 字符串
+    _scrollCtrl.dispose();
+    // 会话清空由 showAiPanel 在抽屉关闭后统一处理（dispose 阶段不可改 provider state）。
     super.dispose();
   }
 
-  Future<void> _runAgent() async {
-    if (_busy) return;
+  Future<void> _send() async {
+    final text = _inputCtrl.text;
+    final image = _pendingImage;
+    _inputCtrl.clear();
     setState(() {
-      _busy = true;
-      _errorText = null;
-      _aiText.clear();
-      _toolEvents.clear();
-      _saved = false;
+      _pendingImage = null;
+      _firstSent = true;
     });
-
-    final userText = _inputCtrl.text.trim().isEmpty
-        ? '分析这道题涉及的知识点'
-        : _inputCtrl.text.trim();
-    final messages = <ChatMessage>[
-      ChatMessage(
-        role: 'user',
-        content: [
-          TextPart(userText),
-          ImageUrlPart(widget.screenshot.base64DataUri, detail: 'high'),
-        ],
-      ),
-    ];
-
-    try {
-      final session = ref.read(agentSessionProvider);
-      final stream = await session.run(messages);
-      if (!mounted) return;
-      _sub = stream.listen(
-        (event) {
-          if (!mounted) return;
-          setState(() {
-            switch (event) {
-              case AgentStartedEvent():
-                // 已在 _busy 状态体现
-                break;
-              case TextDeltaEvent(:final delta):
-                _aiText.write(delta);
-                break;
-              case ToolCallStartEvent(:final name):
-                _toolEvents.add('→ 调用工具：$name');
-                break;
-              case ToolCallEndEvent(:final name, :final result):
-                _toolEvents.add('← $name：$result');
-                if (name == 'save_topic') _saved = true;
-                break;
-              case ToolProgressEvent(:final progress):
-                _toolEvents.add('· $progress');
-                break;
-              case CompactionEvent():
-                _toolEvents.add('· 上下文已压缩');
-                break;
-              case RetryEvent(:final attempt):
-                _toolEvents.add('· 重试第 $attempt 次');
-                break;
-              case AgentDoneEvent():
-                _busy = false;
-                break;
-              case AgentErrorEvent(:final message):
-                _errorText = message;
-                _busy = false;
-                break;
-            }
-          });
-        },
-        onError: (e) {
-          if (!mounted) return;
-          setState(() {
-            _errorText = '$e';
-            _busy = false;
-          });
-        },
-        onDone: () {
-          if (!mounted) return;
-          setState(() => _busy = false);
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorText = '$e';
-        _busy = false;
-      });
-    }
+    await ref.read(currentChatProvider.notifier).send(text, image: image);
   }
 
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(currentChatProvider);
     final mediaQuery = MediaQuery.of(context);
+
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -143,12 +97,13 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
         top: 12,
         bottom: mediaQuery.viewInsets.bottom + 16,
       ),
-      child: SingleChildScrollView(
+      child: SizedBox(
+        height: mediaQuery.size.height * 0.7,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 顶部抓把手
+            // 抓把手
             Center(
               child: Container(
                 width: 40,
@@ -160,83 +115,152 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                 ),
               ),
             ),
-            // 截图缩略图
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(
-                widget.screenshot.pngBytes,
-                height: 120,
-                fit: BoxFit.contain,
+            // 消息列表
+            Expanded(
+              child: ListView(
+                controller: _scrollCtrl,
+                children: [
+                  ...state.messages.map(_buildMessageBubble),
+                  // 流式文本（当前轮 LLM 正在输出）
+                  if (state.streamingText.isNotEmpty)
+                    _buildAssistantBubble(state.streamingText, state.toolEvents),
+                  // 首轮未发送时显示截图预览
+                  if (!_firstSent && _pendingImage != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        _pendingImage!.pngBytes,
+                        height: 120,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            // 用户输入
-            TextField(
-              controller: _inputCtrl,
-              enabled: !_busy,
-              decoration: const InputDecoration(
-                labelText: '补充说明（可选）',
-                hintText: '例如：解析思路',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 8),
-            // 提交按钮
-            FilledButton(
-              onPressed: _busy ? null : _runAgent,
-              child: Text(_busy ? '分析中...' : '开始分析'),
-            ),
-            const SizedBox(height: 16),
             // 错误展示
-            if (_errorText != null)
+            if (state.error != null)
               Container(
+                margin: const EdgeInsets.only(top: 8),
                 padding: const EdgeInsets.all(8),
                 color: Colors.red.shade50,
-                child: Text(
-                  _errorText!,
-                  style: TextStyle(color: Colors.red.shade900),
+                child: Text(state.error!, style: TextStyle(color: Colors.red.shade900)),
+              ),
+            // 待附图预览（追问轮）
+            if (_pendingImage != null && _firstSent)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.memory(_pendingImage!.pngBytes,
+                          height: 48, fit: BoxFit.contain),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => setState(() => _pendingImage = null),
+                    ),
+                  ],
                 ),
               ),
-            // 工具调用轨迹
-            if (_toolEvents.isNotEmpty) ...[
-              const Text('工具调用', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              ..._toolEvents.map(
-                (e) => Text(e, style: const TextStyle(fontSize: 12)),
-              ),
-              if (_saved)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(4),
+            // 输入行
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  onPressed: state.busy
+                      ? null
+                      : () {
+                          // MVP:追问轮加图复用 initialScreenshot 的数据来源；
+                          // 真实截图接入由悬浮窗阶段提供。此处仅占位禁用或提示。
+                          // （本任务不实现真实选图,留待截图入口统一）
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('加图功能待截图入口接入')),
+                          );
+                        },
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtrl,
+                    enabled: !state.busy,
+                    decoration: InputDecoration(
+                      hintText: _firstSent ? '追问...' : '补充说明（可选）',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
                     ),
-                    child: const Text(
-                      '✓ 已保存到知识库',
-                      style: TextStyle(color: Colors.green, fontSize: 12),
-                    ),
+                    onSubmitted: (_) => _send(),
                   ),
                 ),
-              const SizedBox(height: 12),
-            ],
-            // AI 回复文本
-            if (_aiText.isNotEmpty) ...[
-              const Text('AI 回复', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(6),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: state.busy ? null : _send,
+                  child: Text(state.busy ? '分析中...' : (_firstSent ? '发送' : '开始分析')),
                 ),
-                child: SelectableText(_aiText.toString()),
-              ),
-            ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(ChatMessage msg) {
+    if (msg.role == 'user') {
+      return _buildUserBubble(msg);
+    }
+    if (msg.role == 'assistant') {
+      return _buildAssistantBubble(
+          msg.content is String ? msg.content as String : '',
+          const []);
+    }
+    if (msg.role == 'tool') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Text('🔧 ${msg.content}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildUserBubble(ChatMessage msg) {
+    final text = msg.content is String
+        ? msg.content as String
+        : (msg.content as List<ContentPart>)
+            .whereType<TextPart>()
+            .map((t) => t.text)
+            .join();
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.deepPurple.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(text),
+      ),
+    );
+  }
+
+  Widget _buildAssistantBubble(String text, List<ToolEvent> toolEvents) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (text.isNotEmpty) SelectableText(text),
+            ...toolEvents.map((e) => Text('${e.name}: ${e.result}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey))),
           ],
         ),
       ),
