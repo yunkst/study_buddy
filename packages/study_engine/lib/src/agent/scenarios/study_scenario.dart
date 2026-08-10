@@ -141,14 +141,26 @@ $memBlock''';
     if (segments.isEmpty) return 'path 不能为空';
     final catId = await categories.ensurePath(segments);
     final now = DateTime.now();
-    final id = await topics.insert(Topic(
-      categoryId: catId,
-      question: question,
-      title: title,
-      summary: summary,
-      createdAt: now,
-      updatedAt: now,
-    ));
+    int id;
+    try {
+      id = await topics.insert(Topic(
+        categoryId: catId,
+        question: question,
+        title: title,
+        summary: summary,
+        createdAt: now,
+        updatedAt: now,
+      ));
+    } catch (e) {
+      // 并发兜底：findByTitle 与 insert 非原子，并发下另一会话可能已插入同 title，
+      // 触发 UNIQUE 冲突。捕获后转「已存在」引导（与上面 findByTitle 命中一致），
+      // 非 UNIQUE 异常继续抛出。
+      if (e.toString().contains('UNIQUE constraint failed')) {
+        final existing = await topics.findByTitle(title);
+        return '知识点「$title」已存在(id=${existing?.id})。如需补充答案请用 update_topic(id=${existing?.id}, summary=...)';
+      }
+      rethrow;
+    }
     return '已保存知识点「$title」(id=$id)，路径 $path';
   }
 

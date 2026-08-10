@@ -15,6 +15,7 @@ class StudyDatabase {
       path,
       options: OpenDatabaseOptions(
         version: kCurrentDbVersion,
+        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, _) => migrateDatabase(db, 0, kCurrentDbVersion),
         onUpgrade: (db, oldV, newV) => migrateDatabase(db, oldV, newV),
       ),

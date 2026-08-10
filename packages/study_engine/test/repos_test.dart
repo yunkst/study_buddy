@@ -143,6 +143,22 @@ void main() {
     expect(fromB.first.otherTitle, '洛必达法则');
   });
 
+  test('FK 启用：删 topic 连带删边（ON DELETE CASCADE）', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final edges = TopicEdgeRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: 'A', summary: 's1', createdAt: now, updatedAt: now));
+    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: 'B', summary: 's2', createdAt: now, updatedAt: now));
+    await edges.insert(a, b, 'prerequisite');
+
+    // 裸 SQL 删 topic（删除能力不在本次 Repository 范围，测试直连验证 FK 生效）
+    await sdb.db.delete('topic', where: 'id = ?', whereArgs: [a]);
+    final edgesAfter = await edges.findByTopic(b);
+    expect(edgesAfter, isEmpty, reason: 'FK 未启用，删 topic 后边残留');
+  });
+
   test('MasteryRepository 日志驱动当前状态', () async {
     final cats = CategoryRepository(sdb);
     final topics = TopicRepository(sdb);
