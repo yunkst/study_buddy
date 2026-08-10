@@ -133,7 +133,11 @@ class _TopicChatSheetState extends ConsumerState<_TopicChatSheet> {
                 break;
               case AgentDoneEvent():
                 _busy = false;
-                _persistRound(userMsg);
+                // 同步快照 aiText（此时 _pendingAi 尚未被下一轮重置），
+                // 避免 fire-and-forget 的 _persistRound 在两次 await 后
+                // 读到被第二轮重置的 buffer。
+                final aiText = _pendingAi?.toString() ?? '';
+                _persistRound(userMsg, aiText);
                 break;
               case AgentErrorEvent(:final message):
                 _errorText = message;
@@ -173,17 +177,19 @@ class _TopicChatSheetState extends ConsumerState<_TopicChatSheet> {
   }
 
   /// 持久化本轮 user + assistant 消息（简化版：不落 tool_calls）。
-  Future<void> _persistRound(ChatMessage userMsg) async {
+  ///
+  /// [aiText] 由调用方在 AgentDone 同步快照后传入（消除读 _pendingAi 的
+  /// 竞态）。assistant 消息同步入 [_history]，消除下一轮 _send 读
+  /// _history 时缺本轮回答的窗口。
+  Future<void> _persistRound(ChatMessage userMsg, String aiText) async {
     final sid = _sessionId;
     if (sid == null) return;
+    final aiMsg = ChatMessage(role: 'assistant', content: aiText);
+    _history.add(aiMsg); // 同步入 history，先于 await
     try {
       final chatRepo = await ref.read(chatRepositoryProvider.future);
       await chatRepo.addMessage(sid, userMsg);
-      // assistant 消息：只存最终文本,不存 tool_calls（重放只显示文本）。
-      final aiText = _pendingAi?.toString() ?? '';
-      final aiMsg = ChatMessage(role: 'assistant', content: aiText);
       await chatRepo.addMessage(sid, aiMsg);
-      _history.add(aiMsg);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
