@@ -24,7 +24,7 @@ class _FakeScenario implements AgentScenario {
   @override List<Map<String, dynamic>> get tools => AgentTools.studyTools;
   @override String buildSystemPrompt(AgentScenarioContext ctx) => 'sys';
   @override Future<String> executeTool(String name, Map<String, dynamic> args,
-      {void Function(String p)? onProgress, String? toolCallId}) async {
+      {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async {
     executed.add(name);
     return '{"ok":true}';
   }

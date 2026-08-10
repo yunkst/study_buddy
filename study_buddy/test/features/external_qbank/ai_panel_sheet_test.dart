@@ -22,7 +22,7 @@ import 'package:study_engine/study_engine.dart';
 class _FakeAgentSession extends AgentSession {
   _FakeAgentSession(super.ref);
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     return Stream.fromIterable([
       TextDeltaEvent('这是'),
       TextDeltaEvent('分析'),
@@ -37,7 +37,7 @@ class _ControllableAgentSession extends AgentSession {
   _ControllableAgentSession(super.ref, this._controller);
   final StreamController<AgentEvent> _controller;
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     return _controller.stream;
   }
 }

@@ -17,7 +17,10 @@ class AgentSession {
   ///
   /// 每次调用都会重新从 DB 读取 LLM 配置、构造新的 StudyScenario 与 AgentLoop。
   /// 调用方负责监听流并在 done/error 时释放资源。
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
+  ///
+  /// [chatSessionId] 可选：传入则注入 AgentScenarioContext.extra，供 save_review
+  /// 等工具把批改明细落库到对应会话；不传则 chatSessionId 为 null。
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     final db = await _ref.read(databaseProvider.future);
     final llmConfigs = LlmConfigRepository(db);
     final cfg = await llmConfigs.getDefault(vision: true);
@@ -42,7 +45,10 @@ class AgentSession {
       reviews: ReviewRepository(db),
     );
     final loop = AgentLoop(llm: llm, scenario: scenario);
-    return loop.run(messages);
+    return loop.run(
+      messages,
+      context: AgentScenarioContext(extra: chatSessionId == null ? const {} : {'chat_session_id': chatSessionId}),
+    );
   }
 }
 

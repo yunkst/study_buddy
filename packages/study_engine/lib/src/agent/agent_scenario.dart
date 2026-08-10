@@ -27,6 +27,7 @@ abstract class AgentScenario {
     Map<String, dynamic> args, {
     void Function(String)? onProgress,
     String? toolCallId,
+    AgentScenarioContext? context,
   });
 
   /// 无工具调用时的钩子；返回非 null 则作为额外提示再走一轮。

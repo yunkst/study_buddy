@@ -61,4 +61,56 @@ void main() {
     expect(got!.chatSessionId, isNull);
     await sdb.close();
   });
+
+  test('AgentLoop mock: save_review 落库 review 表', () async {
+    final sdb = await openDb();
+    final scenario = StudyScenario(
+      categories: CategoryRepository(sdb),
+      topics: TopicRepository(sdb),
+      edges: TopicEdgeRepository(sdb),
+      memories: AgentMemoryRepository(sdb),
+      mastery: MasteryRepository(sdb),
+      reviews: ReviewRepository(sdb),
+    );
+
+    // FK 开启：先造 chat_session id=42 行，否则 save_review 落库 FOREIGN KEY 失败。
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await sdb.db.insert('chat_session', {'id': 42, 'scenario_id': 'study', 'title': 's42', 'created_at': now, 'updated_at': now});
+
+    final llm = _ScriptedLlm([
+      const [
+        LlmStreamChunk(textDelta: '', toolCalls: [
+          ToolCall(
+            id: 'c1',
+            name: 'save_review',
+            arguments: '{"summary":"批改1题,错","items":[{"seq":1,"question":"1+1","verdict":"wrong","analysis":"应为2","topic_ids":[]}]}',
+          ),
+        ])
+      ],
+      const [LlmStreamChunk(textDelta: '已批改')],
+    ]);
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final events = await loop.run(
+      [const ChatMessage(role: 'system', content: 'sys')],
+      context: const AgentScenarioContext(extra: {'chat_session_id': 42}),
+    ).toList();
+    expect(events.any((e) => e is ToolCallEndEvent), isTrue);
+
+    final list = await ReviewRepository(sdb).findBySession(42);
+    expect(list.length, 1);
+    expect(list.first.summary, '批改1题,错');
+    expect(list.first.items.first.verdict, 'wrong');
+    await sdb.close();
+  });
+}
+
+class _ScriptedLlm extends LlmProvider {
+  _ScriptedLlm(this.script) : super(config: LlmConfig(name: '', apiUrl: '', apiKey: '', model: '', createdAt: DateTime(2026)));
+  final List<List<LlmStreamChunk>> script;
+  int _i = 0;
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({required List<ChatMessage> messages, required List<Map<String, dynamic>> tools}) {
+    final chunks = _i < script.length ? script[_i++] : const [LlmStreamChunk(textDelta: '完成')];
+    return Stream.fromIterable(chunks);
+  }
 }

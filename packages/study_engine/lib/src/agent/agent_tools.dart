@@ -130,6 +130,37 @@ class AgentTools {
     },
   };
 
+  static const saveReview = {
+    'type': 'function',
+    'function': {
+      'name': 'save_review',
+      'description': '批改完成后保存结构化批改明细(逐题对错/解析/涉及知识点),供卡片展示与复盘对话。调用后前端渲染批改卡片,用户可点进查看、继续探讨。与 set_mastery 各司其职:set_mastery 写掌握度日志,save_review 写批改明细。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'summary': {'type': 'string', 'description': '批改摘要,如"批改3题,对1错2,薄弱:洛必达适用条件"'},
+          'items': {
+            'type': 'array',
+            'description': '逐题明细',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'seq': {'type': 'integer', 'description': '题序,从1开始'},
+                'question': {'type': 'string', 'description': '题目文本'},
+                'user_answer': {'type': 'string', 'description': '用户作答(可空)'},
+                'verdict': {'type': 'string', 'enum': ['correct', 'partial', 'wrong'], 'description': '判定'},
+                'analysis': {'type': 'string', 'description': '解析'},
+                'topic_ids': {'type': 'array', 'items': {'type': 'integer'}, 'description': '涉及知识点 id 列表'},
+              },
+              'required': ['seq', 'question', 'verdict', 'analysis'],
+            },
+          },
+        },
+        'required': ['summary', 'items'],
+      },
+    },
+  };
+
   static const studyTools = [
     listTopics,
     searchTopics,
@@ -139,5 +170,6 @@ class AgentTools {
     linkTopics,
     setMastery,
     getMastery,
+    saveReview,
   ];
 }

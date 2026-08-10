@@ -90,7 +90,7 @@ $memBlock''';
 
   @override
   Future<String> executeTool(String name, Map<String, dynamic> args,
-      {void Function(String p)? onProgress, String? toolCallId}) async {
+      {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async {
     switch (name) {
       case 'list_topics':
         return _listTopics(args['path'] as String?);
@@ -117,6 +117,8 @@ $memBlock''';
         );
       case 'get_mastery':
         return _getMastery(args['topic_id'] as int);
+      case 'save_review':
+        return _saveReview(args, context);
       default:
         return '未知工具: $name';
     }
@@ -250,6 +252,26 @@ $memBlock''';
       'log_count': timeline.length,
       'recent': recent,
     });
+  }
+
+  Future<String> _saveReview(Map<String, dynamic> args, AgentScenarioContext? ctx) async {
+    final summary = args['summary'] as String;
+    final itemsRaw = args['items'] as List;
+    final items = itemsRaw.map((raw) {
+      final m = raw as Map<String, dynamic>;
+      final tids = m['topic_ids'];
+      return ReviewItem(
+        seq: m['seq'] as int,
+        question: m['question'] as String,
+        userAnswer: m['user_answer'] as String?,
+        verdict: m['verdict'] as String,
+        analysis: m['analysis'] as String,
+        topicIds: tids == null ? const [] : (tids as List).map((e) => e as int).toList(),
+      );
+    }).toList();
+    final sessionId = ctx?.extra['chat_session_id'] as int?;
+    final id = await reviews.save(chatSessionId: sessionId, summary: summary, items: items);
+    return '已保存批改(共 ${items.length} 题,review_id=$id)';
   }
 
   @override
