@@ -6,6 +6,7 @@
 //
 // 多轮架构（spec §3）：状态在 currentChatProvider，本文件只做渲染 + 输入。
 // 截图纯内存，随会话释放；抽屉关闭后经 ProviderScope.containerOf 清空。
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -134,7 +135,8 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
               child: ListView(
                 controller: _scrollCtrl,
                 children: [
-                  ...state.messages.map((m) => _buildMessage(m, theme, aiBody)),
+                  ...state.messages
+                      .map((m) => _buildMessage(m, theme, aiBody, state.messages)),
                   // 流式文本（当前轮 LLM 正在输出）
                   if (state.streamingText.isNotEmpty)
                     _AiNote(
@@ -233,8 +235,12 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     );
   }
 
-  /// 按消息角色分派渲染：user → 用户气泡；assistant → AI note；tool → 工具轨迹。
-  Widget _buildMessage(ChatMessage msg, ThemeData theme, TextStyle? aiBody) {
+  /// 按消息角色分派渲染:user → 用户气泡;assistant → AI note;tool → 工具轨迹。
+  ///
+  /// [allMessages] 为跨轮持久的全量消息列表,用于在 assistant 消息分支
+  /// 提取 save_review 卡片所需 review_id(从同轮 tool 消息 content 解析)。
+  Widget _buildMessage(
+      ChatMessage msg, ThemeData theme, TextStyle? aiBody, List<ChatMessage> allMessages) {
     if (msg.role == 'user') {
       final text = _extractText(msg);
       return Padding(
@@ -248,14 +254,21 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     }
     if (msg.role == 'assistant') {
       final text = _extractText(msg);
+      final cards = _reviewCardsFromToolCalls(msg.toolCalls, allMessages);
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: _AiNote(
-          text: text,
-          toolEvents: const [],
-          aiBody: aiBody,
-          colorScheme: theme.colorScheme,
-          theme: theme,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _AiNote(
+              text: text,
+              toolEvents: const [],
+              aiBody: aiBody,
+              colorScheme: theme.colorScheme,
+              theme: theme,
+            ),
+            ...cards,
+          ],
         ),
       );
     }
@@ -268,6 +281,30 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
       );
     }
     return const SizedBox.shrink();
+  }
+
+  /// 从 assistant 消息的 toolCalls 提取 save_review 调用,渲染对应卡片列表。
+  ///
+  /// 数据源是已落库的 messages(跨轮持久),不是 state.toolEvents(每轮清空)。
+  /// review_id 从对应的 tool 消息(role=='tool' 且 toolCallId 匹配)content 解析。
+  List<Widget> _reviewCardsFromToolCalls(
+      List<ToolCall>? toolCalls, List<ChatMessage> allMessages) {
+    if (toolCalls == null) return const [];
+    return toolCalls
+        .where((tc) => tc.name == 'save_review')
+        .map((tc) {
+          // 在同轮 tool 消息里按 toolCallId 查 result(含 review_id=N)。
+          // tool 消息由 AgentRoundEndEvent 落库(chat_session_provider.dart),跨轮持久。
+          String rawResult = '';
+          try {
+            final toolMsg = allMessages.firstWhere(
+              (m) => m.role == 'tool' && m.toolCallId == tc.id,
+            );
+            rawResult = _extractText(toolMsg);
+          } catch (_) {}
+          return _ReviewCard(rawArguments: tc.arguments, rawResult: rawResult);
+        })
+        .toList();
   }
 
   /// 从 ChatMessage.content 抽文本（String 直取；List 取 TextPart 拼接）。
@@ -584,6 +621,68 @@ class _ErrorPanel extends StatelessWidget {
           color: colorScheme.onErrorContainer,
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：批改卡片（save_review）
+// ─────────────────────────────────────────────────────────────
+
+/// 批改卡片：save_review 落库后渲染，点进看逐题明细（Task 7 的 ReviewDetailPage）。
+///
+/// 摘要与题数从 [rawArguments]（ToolCall.arguments 原始 JSON）解析；
+/// review_id 从 [rawResult]（同轮 tool 消息 content，含 review_id=N）解析。
+/// 全部 paper 字段走可空 + colorScheme 兜底（测试用裸 MaterialApp 无 PaperColors 扩展）。
+class _ReviewCard extends StatelessWidget {
+  final String rawArguments; // ToolCall.arguments，原始 JSON
+  final String rawResult; // tool 消息 content，含 review_id=N（可空串）
+  const _ReviewCard({required this.rawArguments, required this.rawResult});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final paper = theme.extension<PaperColors>();
+    final cs = theme.colorScheme;
+    // 从 arguments 解析摘要；解析失败兜底"批改报告"
+    String summary = '批改报告';
+    try {
+      final obj = jsonDecode(rawArguments) as Map<String, dynamic>;
+      if (obj['summary'] is String) summary = obj['summary'] as String;
+    } catch (_) {}
+    final match = RegExp(r'review_id=(\d+)').firstMatch(rawResult);
+    final reviewId = match == null ? null : int.parse(match.group(1)!);
+    return Card(
+      key: const ValueKey('review_card'),
+      color: paper?.polaroidBg ?? cs.surfaceContainerLow,
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: ListTile(
+        leading: Icon(Icons.rate_review, color: paper?.stampRed ?? cs.primary),
+        title: Text('批改报告', style: theme.textTheme.titleSmall),
+        subtitle: Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis),
+        trailing: reviewId == null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ReviewDetailPage(reviewId: reviewId),
+                )),
+              ),
+      ),
+    );
+  }
+}
+
+/// 批改详情页占位（Task 7 填充逐题明细）。
+class ReviewDetailPage extends StatelessWidget {
+  final int reviewId;
+  const ReviewDetailPage({super.key, required this.reviewId});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('批改详情')),
+      body: const Center(child: Text('详情待实现')),
     );
   }
 }
