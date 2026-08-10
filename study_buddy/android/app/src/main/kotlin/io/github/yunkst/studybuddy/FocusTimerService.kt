@@ -51,6 +51,9 @@ class FocusTimerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // 先调 startForeground 再 stopSelf：服务存活时是 no-op 刷新；
+            // 被系统回收后用户点残留通知重新拉起时，是正确的前台过渡（避免 ForegroundServiceStartNotAllowedException）。
+            startForeground(NOTIFICATION_ID, buildNotification(elapsedMs = 0L))
             notifyFlutterStopped()
             stopSelf()
             return START_NOT_STICKY
