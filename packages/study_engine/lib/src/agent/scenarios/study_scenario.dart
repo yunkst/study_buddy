@@ -169,7 +169,7 @@ $memBlock''';
       if (e.toString().contains('UNIQUE constraint failed')) {
         final existing = await topics.findByTitle(title);
         await onTopicTouched?.call(existing!.id!);
-        return '知识点「$title」已存在(id=${existing!.id})。如需补充答案请用 update_topic(id=${existing!.id}, summary=...)';
+        return '知识点「$title」已存在(id=${existing?.id})。如需补充答案请用 update_topic(id=${existing?.id}, summary=...)';
       }
       rethrow;
     }
