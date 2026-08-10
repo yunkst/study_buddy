@@ -47,13 +47,23 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
       _error = null;
     });
     final repo = await ref.read(planRepositoryAsyncProvider.future);
-    await repo.addAssessment(Assessment(
-      planId: widget.planId,
-      score: score,
-      note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-      assessedAt: _date,
-      createdAt: DateTime.now(),
-    ));
+    try {
+      await repo.addAssessment(Assessment(
+        planId: widget.planId,
+        score: score,
+        note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+        assessedAt: _date,
+        createdAt: DateTime.now(),
+      ));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = '保存失败，请重试';
+        });
+      }
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -100,7 +110,7 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
                           firstDate: DateTime(2020),
                           lastDate: DateTime(2100),
                         );
-                        if (picked != null) setState(() => _date = picked);
+                        if (picked != null && mounted) setState(() => _date = picked);
                       },
               ),
             ],
