@@ -10,23 +10,20 @@ import '../../core/providers/screenshot_provider.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 import '../../core/update/ui/app_update_dialog.dart';
-import '../../features/external_qbank/ai_panel_sheet.dart';
-import '../../main.dart' show PendingScreenshotStore;
 
-class HomePage extends ConsumerStatefulWidget {
-  const HomePage({super.key});
+class OverlaySettingsPage extends ConsumerStatefulWidget {
+  const OverlaySettingsPage({super.key});
   @override
-  ConsumerState<HomePage> createState() => _HomePageState();
+  ConsumerState<OverlaySettingsPage> createState() => _OverlaySettingsPageState();
 }
 
-class _HomePageState extends ConsumerState<HomePage> {
+class _OverlaySettingsPageState extends ConsumerState<OverlaySettingsPage> {
   bool? _overlayGranted;
 
   @override
   void initState() {
     super.initState();
     _checkPermission();
-    _consumePendingScreenshot();
   }
 
   Future<void> _checkPermission() async {
@@ -37,22 +34,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
   }
 
-  Future<void> _consumePendingScreenshot() async {
-    // 冷启动降级：弹出待处理截图的 AI 面板
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final pending = PendingScreenshotStore.pending;
-      if (pending != null) {
-        PendingScreenshotStore.pending = null;
-        if (mounted) await showAiPanel(context, screenshot: pending);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final dbAsync = ref.watch(databaseProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Study Buddy')),
+      appBar: AppBar(title: const Text('悬浮窗')),
       body: dbAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('数据库初始化失败: $e')),
