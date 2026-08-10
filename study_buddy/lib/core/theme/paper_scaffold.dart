@@ -53,47 +53,27 @@ class PaperScaffold extends StatelessWidget {
       stops: const [0.0, 1.0],
     );
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: appBar,
-      body: body,
-      floatingActionButton: floatingActionButton,
-      bottomNavigationBar: bottomNavigationBar,
-      resizeToAvoidBottomInset: resizeToAvoidBottomInset,
-      // 通过 Stack 把纸底铺在 Scaffold 内容之下。Scaffold 的 body 已由
-      // Framework 摆放,这里用 builder 回调拿到 body 的约束区域,再在底层绘制。
-      // 但 Scaffold 不直接暴露底层插入点,因此改用 DecoratedBox 包裹策略:
-      // 让 Scaffold 透明,其外层用 Stack 承载纸底。
-    ).paperBackground(
-      gradient: gradient,
-      ruleColor: colorScheme.onSurface.withValues(alpha: _ruleAlpha),
-    );
-  }
-}
-
-/// 给 [Scaffold] 包一层纸感底:Stack 底层是渐变 + 横线 CustomPaint,
-/// 上层是原 Scaffold(透明背景)。
-extension PaperBackgroundScaffold on Scaffold {
-  Widget paperBackground({
-    required RadialGradient gradient,
-    required Color ruleColor,
-  }) {
     return Stack(
       children: [
         Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(gradient: gradient),
-          ),
+          child: DecoratedBox(decoration: BoxDecoration(gradient: gradient)),
         ),
         Positioned.fill(
           child: CustomPaint(
             painter: _RuleLinesPainter(
-              spacing: PaperScaffold._ruleSpacing,
-              color: ruleColor,
+              spacing: _ruleSpacing,
+              color: colorScheme.onSurface.withValues(alpha: _ruleAlpha),
             ),
           ),
         ),
-        this,
+        Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: appBar,
+          body: body,
+          floatingActionButton: floatingActionButton,
+          bottomNavigationBar: bottomNavigationBar,
+          resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        ),
       ],
     );
   }
