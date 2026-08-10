@@ -85,4 +85,32 @@ void main() {
     final rows = await sdb.db.query('chat_message', where: 'session_id = ?', whereArgs: [sid]);
     expect(rows, hasLength(1));
   });
+
+  test('CategoryRepository.ensurePath 多级创建且幂等', () async {
+    final repo = CategoryRepository(sdb);
+    final id1 = await repo.ensurePath(['数学', '高等数学', '极限']);
+    final id2 = await repo.ensurePath(['数学', '高等数学', '极限']);
+    expect(id1, id2);
+
+    final found = await repo.findByPath(['数学', '高等数学', '极限']);
+    expect(found?.id, id1);
+
+    final missing = await repo.findByPath(['数学', '不存在的分支']);
+    expect(missing, isNull);
+  });
+
+  test('CategoryRepository.findChildren 与 pathOf', () async {
+    final repo = CategoryRepository(sdb);
+    await repo.ensurePath(['数学', '高等数学', '极限']);
+    final topLevel = await repo.findChildren(null);
+    expect(topLevel.map((c) => c.name), contains('数学'));
+
+    final math = await repo.findByPath(['数学']);
+    final children = await repo.findChildren(math!.id!);
+    expect(children.map((c) => c.name), contains('高等数学'));
+
+    final limit = await repo.findByPath(['数学', '高等数学', '极限']);
+    final path = await repo.pathOf(limit!.id!);
+    expect(path, ['数学', '高等数学', '极限']);
+  });
 }
