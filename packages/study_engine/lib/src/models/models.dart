@@ -142,6 +142,48 @@ class MasteryLog {
       };
 }
 
+/// 背诵反馈三档。
+enum ReviewFeedback { forgot, remembered, easy }
+
+/// 间隔重复调度记录。1:1 关联 topic，主键即 topic.id。
+/// 懒初始化：首次背诵时才建，save_topic 不写此表。
+class ReviewSchedule {
+  final int topicId;
+  final double easeFactor; // 难度系数，初始 2.5
+  final int intervalDays; // 当前间隔天数，首学为 0
+  final DateTime nextReviewAt; // 下次到期时间
+  final int reviewCount; // 已复习次数
+  final DateTime? lastReviewedAt; // 最近一次复习，首次为 null
+  const ReviewSchedule({
+    required this.topicId,
+    required this.easeFactor,
+    required this.intervalDays,
+    required this.nextReviewAt,
+    required this.reviewCount,
+    this.lastReviewedAt,
+  });
+
+  factory ReviewSchedule.fromMap(Map<String, Object?> m) => ReviewSchedule(
+        topicId: m['topic_id'] as int,
+        easeFactor: (m['ease_factor'] as num).toDouble(),
+        intervalDays: m['interval_days'] as int,
+        nextReviewAt: DateTime.fromMillisecondsSinceEpoch(m['next_review_at'] as int),
+        reviewCount: m['review_count'] as int,
+        lastReviewedAt: m['last_reviewed_at'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(m['last_reviewed_at'] as int),
+      );
+  Map<String, Object?> toMap() => {
+        'topic_id': topicId,
+        'ease_factor': easeFactor,
+        'interval_days': intervalDays,
+        'next_review_at': nextReviewAt.millisecondsSinceEpoch,
+        'review_count': reviewCount,
+        if (lastReviewedAt != null)
+          'last_reviewed_at': lastReviewedAt!.millisecondsSinceEpoch,
+      };
+}
+
 /// LLM 供应商配置。
 class LlmConfig {
   final int? id;

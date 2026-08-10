@@ -18,6 +18,7 @@ void main() {
     for (final t in [
       'category', 'topic', 'topic_edge', 'mastery_log',
       'llm_config', 'agent_memory', 'chat_session', 'chat_message',
+      'review_schedule',
     ]) {
       expect(names, contains(t), reason: '缺表: $t');
     }

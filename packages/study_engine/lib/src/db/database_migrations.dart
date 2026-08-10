@@ -1,7 +1,7 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 2;
+const int kCurrentDbVersion = 3;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 Future<void> migrateDatabase(Database db, int from, int to) async {
@@ -13,6 +13,9 @@ Future<void> migrateDatabase(Database db, int from, int to) async {
         break;
       case 2:
         _v2(batch);
+        break;
+      case 3:
+        _v3(batch);
         break;
       default:
         throw StateError('未知数据库版本: $v');
@@ -172,4 +175,20 @@ void _v2(Batch batch) {
   ''');
   batch.execute('CREATE INDEX idx_topic_edge_from ON topic_edge(from_topic_id)');
   batch.execute('CREATE INDEX idx_topic_edge_to ON topic_edge(to_topic_id)');
+}
+
+/// v3：消费侧背诵。新建 review_schedule 表（1:1 topic，懒初始化）。
+void _v3(Batch batch) {
+  batch.execute('''
+    CREATE TABLE review_schedule (
+      topic_id         INTEGER PRIMARY KEY,
+      ease_factor      REAL    NOT NULL DEFAULT 2.5,
+      interval_days    INTEGER NOT NULL DEFAULT 0,
+      next_review_at   INTEGER NOT NULL,
+      review_count     INTEGER NOT NULL DEFAULT 0,
+      last_reviewed_at INTEGER,
+      FOREIGN KEY (topic_id) REFERENCES topic(id) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_review_schedule_next ON review_schedule(next_review_at)');
 }
