@@ -1,4 +1,4 @@
-/// Agent 工具 schema（OpenAI function calling）。知识点体系 6 个工具。
+/// Agent 工具 schema（OpenAI function calling）。知识点体系 8 个工具。
 class AgentTools {
   AgentTools._();
 
@@ -98,5 +98,46 @@ class AgentTools {
     },
   };
 
-  static const studyTools = [listTopics, searchTopics, getTopic, saveTopic, updateTopic, linkTopics];
+  static const setMastery = {
+    'type': 'function',
+    'function': {
+      'name': 'set_mastery',
+      'description': '记录某知识点/技巧的掌握程度(基于一次作答或复习判定)。映射规则:全对→升一级(unknown/weak→learning、learning→mastered、mastered 保持);部分对→learning(已 mastered 则回退 learning);全错→weak。reason 必填,写明判定依据。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'topic_id': {'type': 'integer', 'description': '知识点/技巧 id'},
+          'status': {'type': 'string', 'enum': ['learning', 'mastered', 'weak'], 'description': '目标掌握状态'},
+          'reason': {'type': 'string', 'description': '判定依据,如"洛必达题答错:混淆适用条件"'},
+        },
+        'required': ['topic_id', 'status', 'reason'],
+      },
+    },
+  };
+
+  static const getMastery = {
+    'type': 'function',
+    'function': {
+      'name': 'get_mastery',
+      'description': '查询某知识点/技巧的当前掌握程度与最近变更历史。批改前了解现状以决定如何调整。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'topic_id': {'type': 'integer', 'description': '知识点/技巧 id'},
+        },
+        'required': ['topic_id'],
+      },
+    },
+  };
+
+  static const studyTools = [
+    listTopics,
+    searchTopics,
+    getTopic,
+    saveTopic,
+    updateTopic,
+    linkTopics,
+    setMastery,
+    getMastery,
+  ];
 }

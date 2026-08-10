@@ -2,19 +2,30 @@ import 'dart:convert';
 import '../../models/models.dart';
 import '../../repos/agent_memory_repository.dart';
 import '../../repos/category_repository.dart';
+import '../../repos/mastery_repository.dart';
+import '../../repos/review_repository.dart';
 import '../../repos/topic_edge_repository.dart';
 import '../../repos/topic_repository.dart';
 import '../agent_scenario.dart';
 import '../agent_tools.dart';
 
-/// 学习伴侣场景：6 工具，工具执行调 Repository，记忆来自 agent_memory 表。
+/// 学习伴侣场景：8 工具，工具执行调 Repository，记忆来自 agent_memory 表。
 class StudyScenario implements AgentScenario {
   final CategoryRepository categories;
   final TopicRepository topics;
   final TopicEdgeRepository edges;
   final AgentMemoryRepository memories;
+  final MasteryRepository mastery; // 掌握度记录/查询
+  final ReviewRepository reviews; // 批改记录（Task 3 填实现，本阶段仅注入）
 
-  StudyScenario({required this.categories, required this.topics, required this.edges, required this.memories});
+  StudyScenario({
+    required this.categories,
+    required this.topics,
+    required this.edges,
+    required this.memories,
+    required this.mastery,
+    required this.reviews,
+  });
 
   @override String get id => 'study';
   @override String get displayName => '学习伴侣';
@@ -74,6 +85,14 @@ $memBlock''';
         return _updateTopic(args['id'] as int, args['summary'] as String);
       case 'link_topics':
         return _linkTopics(args['from'] as int, args['to'] as int, args['type'] as String);
+      case 'set_mastery':
+        return _setMastery(
+          args['topic_id'] as int,
+          args['status'] as String,
+          args['reason'] as String,
+        );
+      case 'get_mastery':
+        return _getMastery(args['topic_id'] as int);
       default:
         return '未知工具: $name';
     }
@@ -182,6 +201,31 @@ $memBlock''';
     final after = (await edges.findByTopic(from)).where((e) => e.otherId == to).length;
     if (after == before) return '关联已存在: ${fromTopic.title} → ${toTopic.title} ($type)';
     return '已建立 $type 关联: ${fromTopic.title} → ${toTopic.title}';
+  }
+
+  Future<String> _setMastery(int topicId, String status, String reason) async {
+    final parsed = MasteryStatusX.fromWire(status);
+    if (parsed == MasteryStatus.unknown) {
+      return 'status 不合法(允许 learning/mastered/weak,禁止 unknown)';
+    }
+    await mastery.log(topicId, parsed, reason: reason);
+    return '已记录掌握度: $status (reason: $reason)';
+  }
+
+  Future<String> _getMastery(int topicId) async {
+    final current = await mastery.currentStatus(topicId);
+    final timeline = await mastery.timeline(topicId);
+    final recent = timeline.reversed.take(5).toList().reversed.map((m) => {
+          'status': m.status.wire,
+          'reason': m.reason,
+          'changed_at': m.changedAt.toIso8601String(),
+        }).toList();
+    return jsonEncode({
+      'topic_id': topicId,
+      'current_status': current.wire,
+      'log_count': timeline.length,
+      'recent': recent,
+    });
   }
 
   @override

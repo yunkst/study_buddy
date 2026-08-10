@@ -38,6 +38,8 @@ class AgentSession {
       topics: topics,
       edges: edgesRepo,
       memories: memories,
+      mastery: MasteryRepository(db),
+      reviews: ReviewRepository(db),
     );
     final loop = AgentLoop(llm: llm, scenario: scenario);
     return loop.run(messages);
