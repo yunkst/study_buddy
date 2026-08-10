@@ -5,7 +5,7 @@ import 'package:study_engine/study_engine.dart';
 void main() {
   setUpAll(sqfliteFfiInit);
 
-  StudyScenario _newScenario(StudyDatabase sdb) => StudyScenario(
+  StudyScenario newScenario(StudyDatabase sdb) => StudyScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -14,7 +14,7 @@ void main() {
 
   test('场景1 save_topic 新建（分类自动建）', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
     final cats = CategoryRepository(sdb);
     final topics = TopicRepository(sdb);
 
@@ -38,7 +38,7 @@ void main() {
 
   test('场景2 save_topic 重复 title 被拒', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
     final topics = TopicRepository(sdb);
 
     await scenario.executeTool('save_topic', {
@@ -58,7 +58,7 @@ void main() {
 
   test('场景3 先查后写完整流程', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
 
     await scenario.executeTool('save_topic', {
       'path': '数学/高等数学/极限', 'title': '极限的ε-δ定义', 'question': 'q', 'summary': '旧答案',
@@ -83,7 +83,7 @@ void main() {
 
   test('场景4 分层下钻 list_topics', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
 
     await scenario.executeTool('save_topic', {
       'path': '数学/高等数学/极限', 'title': '洛必达法则', 'question': 'q', 'summary': 's',
@@ -106,7 +106,7 @@ void main() {
 
   test('场景5 建边 link_topics + get_topic 含边', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
     final topics = TopicRepository(sdb);
 
     await scenario.executeTool('save_topic', {'path': '数学', 'title': '洛必达法则', 'question': 'q', 'summary': 's'});
@@ -127,7 +127,7 @@ void main() {
 
   test('场景6 AgentLoop 端到端 mock save_topic', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = _newScenario(sdb);
+    final scenario = newScenario(sdb);
     final topics = TopicRepository(sdb);
 
     final llm = _ScriptedLlm([
