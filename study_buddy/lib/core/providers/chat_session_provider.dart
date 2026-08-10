@@ -20,7 +20,6 @@ class ChatSessionState {
   final String streamingText; // 当前轮 LLM 流式增量累积
   final List<ToolEvent> toolEvents; // 当前轮工具轨迹
   final bool busy; // agent 运行中
-  final bool saved; // 本轮触发过 save_topic
   final String? error;
 
   const ChatSessionState({
@@ -28,7 +27,6 @@ class ChatSessionState {
     this.streamingText = '',
     this.toolEvents = const [],
     this.busy = false,
-    this.saved = false,
     this.error,
   });
 
@@ -37,7 +35,6 @@ class ChatSessionState {
     String? streamingText,
     List<ToolEvent>? toolEvents,
     bool? busy,
-    bool? saved,
     String? error,
   }) {
     return ChatSessionState(
@@ -45,7 +42,6 @@ class ChatSessionState {
       streamingText: streamingText ?? this.streamingText,
       toolEvents: toolEvents ?? this.toolEvents,
       busy: busy ?? this.busy,
-      saved: saved ?? this.saved,
       error: error,
     );
   }
@@ -80,7 +76,6 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       streamingText: '',
       toolEvents: const [],
       busy: true,
-      saved: false,
       error: null,
     );
 
@@ -134,8 +129,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
           }
           return e;
         }).toList();
-        final saved = state.saved || name == 'save_topic';
-        state = state.copyWith(toolEvents: updated, saved: saved);
+        state = state.copyWith(toolEvents: updated);
       case ToolProgressEvent(:final progress):
         state = state.copyWith(
           toolEvents: [...state.toolEvents, ToolEvent('·', progress)],
@@ -150,13 +144,8 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
         );
       case AgentRoundEndEvent(:final newMessages):
         // 逐轮回填合法消息序列（assistant + tool 消息）
-        // 同时扫描本轮 toolCalls：若触发过 save_topic 则置 saved=true
-        final roundSaved = newMessages.any(
-          (m) => m.toolCalls?.any((t) => t.name == 'save_topic') ?? false,
-        );
         state = state.copyWith(
           messages: [...state.messages, ...newMessages],
-          saved: state.saved || roundSaved,
           streamingText: '', // 本轮文本已落入 assistant 消息；清空以便下一轮独立累积
         );
       case AgentDoneEvent(:final finalText):
@@ -168,7 +157,13 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
             streamingText: '',
           );
         } else {
-          state = state.copyWith(busy: false, streamingText: '');
+          // C1 修复：纯文本轮的最终回答经 AgentDoneEvent(finalText) 追加进 messages，
+          // 下一轮 send 时它会成为 run 入参的一部分（多轮上下文）。
+          state = state.copyWith(
+            messages: [...state.messages, ChatMessage(role: 'assistant', content: finalText)],
+            busy: false,
+            streamingText: '',
+          );
         }
       case AgentErrorEvent(:final message):
         _onError(message);

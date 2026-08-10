@@ -14,6 +14,10 @@ Future<void> showAiPanel(
   BuildContext context, {
   required CapturedScreenshot screenshot,
 }) async {
+  // 在 await 前捕获容器：抽屉关闭后清空会话（纯内存），不依赖 context.mounted。
+  // 若在 await 后再 containerOf，页面可能已 pop，context 已 unmounted，
+  // 会话（含截图 bytes）将无法清空。
+  final container = ProviderScope.containerOf(context, listen: false);
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -21,10 +25,8 @@ Future<void> showAiPanel(
     enableDrag: true,
     builder: (_) => _AiPanelSheet(initialScreenshot: screenshot),
   );
-  // 抽屉关闭后清空会话（纯内存）。此时 outer widget tree 仍活跃，
-  // container 未被 dispose，notifier 仍 mounted。
-  if (!context.mounted) return;
-  final container = ProviderScope.containerOf(context, listen: false);
+  // 抽屉关闭后清空会话（纯内存）。container 在 await 前捕获，
+  // 不依赖 context.mounted。
   container.read(currentChatProvider.notifier).clear();
 }
 
@@ -215,9 +217,10 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
           const []);
     }
     if (msg.role == 'tool') {
+      final content = msg.content is String ? msg.content as String : '';
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text('🔧 ${msg.content}',
+        child: Text('🔧 $content',
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
       );
     }

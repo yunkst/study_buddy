@@ -10,7 +10,11 @@ import 'package:study_buddy/core/providers/webview_screenshot_provider.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
 import 'package:study_engine/study_engine.dart';
 
-/// 假 AgentSession：收到 run 后返回一个立即完成的 assistant 回答。
+/// 假 AgentSession：收到 run 后返回一个立即完成的纯文本轮。
+///
+/// 事件序列遵循引擎真实契约（agent_loop.dart）：
+/// 纯文本轮 = TextDelta* + AgentDoneEvent(finalText)，无 RoundEnd。
+/// 最终回答经 AgentDoneEvent 由 Notifier append 进 messages。
 ///
 /// 注：Riverpod 3.x 中 `Ref` 为 sealed 类，外部库无法 `implements Ref`。
 /// 因此 fake 通过 `overrideWith((ref) => _FakeAgentSession(ref))` 注入，
@@ -20,7 +24,8 @@ class _FakeAgentSession extends AgentSession {
   @override
   Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
     return Stream.fromIterable([
-      AgentRoundEndEvent([const ChatMessage(role: 'assistant', content: '这是分析')]),
+      TextDeltaEvent('这是'),
+      TextDeltaEvent('分析'),
       AgentDoneEvent('这是分析'),
     ]);
   }
@@ -132,8 +137,8 @@ void main() {
     // StreamController 事件派发是真实异步，需 runAsync 才能推进；
     // 完成后用 pump 渲染（不用 pumpAndSettle，避免 fake async 下等待真实 future）。
     await tester.runAsync(() async {
-      controller.add(AgentRoundEndEvent(
-          [const ChatMessage(role: 'assistant', content: '慢')]));
+      // 真实纯文本轮序列：TextDelta + AgentDoneEvent（无 RoundEnd）
+      controller.add(TextDeltaEvent('慢'));
       controller.add(AgentDoneEvent('慢'));
       await controller.close();
     });

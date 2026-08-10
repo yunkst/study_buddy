@@ -67,13 +67,55 @@ void main() {
     expect(newMsgs[1].toolCallId, 'c1');
   });
 
-  test('无工具调用的轮不 yield AgentRoundEndEvent', () async {
+  test('无工具调用的轮不 yield AgentRoundEndEvent,Done 携带最终文本', () async {
+    // 契约固定：纯文本轮 = TextDelta(s) + AgentDoneEvent(finalText=累积文本)，NO RoundEnd。
+    // 这是 Notifier 区分「纯文本轮需 append finalText」「工具轮需 append newMessages」的依据。
+    // 注意：_FakeLlm 的 script 每个元素是一次 LLM 调用的全部 chunks。
     final llm = _FakeLlm([
-      const [LlmStreamChunk(textDelta: '直接回答')],
+      const [
+        LlmStreamChunk(textDelta: '直接'),
+        LlmStreamChunk(textDelta: '回答'),
+      ],
     ]);
     final scenario = _FakeScenario();
     final loop = AgentLoop(llm: llm, scenario: scenario);
-    final events = await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+
+    // 纯文本轮不 yield RoundEnd
     expect(events.whereType<AgentRoundEndEvent>(), isEmpty);
+    // 事件序列里要有 TextDelta 和最终 AgentDoneEvent
+    expect(events.whereType<TextDeltaEvent>(), isNotEmpty);
+    // 最后一个事件必须是 AgentDoneEvent，其 finalText = 所有 TextDelta 的累积
+    expect(events.last, isA<AgentDoneEvent>());
+    final done = events.last as AgentDoneEvent;
+    expect(done.finalText, '直接回答');
+  });
+
+  test('纯文本轮事件序列: TextDelta* + AgentDoneEvent(finalText),无 RoundEnd', () async {
+    // 多 delta 流式输出验证：finalText 是累积值，不是最新 delta
+    final llm = _FakeLlm([
+      const [
+        LlmStreamChunk(textDelta: '你好'),
+        LlmStreamChunk(textDelta: '，'),
+        LlmStreamChunk(textDelta: '世界'),
+      ],
+    ]);
+    final scenario = _FakeScenario();
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+
+    // 严格结构：事件流只含 Started + TextDeltas + Done,不含 RoundEnd
+    final types = events.map((e) => e.runtimeType).toList();
+    expect(types, [
+      AgentStartedEvent,
+      TextDeltaEvent,
+      TextDeltaEvent,
+      TextDeltaEvent,
+      AgentDoneEvent,
+    ]);
+    final done = events.last as AgentDoneEvent;
+    expect(done.finalText, '你好，世界');
   });
 }

@@ -41,7 +41,7 @@ study_buddy 当前的 AI 交互是**单次任务式**：用户截图 → `ai_pan
 | 首页 | **不动** | 同上 |
 | 追问带图 | 文字为主，**可选附图**（每轮 0~1 张） | 用户确认 |
 | 会话状态 | **Riverpod StateNotifier** 持有 `List<ChatMessage>` | 用户确认 |
-| 多轮消息重建 | **解法2**：`AgentDoneEvent` 携带本轮 tool_calls，Notifier 据此 + ToolCallEndEvent 的 result 组装完整消息序列 | 架构可维护性分析（见 §3.2） |
+| 多轮消息重建 | **解法2**：`AgentRoundEndEvent` 在工具轮末携带本轮完整消息序列，Notifier 零格式知识直接 append；纯文本轮经 `AgentDoneEvent(finalText)` 追加最终 assistant 消息 | 架构可维护性分析（见 §3.2） |
 
 ## 3. 顶层架构
 
@@ -60,7 +60,7 @@ study_buddy 当前的 AI 交互是**单次任务式**：用户截图 → `ai_pan
 │     ├ List<ChatMessage> messages   (完整多轮历史,内存)    │
 │     ├ String streamingText         (当前轮流式增量缓冲)   │
 │     ├ List<ToolEvent> toolEvents    (当前轮工具轨迹)      │
-│     └ bool busy / saved / error                         │
+│     └ bool busy / error                                  │
 │   方法: send(text,[image]) / clear()                     │
 └──────────────────────┬──────────────────────────────────┘
                        │ read(agentSessionProvider)
@@ -122,7 +122,6 @@ stream.listen:
   TextDeltaEvent(delta) → state.streamingText += delta     ← 实时打字效果
   ToolCallStartEvent(n,id) → toolEvents.add(ToolEvent(n,'进行中'))
   ToolCallEndEvent(n,result,id) → 更新该 ToolEvent 结果
-                                  + n=='save_topic' → saved=true
   ToolProgressEvent(p)  → toolEvents 追加进度文本
   CompactionEvent       → toolEvents 标记"上下文已压缩"
   RetryEvent(attempt)   → toolEvents 标记"重试第 N 次"
@@ -130,6 +129,8 @@ stream.listen:
                                    → streamingText 清空(本轮文本已入 assistant 消息)
   AgentDoneEvent(finalText) → finalText==null → maxRounds 错误(busy=false)
                              否则 busy=false + streamingText 清空
+                             + append ChatMessage(role:'assistant', content: finalText)
+                             ← 纯文本轮的最终回答必须落进 messages(供下一轮上下文)
   AgentErrorEvent(msg)  → state.error=msg → busy=false
 ```
 
@@ -143,7 +144,7 @@ AgentRoundEndEvent(newMessages = [assistant(含toolCalls), tool, tool, ...]):
   streamingText 清空                 ← 本轮文本已落入 assistant 消息
 ```
 
-纯文本回答的轮不 yield RoundEnd（无消息需回填），本轮文本经 `AgentDoneEvent` 的 `finalText` 呈现（流式时在 `streamingText`）。
+纯文本轮不 yield RoundEnd（引擎无合法消息批需回填），但 `AgentDoneEvent(finalText)` 携带累积的最终文本：Notifier 据此 append `ChatMessage(role:'assistant', content: finalText)` 进 `state.messages`，保证纯文本轮的回答同样进入历史序列（不只"流式呈现"），下一轮 `send` 时作为完整上下文续聊。
 
 下一轮 `send` 时，`state.messages` 已含完整合法序列，`AgentLoop.run([...messages, newUser])` 续聊。
 
@@ -186,7 +187,6 @@ class ChatSessionState {
   final String streamingText;          // 当前轮 LLM 流式增量累积
   final List<ToolEvent> toolEvents;    // 当前轮工具轨迹
   final bool busy;                     // agent 运行中(禁用输入)
-  final bool saved;                    // 本轮触发过 save_topic
   final String? error;
   // copyWith + 初始空状态
 }
