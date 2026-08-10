@@ -12,52 +12,6 @@ void main() {
   setUp(() async => sdb = await _fresh());
   tearDown(() async => await sdb.close());
 
-  test('SubjectRepository.ensureCreate 幂等', () async {
-    final repo = SubjectRepository(sdb);
-    final s1 = await repo.ensureCreate('数学');
-    final s2 = await repo.ensureCreate('数学');
-    expect(s1.id, s2.id);
-    expect(await repo.all(), hasLength(1));
-  });
-
-  test('TopicRepository 增查', () async {
-    final subjects = SubjectRepository(sdb);
-    final topics = TopicRepository(sdb);
-    final math = await subjects.ensureCreate('数学');
-    final id = await topics.insert(Topic(
-      subjectId: math.id!,
-      domain: '代数',
-      title: '一元二次方程',
-      createdAt: DateTime.now(),
-    ));
-    final got = await topics.findById(id);
-    expect(got?.title, '一元二次方程');
-    expect(await topics.queryBySubject(math.id!), hasLength(1));
-    expect(await topics.queryBySubject(math.id!, domain: '几何'), isEmpty);
-  });
-
-  test('MasteryRepository 日志驱动当前状态', () async {
-    final subjects = SubjectRepository(sdb);
-    final topics = TopicRepository(sdb);
-    final mastery = MasteryRepository(sdb);
-    final math = await subjects.ensureCreate('数学');
-    final tid = await topics.insert(Topic(subjectId: math.id!, title: 't', createdAt: DateTime.now()));
-
-    expect(await mastery.currentStatus(tid), MasteryStatus.unknown);
-    await mastery.log(tid, MasteryStatus.learning);
-    await mastery.log(tid, MasteryStatus.mastered);
-    expect(await mastery.currentStatus(tid), MasteryStatus.mastered);
-    expect(await mastery.timeline(tid), hasLength(2));
-  });
-
-  test('TopicDomainRepository 增查', () async {
-    final subjects = SubjectRepository(sdb);
-    final domains = TopicDomainRepository(sdb);
-    final math = await subjects.ensureCreate('数学');
-    await domains.insert(TopicDomain(subjectId: math.id!, name: '代数', createdAt: DateTime.now()));
-    expect(await domains.queryBySubject(math.id!), hasLength(1));
-  });
-
   test('LlmConfigRepository.getDefault 视觉优先', () async {
     final repo = LlmConfigRepository(sdb);
     await repo.insert(LlmConfig(name: 'text', apiUrl: 'u', apiKey: 'k', model: 'm', isDefault: true, createdAt: DateTime.now()));
@@ -187,5 +141,20 @@ void main() {
     final fromB = await edges.findByTopic(b);
     expect(fromB, hasLength(1));
     expect(fromB.first.otherTitle, '洛必达法则');
+  });
+
+  test('MasteryRepository 日志驱动当前状态', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final mastery = MasteryRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    final tid = await topics.insert(Topic(categoryId: catId, question: 'q', title: 't', summary: 's', createdAt: now, updatedAt: now));
+
+    expect(await mastery.currentStatus(tid), MasteryStatus.unknown);
+    await mastery.log(tid, MasteryStatus.learning);
+    await mastery.log(tid, MasteryStatus.mastered);
+    expect(await mastery.currentStatus(tid), MasteryStatus.mastered);
+    expect(await mastery.timeline(tid), hasLength(2));
   });
 }
