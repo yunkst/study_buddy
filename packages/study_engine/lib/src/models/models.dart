@@ -1,82 +1,103 @@
 /// study_engine 数据模型。对应数据库表，不依赖 Flutter。
 library;
 
-/// 学科。
-class Subject {
+/// 分类节点。自引用树，承载 学科→模块→章节。学科是顶级节点（parent_id 为 null）。
+class Category {
   final int? id;
+  final int? parentId;
   final String name;
+  final int sortOrder;
   final DateTime createdAt;
-  const Subject({this.id, required this.name, required this.createdAt});
+  const Category({
+    this.id,
+    this.parentId,
+    required this.name,
+    this.sortOrder = 0,
+    required this.createdAt,
+  });
 
-  factory Subject.fromMap(Map<String, Object?> m) => Subject(
+  factory Category.fromMap(Map<String, Object?> m) => Category(
         id: m['id'] as int?,
+        parentId: m['parent_id'] as int?,
         name: m['name'] as String,
+        sortOrder: (m['sort_order'] as int?) ?? 0,
         createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
       );
   Map<String, Object?> toMap() => {
         if (id != null) 'id': id,
+        if (parentId != null) 'parent_id': parentId,
         'name': name,
+        'sort_order': sortOrder,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 }
 
-/// 知识点。
+/// 知识点。挂载到 Category，含背诵引子(question)与答案本体(summary)。
 class Topic {
   final int? id;
-  final int subjectId;
-  final int? parentTopicId; // 前置/父子关系，nullable
-  final String? domain; // 领域标签，nullable
-  final String title;
-  final String? summary; // AI 生成后存入
+  final int categoryId;
+  final String question; // 必填：背诵引子
+  final String title; // 全库唯一
+  final String summary; // 必填：答案本体，背诵揭晓内容
   final DateTime createdAt;
+  final DateTime updatedAt;
   const Topic({
     this.id,
-    required this.subjectId,
-    this.parentTopicId,
-    this.domain,
+    required this.categoryId,
+    required this.question,
     required this.title,
-    this.summary,
+    required this.summary,
     required this.createdAt,
+    required this.updatedAt,
   });
 
   factory Topic.fromMap(Map<String, Object?> m) => Topic(
         id: m['id'] as int?,
-        subjectId: m['subject_id'] as int,
-        parentTopicId: m['parent_topic_id'] as int?,
-        domain: m['domain'] as String?,
+        categoryId: m['category_id'] as int,
+        question: m['question'] as String,
         title: m['title'] as String,
-        summary: m['summary'] as String?,
+        summary: m['summary'] as String,
         createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(m['updated_at'] as int),
       );
   Map<String, Object?> toMap() => {
         if (id != null) 'id': id,
-        'subject_id': subjectId,
-        if (parentTopicId != null) 'parent_topic_id': parentTopicId,
-        if (domain != null) 'domain': domain,
+        'category_id': categoryId,
+        'question': question,
         'title': title,
-        if (summary != null) 'summary': summary,
+        'summary': summary,
         'created_at': createdAt.millisecondsSinceEpoch,
+        'updated_at': updatedAt.millisecondsSinceEpoch,
       };
 }
 
-/// 学科内领域分类。
-class TopicDomain {
+/// 知识点关联边。prerequisite=前置依赖(有向)，related=相关(无向)。
+class TopicEdge {
   final int? id;
-  final int subjectId;
-  final String name;
+  final int fromTopicId;
+  final int toTopicId;
+  final String type; // 'prerequisite' | 'related'
   final DateTime createdAt;
-  const TopicDomain({this.id, required this.subjectId, required this.name, required this.createdAt});
+  const TopicEdge({
+    this.id,
+    required this.fromTopicId,
+    required this.toTopicId,
+    required this.type,
+    required this.createdAt,
+  });
 
-  factory TopicDomain.fromMap(Map<String, Object?> m) => TopicDomain(
+  factory TopicEdge.fromMap(Map<String, Object?> m) => TopicEdge(
         id: m['id'] as int?,
-        subjectId: m['subject_id'] as int,
-        name: m['name'] as String,
+        fromTopicId: m['from_topic_id'] as int,
+        toTopicId: m['to_topic_id'] as int,
+        type: m['type'] as String,
         createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
       );
   Map<String, Object?> toMap() => {
         if (id != null) 'id': id,
-        'subject_id': subjectId,
-        'name': name,
+        'from_topic_id': fromTopicId,
+        'to_topic_id': toTopicId,
+        'type': type,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 }
