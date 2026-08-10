@@ -354,8 +354,8 @@ class _Polaroid extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary,
                   shape: BoxShape.circle,
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x33000000), blurRadius: 2),
+                  boxShadow: [
+                    BoxShadow(color: paper.warmShadow, blurRadius: 2),
                   ],
                 ),
               ),
