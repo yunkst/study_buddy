@@ -114,8 +114,9 @@ final topicDetailProvider =
 });
 
 /// 关键词搜索：title + 路径。
+/// autoDispose：以任意用户输入字符串为 key，不 autoDispose 会永久缓存每次搜索词。
 final knowledgeSearchProvider =
-    FutureProvider.family<List<KnowledgeSearchResult>, String>(
+    FutureProvider.autoDispose.family<List<KnowledgeSearchResult>, String>(
         (ref, keyword) async {
   final topics = await ref.watch(topicRepositoryProvider.future);
   final cats = await ref.watch(categoryRepositoryProvider.future);

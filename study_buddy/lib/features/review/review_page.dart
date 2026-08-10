@@ -19,6 +19,8 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
   bool _loading = true;
   String? _error;
   int _remembered = 0, _forgot = 0, _easy = 0;
+  bool _submitting = false; // 反馈落地 in-flight 守卫（防双击双写/跳卡）
+  bool _revealing = false; // 揭晓 in-flight 守卫（防并发揭晓）
 
   @override
   void initState() {
@@ -62,6 +64,8 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
   Future<void> _reveal() async {
     final item = _current;
     if (item == null) return;
+    if (_revealing) return; // in-flight 守卫：防并发揭晓
+    _revealing = true;
     try {
       final topics = await ref.read(topicRepositoryProvider.future);
       final topic = await topics.findById(item.topicId);
@@ -84,12 +88,16 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('加载答案失败: $e')),
       );
+    } finally {
+      _revealing = false;
     }
   }
 
   Future<void> _submit(ReviewFeedback feedback) async {
     final item = _current;
     if (item == null) return;
+    if (_submitting) return; // in-flight 守卫：防双击双写/跳卡
+    _submitting = true;
     try {
       final schedRepo = await ref.read(reviewScheduleRepositoryProvider.future);
       final now = DateTime.now();
@@ -120,6 +128,8 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('保存复习记录失败: $e')),
       );
+    } finally {
+      _submitting = false;
     }
   }
 
@@ -228,21 +238,27 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.red.shade100,
                         ),
-                        onPressed: () => _submit(ReviewFeedback.forgot),
+                        onPressed: _submitting
+                            ? null
+                            : () => _submit(ReviewFeedback.forgot),
                         child: const Text('忘了'),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () => _submit(ReviewFeedback.remembered),
+                        onPressed: _submitting
+                            ? null
+                            : () => _submit(ReviewFeedback.remembered),
                         child: const Text('记得'),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton.tonal(
-                        onPressed: () => _submit(ReviewFeedback.easy),
+                        onPressed: _submitting
+                            ? null
+                            : () => _submit(ReviewFeedback.easy),
                         child: const Text('轻松'),
                       ),
                     ),
@@ -250,7 +266,7 @@ class _ReviewPageState extends ConsumerState<ReviewPage> {
                 ),
               ] else
                 FilledButton(
-                  onPressed: _reveal,
+                  onPressed: _revealing ? null : _reveal,
                   child: const Text('揭晓答案'),
                 ),
             ],

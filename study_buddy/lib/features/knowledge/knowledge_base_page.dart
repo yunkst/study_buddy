@@ -88,7 +88,9 @@ class _KnowledgeBasePageState extends ConsumerState<KnowledgeBasePage> {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => _ErrorRetry(
               message: '加载失败: $e',
-              onRetry: () => setState(() {}),
+              // riverpod 3：FutureProvider 失败被缓存，必须 invalidate 才重算
+              onRetry: () =>
+                  ref.invalidate(categoryChildrenProvider(_currentCategoryId)),
             ),
             data: (list) {
               if (list.isEmpty) {
@@ -133,20 +135,24 @@ class _KnowledgeBasePageState extends ConsumerState<KnowledgeBasePage> {
   Widget _buildBreadcrumb() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          TextButton(
-            onPressed: _path.isEmpty
-                ? null
-                : () => _goToDepth(0),
-            child: const Text('全部'),
-          ),
-          for (var i = 0; i < _path.length; i++)
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
             TextButton(
-              onPressed: () => _goToDepth(i),
-              child: Text(_path[i]),
+              onPressed: _path.isEmpty
+                  ? null
+                  : () => _goToDepth(0),
+              child: const Text('全部'),
             ),
-        ],
+            for (var i = 0; i < _path.length; i++)
+              TextButton(
+                // 段 _path[i] 展示其子层（i+1 层）；末段即当前层 → 自动 inert
+                onPressed: () => _goToDepth(i + 1),
+                child: Text(_path[i]),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -157,7 +163,7 @@ class _KnowledgeBasePageState extends ConsumerState<KnowledgeBasePage> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => _ErrorRetry(
         message: '搜索失败: $e',
-        onRetry: () => setState(() {}),
+        onRetry: () => ref.invalidate(knowledgeSearchProvider(_keyword)),
       ),
       data: (results) {
         if (results.isEmpty) {
