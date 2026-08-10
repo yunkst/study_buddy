@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
+import 'package:study_buddy/core/providers/chat_session_provider.dart';
 import 'package:study_buddy/core/providers/screenshot_provider.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
 import 'package:study_engine/study_engine.dart';
@@ -70,4 +71,98 @@ void main() {
     // 卡片含摘要文案
     expect(find.textContaining('批改'), findsWidgets);
   });
+
+  testWidgets('详情页渲染逐题明细', (tester) async {
+    // 预存一条 review 的内存假 repo
+    final review = Review(
+      id: 7,
+      chatSessionId: null,
+      summary: '批改3题,对1错2',
+      items: [
+        ReviewItem(
+          seq: 1,
+          question: '求 lim(x→0) sin x / x',
+          userAnswer: '0',
+          verdict: 'wrong',
+          analysis: '应为 1',
+          topicIds: const [12],
+        ),
+      ],
+      createdAt: DateTime(2026),
+    );
+    final fakeRepo = _FakeReviewRepository({7: review});
+
+    final container = ProviderContainer(overrides: [
+      reviewRepositoryProvider.overrideWith((ref) async => fakeRepo),
+    ]);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(home: ReviewDetailPage(reviewId: 7)),
+    ));
+    await tester.pumpAndSettle();
+
+    // 摘要可见
+    expect(find.textContaining('批改3题'), findsOneWidget);
+    // 逐题 question 可见
+    expect(find.textContaining('求 lim'), findsOneWidget);
+    // 错题徽标(wrong → 朱砂✗)
+    expect(find.text('✗'), findsOneWidget);
+  });
+
+  testWidgets('详情页输入框发消息走同一 chat session', (tester) async {
+    // 详情页底部输入 → 调 currentChatProvider.send → messages 追加 user
+    final controller = StreamController<AgentEvent>();
+    addTearDown(controller.close);
+    final fakeRepo = _FakeReviewRepository({
+      7: Review(
+        id: 7,
+        chatSessionId: null,
+        summary: 's',
+        items: const [],
+        createdAt: DateTime(2026),
+      ),
+    });
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _ControllableAgentSession(ref, controller)),
+      reviewRepositoryProvider.overrideWith((ref) async => fakeRepo),
+    ]);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(home: ReviewDetailPage(reviewId: 7)),
+    ));
+    await tester.pumpAndSettle();
+
+    // 输入并提交
+    await tester.enterText(find.byType(TextField), '第1题为什么错');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    // currentChatProvider 的 messages 多了一条 user 消息
+    final state = container.read(currentChatProvider);
+    expect(state.messages.any((m) => m.role == 'user'), isTrue);
+  });
+}
+
+/// 内存假 ReviewRepository,详情页测试用。
+class _FakeReviewRepository implements ReviewRepository {
+  _FakeReviewRepository(this._store);
+  final Map<int, Review> _store;
+  @override
+  Future<int> save({
+    int? chatSessionId,
+    required String summary,
+    required List<ReviewItem> items,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Review?> findById(int id) async => _store[id];
+
+  @override
+  Future<List<Review>> findBySession(int chatSessionId) async => const [];
 }

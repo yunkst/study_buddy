@@ -55,3 +55,9 @@ class AgentSession {
 final agentSessionProvider = Provider<AgentSession>((ref) {
   return AgentSession(ref);
 });
+
+/// 批改仓库提供者:详情页查库用(await 打开数据库后构造 ReviewRepository)。
+final reviewRepositoryProvider = FutureProvider<ReviewRepository>((ref) async {
+  final db = await ref.watch(databaseProvider.future);
+  return ReviewRepository(db);
+});

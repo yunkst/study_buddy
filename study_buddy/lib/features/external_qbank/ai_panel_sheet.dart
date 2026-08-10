@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/paper_extension.dart';
@@ -683,15 +684,181 @@ class _ReviewCard extends StatelessWidget {
   }
 }
 
-/// 批改详情页占位（Task 7 填充逐题明细）。
-class ReviewDetailPage extends StatelessWidget {
+/// 批改详情页:逐题明细 + 底部复盘输入(走同一 chat session)。
+class ReviewDetailPage extends ConsumerWidget {
   final int reviewId;
   const ReviewDetailPage({super.key, required this.reviewId});
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reviewAsync = ref.watch(reviewRepositoryProvider);
+    final inputCtrl = TextEditingController();
     return Scaffold(
       appBar: AppBar(title: const Text('批改详情')),
-      body: const Center(child: Text('详情待实现')),
+      body: reviewAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('加载失败: $e')),
+        data: (repo) => FutureBuilder<Review?>(
+          future: repo.findById(reviewId),
+          builder: (_, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final review = snap.data;
+            if (review == null) return const Center(child: Text('批改记录不存在'));
+            return Column(
+              children: [
+                Expanded(child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    Text(review.summary, style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    ...review.items.map((it) => _ReviewItemTile(item: it)),
+                  ],
+                )),
+                _ReviewReplyBar(controller: inputCtrl, onSubmit: (text) {
+                  ref.read(currentChatProvider.notifier).send(text);
+                  inputCtrl.clear();
+                  Navigator.of(context).pop(); // 回到对话流看回复
+                }),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// 逐题明细行:徽标 + 题目 + 你的答案 + 解析 + 涉及知识点。
+class _ReviewItemTile extends StatelessWidget {
+  const _ReviewItemTile({required this.item});
+  final ReviewItem item;
+
+  /// 徽标:correct→墨绿✓、partial→朱砂◐、wrong→朱砂✗。
+  ({String label, Color color}) _badge() {
+    switch (item.verdict) {
+      case 'correct':
+        return (label: '✓', color: const Color(0xFF2E7D32));
+      case 'partial':
+        return (label: '◐', color: const Color(0xFFC62828));
+      default:
+        return (label: '✗', color: const Color(0xFFC62828));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final paper = Theme.of(context).extension<PaperColors>();
+    final cs = Theme.of(context).colorScheme;
+    final badge = _badge();
+    final topicText = item.topicIds.isEmpty
+        ? null
+        : '涉及知识点: ${item.topicIds.join(', ')}';
+    return Card(
+      color: paper?.polaroidBg ?? cs.surfaceContainerLow,
+      elevation: 1,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: badge.color,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    badge.label,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${item.seq}. ${item.question}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+            if (item.userAnswer != null) ...[
+              const SizedBox(height: 8),
+              Text('你的答案: ${item.userAnswer}', style: Theme.of(context).textTheme.bodySmall),
+            ],
+            const SizedBox(height: 4),
+            Text('解析: ${item.analysis}', style: Theme.of(context).textTheme.bodySmall),
+            if (topicText != null) ...[
+              const SizedBox(height: 4),
+              Text(topicText, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部复盘输入条:输入问题 → onSubmit 回调解发(走同一 chat session)。
+class _ReviewReplyBar extends StatelessWidget {
+  const _ReviewReplyBar({required this.controller, required this.onSubmit});
+  final TextEditingController controller;
+  final ValueChanged<String> onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final paper = Theme.of(context).extension<PaperColors>();
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        decoration: BoxDecoration(
+          color: paper?.polaroidBg ?? cs.surface,
+          border: Border(top: BorderSide(color: paper?.ruleSoft ?? cs.outlineVariant)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  hintText: '输入复盘问题,继续追问…',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (text) {
+                  final trimmed = text.trim();
+                  if (trimmed.isEmpty) return;
+                  onSubmit(trimmed);
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.send, color: paper?.stampRed ?? cs.primary),
+              tooltip: '发送',
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isEmpty) return;
+                onSubmit(text);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
