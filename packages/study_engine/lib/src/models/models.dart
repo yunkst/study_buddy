@@ -342,6 +342,43 @@ class ChatMessage {
         return {'type': 'image_url', 'image_url': img};
     }
   }
+
+  /// 从 OpenAI 兼容 JSON 反序列化。content 可为 String 或 parts 列表。
+  factory ChatMessage.fromJson(Map<String, Object?> m) {
+    final rawContent = m['content'];
+    Object content;
+    if (rawContent is String) {
+      content = rawContent;
+    } else if (rawContent is List) {
+      content = rawContent
+          .map((e) => _partFromJson(e as Map<String, Object?>))
+          .toList();
+    } else {
+      content = rawContent ?? '';
+    }
+    return ChatMessage(
+      role: m['role'] as String,
+      content: content,
+      toolCalls: m['tool_calls'] == null
+          ? null
+          : (m['tool_calls'] as List)
+              .map((e) => ToolCall.fromJson(e as Map<String, Object?>))
+              .toList(),
+      toolCallId: m['tool_call_id'] as String?,
+    );
+  }
+
+  static ContentPart _partFromJson(Map<String, Object?> p) {
+    switch (p['type']) {
+      case 'text':
+        return TextPart(p['text'] as String);
+      case 'image_url':
+        final img = p['image_url'] as Map<String, Object?>;
+        return ImageUrlPart(img['url'] as String, detail: img['detail'] as String?);
+      default:
+        throw FormatException('未知 content part 类型: ${p['type']}');
+    }
+  }
 }
 
 /// OpenAI function calling 的工具调用。
@@ -356,4 +393,13 @@ class ToolCall {
         'type': 'function',
         'function': {'name': name, 'arguments': arguments},
       };
+
+  factory ToolCall.fromJson(Map<String, Object?> m) {
+    final fn = m['function'] as Map<String, Object?>;
+    return ToolCall(
+      id: m['id'] as String,
+      name: fn['name'] as String,
+      arguments: fn['arguments'] as String,
+    );
+  }
 }

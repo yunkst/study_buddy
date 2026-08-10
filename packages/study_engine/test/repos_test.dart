@@ -270,4 +270,63 @@ void main() {
     expect(q.map((i) => i.topicId), [a]); // b 排除
     expect(q.first.title, '今天新增');
   });
+
+  test('findOrCreateByTopic 首次建会话、二次复用', () async {
+    final repo = ChatRepository(sdb);
+    final id1 = await repo.findOrCreateByTopic(1, 'ε-δ极限定义');
+    final id2 = await repo.findOrCreateByTopic(1, 'ε-δ极限定义');
+    expect(id1, id2);
+  });
+
+  test('findOrCreateByTopic 不同 topic 建不同会话', () async {
+    final repo = ChatRepository(sdb);
+    final a = await repo.findOrCreateByTopic(1, 'A');
+    final b = await repo.findOrCreateByTopic(2, 'B');
+    expect(a, isNot(b));
+  });
+
+  test('listMessages 空会话返回空列表', () async {
+    final repo = ChatRepository(sdb);
+    final sid = await repo.createSession('study', 't');
+    expect(await repo.listMessages(sid), isEmpty);
+  });
+
+  test('listMessages 往返：纯文本 + 多轮 + 含 tool_calls 反序列化', () async {
+    final repo = ChatRepository(sdb);
+    final sid = await repo.createSession('study', 't');
+    await repo.addMessage(sid, const ChatMessage(role: 'user', content: '你好'));
+    await repo.addMessage(sid, const ChatMessage(role: 'assistant', content: '你好！'));
+    await repo.addMessage(sid, const ChatMessage(
+      role: 'assistant',
+      content: '',
+      toolCalls: [ToolCall(id: 'call_1', name: 'get_topic', arguments: '{"id":1}')],
+    ));
+    final msgs = await repo.listMessages(sid);
+    expect(msgs, hasLength(3));
+    expect(msgs[0].role, 'user');
+    expect(msgs[0].content, '你好');
+    expect(msgs[2].toolCalls, hasLength(1));
+    expect(msgs[2].toolCalls!.first.name, 'get_topic');
+    expect(msgs[2].toolCalls!.first.arguments, '{"id":1}');
+  });
+
+  test('listMessages 往返：content parts(TextPart/ImageUrlPart)', () async {
+    final repo = ChatRepository(sdb);
+    final sid = await repo.createSession('study', 't');
+    await repo.addMessage(sid, const ChatMessage(
+      role: 'user',
+      content: [
+        TextPart('看图'),
+        ImageUrlPart('data:image/png;base64,xxx', detail: 'high'),
+      ],
+    ));
+    final msgs = await repo.listMessages(sid);
+    final parts = msgs.first.content as List<ContentPart>;
+    expect(parts, hasLength(2));
+    expect(parts[0], isA<TextPart>());
+    expect((parts[0] as TextPart).text, '看图');
+    expect(parts[1], isA<ImageUrlPart>());
+    expect((parts[1] as ImageUrlPart).url, 'data:image/png;base64,xxx');
+    expect((parts[1] as ImageUrlPart).detail, 'high');
+  });
 }

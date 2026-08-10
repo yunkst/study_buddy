@@ -12,8 +12,9 @@ void main() {
     final dbPath = inMemoryDatabasePath;
     final sdb = await StudyDatabase.open(factory: factory, path: dbPath);
     final tables = await sdb.db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     );
+    expect(tables, hasLength(9));
     final names = tables.map((r) => r['name'] as String).toSet();
     for (final t in [
       'category', 'topic', 'topic_edge', 'mastery_log',
@@ -22,6 +23,9 @@ void main() {
     ]) {
       expect(names, contains(t), reason: '缺表: $t');
     }
+    // v4：chat_session 有 topic_id 列
+    final cols = await sdb.db.rawQuery('PRAGMA table_info(chat_session)');
+    expect(cols.map((c) => c['name']), contains('topic_id'));
     await sdb.close();
   });
 

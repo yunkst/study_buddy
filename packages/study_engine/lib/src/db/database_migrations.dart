@@ -1,7 +1,7 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 3;
+const int kCurrentDbVersion = 4;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 Future<void> migrateDatabase(Database db, int from, int to) async {
@@ -16,6 +16,9 @@ Future<void> migrateDatabase(Database db, int from, int to) async {
         break;
       case 3:
         _v3(batch);
+        break;
+      case 4:
+        _v4(batch);
         break;
       default:
         throw StateError('未知数据库版本: $v');
@@ -191,4 +194,13 @@ void _v3(Batch batch) {
     )
   ''');
   batch.execute('CREATE INDEX idx_review_schedule_next ON review_schedule(next_review_at)');
+}
+
+/// v4：chat_session 关联知识点。topic_id 可空，UNIQUE 支撑 findOrCreateByTopic。
+///
+/// 不用列级 REFERENCES 外键：findOrCreateByTopic 允许 topic 行尚未入库时先建会话
+/// （PRAGMA foreign_keys=ON 下 REFERENCES 会拒绝 INSERT）。仅靠 UNIQUE 索引定位会话。
+void _v4(Batch batch) {
+  batch.execute('ALTER TABLE chat_session ADD COLUMN topic_id INTEGER');
+  batch.execute('CREATE UNIQUE INDEX idx_chat_session_topic ON chat_session(topic_id)');
 }
