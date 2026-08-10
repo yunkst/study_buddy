@@ -37,7 +37,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
         Icon(Icons.new_releases, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
         Text(widget.isNewVersion ? '发现新版本' : '重新下载',
-            style: const TextStyle(fontSize: 18)),
+            style: theme.textTheme.titleLarge),
       ]),
       content: SizedBox(
         width: 300,
