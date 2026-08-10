@@ -1,6 +1,6 @@
 import 'package:go_router/go_router.dart';
-import 'features/external_qbank/external_qbank_page.dart';
 import 'features/home/home_page.dart';
+import 'features/overlay/permission_guide_page.dart';
 
 GoRouter buildRouter() {
   return GoRouter(
@@ -10,8 +10,8 @@ GoRouter buildRouter() {
         builder: (context, state) => const HomePage(),
       ),
       GoRoute(
-        path: '/external-qbank',
-        builder: (context, state) => const ExternalQbankPage(),
+        path: '/permission-guide',
+        builder: (context, state) => const PermissionGuidePage(),
       ),
     ],
   );

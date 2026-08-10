@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/agent_session_provider.dart';
-import '../../core/providers/webview_screenshot_provider.dart';
+import '../../core/providers/screenshot_provider.dart';
 
 /// 弹出底部抽屉：截图预览 + 用户输入 + agent 流式回复。
 ///
