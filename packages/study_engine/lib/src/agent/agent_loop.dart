@@ -58,7 +58,9 @@ class AgentLoop {
         }
 
         // assistant 消息携带 tool_calls
-        msgs.add(ChatMessage(role: 'assistant', content: buf.toString(), toolCalls: agg));
+        final assistantMsg = ChatMessage(role: 'assistant', content: buf.toString(), toolCalls: agg);
+        msgs.add(assistantMsg);
+        final roundNewMsgs = <ChatMessage>[assistantMsg];
         for (final tc in agg) {
           yield ToolCallStartEvent(tc.name, tc.id);
           final args = _parseArgs(tc.arguments);
@@ -69,8 +71,11 @@ class AgentLoop {
             result = '工具执行出错: $e';
           }
           yield ToolCallEndEvent(tc.name, result, tc.id);
-          msgs.add(ChatMessage(role: 'tool', content: result, toolCallId: tc.id));
+          final toolMsg = ChatMessage(role: 'tool', content: result, toolCallId: tc.id);
+          msgs.add(toolMsg);
+          roundNewMsgs.add(toolMsg);
         }
+        yield AgentRoundEndEvent(roundNewMsgs);
 
         if (compactor.needsCompaction(msgs)) {
           final compacted = compactor.compact(msgs);

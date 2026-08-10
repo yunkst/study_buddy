@@ -144,6 +144,9 @@ class _TopicChatSheetState extends ConsumerState<_TopicChatSheet> {
                 _busy = false;
                 break;
               case ToolProgressEvent():
+              case AgentRoundEndEvent():
+                // 工具轮中间通知：UI 已用 ToolCallStart/End 渲染轨迹，
+                // AgentDone 才是持久化点，无需额外处理。
               case CompactionEvent():
               case RetryEvent():
                 break;
