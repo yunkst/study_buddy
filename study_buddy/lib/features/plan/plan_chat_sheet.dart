@@ -57,6 +57,8 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
 
     final messages = <ChatMessage>[ChatMessage(role: 'user', content: userText)];
     try {
+      // 启动新流前取消旧订阅，避免流事件串进同一 _aiText/_toolEvents 与双重 onDone
+      await _sub?.cancel();
       final session = ref.read(planSessionProvider);
       final stream = await session.run(messages, planId: widget.planId, today: DateTime.now());
       if (!mounted) return;
@@ -89,6 +91,8 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 _toolEvents.add('· 重试第 $attempt 次');
                 break;
               case AgentStartedEvent():
+                // no-op：保持 _busy=true，"思考中"禁用态在 Done/Error 前持续有效
+                break;
               case AgentDoneEvent():
                 _busy = false;
                 break;
