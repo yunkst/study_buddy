@@ -1,5 +1,6 @@
 package io.github.yunkst.studybuddy
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -22,7 +23,7 @@ import io.flutter.plugin.common.MethodChannel
  */
 class ScreenshotPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var channel: MethodChannel? = null
-    private var appContext: android.content.Context? = null
+    private var appContext: Context? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -47,11 +48,16 @@ class ScreenshotPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 result.success(null)
             }
             "showOverlay" -> {
-                // Task 4 接入：startForegroundService(Intent(appContext, OverlayService::class.java))
+                val ctx = appContext ?: run { result.success(null); return }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(Intent(ctx, OverlayService::class.java))
+                } else {
+                    ctx.startService(Intent(ctx, OverlayService::class.java))
+                }
                 result.success(null)
             }
             "hideOverlay" -> {
-                // Task 4 接入：appContext?.stopService(Intent(appContext, OverlayService::class.java))
+                appContext?.stopService(Intent(appContext, OverlayService::class.java))
                 result.success(null)
             }
             "takePendingScreenshot" -> {

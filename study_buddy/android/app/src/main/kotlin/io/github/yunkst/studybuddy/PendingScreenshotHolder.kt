@@ -1,7 +1,5 @@
 package io.github.yunkst.studybuddy
 
-import android.app.Application
-
 /**
  * Application 级单例，暂存最近一次裁剪后的截图 PNG bytes。
  *
