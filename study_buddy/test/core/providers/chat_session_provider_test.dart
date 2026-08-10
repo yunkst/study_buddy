@@ -100,6 +100,41 @@ void main() {
     expect(state.saved, isTrue);
   });
 
+  test('多轮工具调用:每轮 streamingText 独立,不跨轮累积', () async {
+    final events = <AgentEvent>[
+      // 第 1 轮：工具调用
+      TextDeltaEvent('正在保存'),
+      AgentRoundEndEvent([
+        const ChatMessage(role: 'assistant', content: '正在保存', toolCalls: [
+          ToolCall(id: 'c1', name: 'save_topic', arguments: '{"subject":"数学","title":"方程"}'),
+        ]),
+        const ChatMessage(role: 'tool', content: '已保存', toolCallId: 'c1'),
+      ]),
+      // 第 2 轮：LLM 看到工具结果后总结
+      TextDeltaEvent('总结'),
+      TextDeltaEvent('完毕'),
+      AgentRoundEndEvent([const ChatMessage(role: 'assistant', content: '总结完毕')]),
+      AgentDoneEvent('总结完毕'),
+    ];
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref, events)),
+    ]);
+    addTearDown(container.dispose);
+
+    final notifier = container.read(currentChatProvider.notifier);
+    await notifier.send('保存并总结', image: _screenshot());
+
+    final state = container.read(currentChatProvider);
+    // 关键：streamingText 不应含第 1 轮残留（AgentRoundEndEvent 已清空）
+    expect(state.streamingText, isEmpty);
+    // 第 2 轮的 assistant 消息已落入 messages
+    expect(
+      state.messages.any((m) =>
+          m.role == 'assistant' && (m.content as String).contains('总结完毕')),
+      isTrue,
+    );
+  });
+
   test('busy 守卫:运行中再 send 被忽略', () async {
     final events = <AgentEvent>[
       TextDeltaEvent('慢'),

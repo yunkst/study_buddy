@@ -157,6 +157,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
         state = state.copyWith(
           messages: [...state.messages, ...newMessages],
           saved: state.saved || roundSaved,
+          streamingText: '', // 本轮文本已落入 assistant 消息；清空以便下一轮独立累积
         );
       case AgentDoneEvent(:final finalText):
         // finalText==null 表示达到 maxRounds
