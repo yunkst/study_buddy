@@ -41,6 +41,12 @@ dependencies:
   sqflite_common_ffi: ^2.3.4
   flutter_inappwebview: ^6.1.5
   path_provider: ^2.1.5
+  # App 检查更新机制
+  dio: ^5.4.0
+  package_info_plus: ^8.0.0
+  permission_handler: ^11.0.0
+  device_info_plus: ^11.0.0
+  shared_preferences: ^2.2.2
   study_engine:
     path: ../packages/study_engine
 
