@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/chat_session_provider.dart';
-import 'package:study_buddy/core/providers/webview_screenshot_provider.dart';
+import 'package:study_buddy/core/providers/screenshot_provider.dart';
 import 'package:study_engine/study_engine.dart';
 
 /// 假 AgentSession：用预制事件流驱动，记录收到的 messages。
