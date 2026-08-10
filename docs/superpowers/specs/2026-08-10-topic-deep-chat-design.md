@@ -56,7 +56,30 @@ AgentDone → addMessage(sessionId, userMsg) + addMessage(sessionId, assistantMs
 - **`AgentSession.run`**(扩展,App 层):加可选 `context` 参数透传给 `AgentLoop.run`。
 - **`StudyScenario.buildSystemPrompt`**(增强,引擎层):读 `ctx.extra['current_topic']`,追加「当前知识点」一节。
 
-### 4.3 UI/UX
+### 4.3 AgentLoop 前置修复(load-bearing)
+
+**现状缺陷**:`AgentLoop.run(messages, {context})` 接收 `context` 但**从未使用**;`scenario.buildSystemPrompt(ctx)` 与 `scenario.getMemories()` 在整个 engine 中**无任何调用方**。`LlmProvider.chatStreamWithTools` 只把传入的 `messages` 原样发给 LLM,因此 system prompt 从不注入——现有截图悬浮窗场景的 AI 也从未收到 `StudyScenario.buildSystemPrompt` 的约束与记忆。
+
+**修复**:`AgentLoop.run` 在循环前构造 system 消息并插入 `msgs` 首位:
+
+```dart
+Stream<AgentEvent> run(List<ChatMessage> messages, {AgentScenarioContext? context}) async* {
+  yield AgentStartedEvent();
+  final msgs = [...messages];
+  // 前置修复：注入场景 system prompt（含 context 动态信息）
+  if (msgs.isEmpty || msgs.first.role != 'system') {
+    final sysPrompt = scenario.buildSystemPrompt(context ?? const AgentScenarioContext());
+    msgs.insert(0, ChatMessage(role: 'system', content: sysPrompt));
+  }
+  ...
+}
+```
+
+- 若调用方已传 system 消息则不再注入(向后兼容既有测试与用法)。
+- `buildSystemPrompt` 内部负责 `getMemories()` 填充记忆块(需在 prompt 构造时同步调用 `getMemories()` 缓存)。
+- 该修复同时激活既有死代码 `buildSystemPrompt`/`getMemories`,对截图悬浮窗场景是改善(恢复知识点粒度约束与经验记忆)。
+
+### 4.4 UI/UX
 
 抽屉布局(自上而下):
 1. 抓把手(40×4 灰条)。
