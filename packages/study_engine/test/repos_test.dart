@@ -173,4 +173,61 @@ void main() {
     expect(await mastery.currentStatus(tid), MasteryStatus.mastered);
     expect(await mastery.timeline(tid), hasLength(2));
   });
+
+  test('ReviewScheduleRepository getByTopic 无记录返回 null', () async {
+    final repo = ReviewScheduleRepository(sdb);
+    expect(await repo.getByTopic(999), isNull);
+  });
+
+  test('ReviewScheduleRepository upsert 插入与更新（主键原子）', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    final tid = await topics.insert(Topic(categoryId: catId, question: 'q', title: 't', summary: 's', createdAt: now, updatedAt: now));
+    final repo = ReviewScheduleRepository(sdb);
+
+    final s1 = SpacedRepetitionService.initial(tid, now);
+    await repo.upsert(s1);
+    expect((await repo.getByTopic(tid))?.intervalDays, 0);
+
+    // 二次 upsert（首次反馈后）不报主键冲突
+    final s2 = SpacedRepetitionService.apply(s1, ReviewFeedback.remembered, now);
+    await repo.upsert(s2);
+    final got = await repo.getByTopic(tid);
+    expect(got?.intervalDays, 1);
+    expect(got?.reviewCount, 1);
+  });
+
+  test('ReviewScheduleRepository findDue 只返回到期且升序', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime(2026, 8, 10, 12, 0);
+    final a = await topics.insert(Topic(categoryId: catId, question: 'q1', title: 'A', summary: 's', createdAt: now, updatedAt: now));
+    final b = await topics.insert(Topic(categoryId: catId, question: 'q2', title: 'B', summary: 's', createdAt: now, updatedAt: now));
+    final c = await topics.insert(Topic(categoryId: catId, question: 'q3', title: 'C', summary: 's', createdAt: now, updatedAt: now));
+    final repo = ReviewScheduleRepository(sdb);
+    // A 昨天到期，B 今天到期，C 明天到期
+    await repo.upsert(SpacedRepetitionService.initial(a, now.subtract(const Duration(days: 1))));
+    await repo.upsert(SpacedRepetitionService.initial(b, now));
+    await repo.upsert(SpacedRepetitionService.initial(c, now.add(const Duration(days: 1))));
+
+    final due = await repo.findDue(now);
+    expect(due.map((s) => s.topicId), [a, b]); // C 未到期排除
+    expect(due.first.nextReviewAt.isAfter(due.last.nextReviewAt) == false, isTrue); // 升序
+  });
+
+  test('FK 启用：删 topic 连带删 review_schedule（CASCADE 回归）', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final repo = ReviewScheduleRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    final tid = await topics.insert(Topic(categoryId: catId, question: 'q', title: 't', summary: 's', createdAt: now, updatedAt: now));
+    await repo.upsert(SpacedRepetitionService.initial(tid, now));
+
+    await sdb.db.delete('topic', where: 'id = ?', whereArgs: [tid]);
+    expect(await repo.getByTopic(tid), isNull, reason: 'FK 未启用，删 topic 后调度残留');
+  });
 }
