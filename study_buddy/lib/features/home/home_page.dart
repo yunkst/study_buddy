@@ -86,6 +86,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                     label: const Text('去开启悬浮窗权限'),
                     onPressed: () => context.go('/permission-guide'),
                   ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  icon: const Icon(Icons.timer),
+                  label: const Text('开始专注'),
+                  onPressed: () => context.go('/focus'),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  icon: const Icon(Icons.assignment),
+                  label: const Text('学习日报'),
+                  onPressed: () => context.go('/daily-report'),
+                ),
                 if (Platform.isAndroid) ...[
                   const SizedBox(height: 12),
                   TextButton.icon(
