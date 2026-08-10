@@ -302,7 +302,11 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
             );
             rawResult = _extractText(toolMsg);
           } catch (_) {}
-          return _ReviewCard(rawArguments: tc.arguments, rawResult: rawResult);
+          return _ReviewCard(
+            rawArguments: tc.arguments,
+            rawResult: rawResult,
+            toolCallId: tc.id,
+          );
         })
         .toList();
   }
@@ -637,7 +641,12 @@ class _ErrorPanel extends StatelessWidget {
 class _ReviewCard extends StatelessWidget {
   final String rawArguments; // ToolCall.arguments，原始 JSON
   final String rawResult; // tool 消息 content，含 review_id=N（可空串）
-  const _ReviewCard({required this.rawArguments, required this.rawResult});
+  final String toolCallId; // ToolCall.id，用于唯一 key（同消息多卡片不冲突）
+  const _ReviewCard({
+    required this.rawArguments,
+    required this.rawResult,
+    required this.toolCallId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -653,7 +662,7 @@ class _ReviewCard extends StatelessWidget {
     final match = RegExp(r'review_id=(\d+)').firstMatch(rawResult);
     final reviewId = match == null ? null : int.parse(match.group(1)!);
     return Card(
-      key: const ValueKey('review_card'),
+      key: ValueKey('review_card_$toolCallId'),
       color: paper?.polaroidBg ?? cs.surfaceContainerLow,
       elevation: 2,
       margin: const EdgeInsets.symmetric(vertical: 6),

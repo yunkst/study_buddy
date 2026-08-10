@@ -66,7 +66,7 @@ void main() {
     await tester.pump();
 
     // 对话流出现纸感批改卡片
-    expect(find.byKey(const ValueKey('review_card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('review_card_c1')), findsOneWidget);
     // 卡片含摘要文案
     expect(find.textContaining('批改'), findsWidgets);
   });
