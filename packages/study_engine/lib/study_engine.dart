@@ -22,3 +22,4 @@ export 'src/agent/agent_tools.dart';
 export 'src/agent/plan_tools.dart';
 export 'src/agent/agent_loop.dart';
 export 'src/agent/scenarios/study_scenario.dart';
+export 'src/agent/scenarios/plan_scenario.dart';

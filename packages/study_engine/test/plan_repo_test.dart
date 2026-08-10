@@ -16,7 +16,7 @@ void main() {
   });
   tearDown(() async => await sdb.close());
 
-  Plan _plan() {
+  Plan plan() {
     final now = DateTime.now();
     return Plan(
       name: '考研冲刺', examDate: DateTime(2026, 12, 21), examContent: '408',
@@ -26,14 +26,14 @@ void main() {
   }
 
   test('insertPlan/findPlanById/findAllPlans', () async {
-    final id = await repo.insertPlan(_plan());
+    final id = await repo.insertPlan(plan());
     final got = await repo.findPlanById(id);
     expect(got?.name, '考研冲刺');
     expect(await repo.findAllPlans(), hasLength(1));
   });
 
   test('updatePlan 刷新 updated_at', () async {
-    final id = await repo.insertPlan(_plan());
+    final id = await repo.insertPlan(plan());
     final before = (await repo.findPlanById(id))!.updatedAt;
     await Future<void>.delayed(const Duration(milliseconds: 10));
     final p = (await repo.findPlanById(id))!;
@@ -48,7 +48,7 @@ void main() {
   });
 
   test('Milestone 增删改查按 sort_order 排', () async {
-    final pid = await repo.insertPlan(_plan());
+    final pid = await repo.insertPlan(plan());
     final now = DateTime.now();
     await repo.addMilestone(Milestone(planId: pid, title: 'm2', description: 'd', targetDate: now, sortOrder: 2, createdAt: now, updatedAt: now));
     final m1Id = await repo.addMilestone(Milestone(planId: pid, title: 'm1', description: 'd', targetDate: now, sortOrder: 1, status: 'pending', createdAt: now, updatedAt: now));
@@ -62,7 +62,7 @@ void main() {
   });
 
   test('Assessment 增查按 assessed_at 排 + latestAssessment', () async {
-    final pid = await repo.insertPlan(_plan());
+    final pid = await repo.insertPlan(plan());
     final now = DateTime.now();
     await repo.addAssessment(Assessment(planId: pid, score: 300, assessedAt: DateTime(2026, 8, 6), createdAt: now));
     await repo.addAssessment(Assessment(planId: pid, score: 310, assessedAt: DateTime(2026, 8, 20), createdAt: now));
@@ -73,7 +73,7 @@ void main() {
   });
 
   test('getPlanDetail 聚合三表', () async {
-    final pid = await repo.insertPlan(_plan());
+    final pid = await repo.insertPlan(plan());
     final now = DateTime.now();
     await repo.addMilestone(Milestone(planId: pid, title: 'm1', description: 'd', targetDate: now, createdAt: now, updatedAt: now));
     await repo.addAssessment(Assessment(planId: pid, score: 300, assessedAt: now, createdAt: now));
@@ -84,7 +84,7 @@ void main() {
   });
 
   test('deletePlan CASCADE 清节点与测评', () async {
-    final pid = await repo.insertPlan(_plan());
+    final pid = await repo.insertPlan(plan());
     final now = DateTime.now();
     await repo.addMilestone(Milestone(planId: pid, title: 'm', description: 'd', targetDate: now, createdAt: now, updatedAt: now));
     await repo.addAssessment(Assessment(planId: pid, score: 300, assessedAt: now, createdAt: now));
