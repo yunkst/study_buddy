@@ -50,3 +50,6 @@ keyky_*.js
 .qd.json
 .qblist.json
 .member.json
+
+# 根级设计预览稿（HTML 探索素材，非 app 工程文件，勿入库）
+design-preview/
