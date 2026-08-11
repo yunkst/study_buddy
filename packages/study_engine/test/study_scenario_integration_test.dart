@@ -148,6 +148,96 @@ void main() {
     expect(got, isNotNull);
     await sdb.close();
   });
+
+  group('onTopicTouched 回调', () {
+    test('save_topic 新建成功后触发回调(新 topicId)', () async {
+      final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+      final touched = <int>[];
+      final scenario = StudyScenario(
+        categories: CategoryRepository(sdb),
+        topics: TopicRepository(sdb),
+        edges: TopicEdgeRepository(sdb),
+        memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
+        onTopicTouched: (id) async => touched.add(id),
+      );
+
+      await scenario.executeTool('save_topic', {
+        'path': '数学', 'title': '极限', 'question': 'q', 'summary': 's',
+      });
+      expect(touched, hasLength(1));
+      final topics = TopicRepository(sdb);
+      final t = await topics.findByTitle('极限');
+      expect(touched.first, t!.id);
+      await sdb.close();
+    });
+
+    test('save_topic 命中已存在也触发回调(existing.id)', () async {
+      final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+      final touched = <int>[];
+      final scenario = StudyScenario(
+        categories: CategoryRepository(sdb),
+        topics: TopicRepository(sdb),
+        edges: TopicEdgeRepository(sdb),
+        memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
+        onTopicTouched: (id) async => touched.add(id),
+      );
+      // 第一次新建
+      await scenario.executeTool('save_topic', {
+        'path': '数学', 'title': '极限', 'question': 'q', 'summary': 's',
+      });
+      touched.clear();
+      // 第二次重复（命中已存在）
+      await scenario.executeTool('save_topic', {
+        'path': '物理', 'title': '极限', 'question': 'q2', 'summary': 's2',
+      });
+      expect(touched, hasLength(1));
+      await sdb.close();
+    });
+
+    test('update_topic 成功后触发回调', () async {
+      final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+      final touched = <int>[];
+      final scenario = StudyScenario(
+        categories: CategoryRepository(sdb),
+        topics: TopicRepository(sdb),
+        edges: TopicEdgeRepository(sdb),
+        memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
+        onTopicTouched: (id) async => touched.add(id),
+      );
+      await scenario.executeTool('save_topic', {
+        'path': '数学', 'title': '极限', 'question': 'q', 'summary': '旧',
+      });
+      final t = await TopicRepository(sdb).findByTitle('极限');
+      touched.clear();
+      await scenario.executeTool('update_topic', {'id': t!.id, 'summary': '新答案'});
+      expect(touched, [t.id]);
+      await sdb.close();
+    });
+
+    test('未设置回调时 no-op，不影响现有行为', () async {
+      final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+      final scenario = StudyScenario(
+        categories: CategoryRepository(sdb),
+        topics: TopicRepository(sdb),
+        edges: TopicEdgeRepository(sdb),
+        memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
+        // 不传 onTopicTouched
+      );
+      final result = await scenario.executeTool('save_topic', {
+        'path': '数学', 'title': '极限', 'question': 'q', 'summary': 's',
+      });
+      expect(result, contains('已保存'));
+      await sdb.close();
+    });
+  });
 }
 
 class _ScriptedLlm extends LlmProvider {

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
 import 'database_provider.dart';
+import 'focus_session_provider.dart';
 
 /// APP 层 agent 调用入口：构造 StudyScenario + AgentLoop 并返回事件流。
 ///
@@ -43,6 +44,13 @@ class AgentSession {
       memories: memories,
       mastery: MasteryRepository(db),
       reviews: ReviewRepository(db),
+      onTopicTouched: (topicId) async {
+        // 仅专注会话进行中才关联；非专注期 no-op
+        final sessionId = _ref.read(focusSessionProvider).sessionId;
+        if (sessionId == null) return;
+        final focusRepo = FocusSessionRepository(db);
+        await focusRepo.linkTopic(sessionId, topicId);
+      },
     );
     final loop = AgentLoop(llm: llm, scenario: scenario);
     return loop.run(

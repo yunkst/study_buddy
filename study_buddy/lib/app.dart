@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/providers/screenshot_provider.dart';
 import 'core/theme/app_theme.dart';
+import 'core/providers/focus_session_provider.dart';
 import 'router.dart';
 import 'main.dart';
 
@@ -19,6 +20,8 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
     // 延迟到首帧后初始化（router 就绪）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       bootstrapOverlay(ref, context);
+      // 恢复或清理上次未结束的专注会话
+      ref.read(focusSessionProvider.notifier).recoverOrphan();
     });
   }
 

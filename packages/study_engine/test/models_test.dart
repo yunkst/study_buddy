@@ -52,4 +52,75 @@ void main() {
     expect(back.supportsVision, true);
     expect(back.model, 'glm-4v');
   });
+
+  group('FocusSession', () {
+    test('toMap 不含 id 时省略 id 键，进行中态 ended/duration 为 null', () {
+      final s = FocusSession(startedAt: DateTime(2026, 8, 10, 9, 0, 0));
+      final m = s.toMap();
+      expect(m.containsKey('id'), isFalse);
+      expect(m['started_at'], DateTime(2026, 8, 10, 9, 0, 0).millisecondsSinceEpoch);
+      expect(m.containsKey('ended_at'), isFalse);
+      expect(m.containsKey('duration_ms'), isFalse);
+    });
+
+    test('toMap 含 id 且已结束时写出全部字段', () {
+      final s = FocusSession(
+        id: 7,
+        startedAt: DateTime(2026, 8, 10, 9, 0, 0),
+        endedAt: DateTime(2026, 8, 10, 9, 30, 0),
+        durationMs: 1800000,
+      );
+      final m = s.toMap();
+      expect(m['id'], 7);
+      expect(m['ended_at'], DateTime(2026, 8, 10, 9, 30, 0).millisecondsSinceEpoch);
+      expect(m['duration_ms'], 1800000);
+    });
+
+    test('fromMap 往返一致（进行中态）', () {
+      final s = FocusSession(
+        id: 1,
+        startedAt: DateTime(2026, 8, 10, 9, 0, 0),
+      );
+      final back = FocusSession.fromMap(s.toMap());
+      expect(back.id, 1);
+      expect(back.startedAt, s.startedAt);
+      expect(back.endedAt, isNull);
+      expect(back.durationMs, isNull);
+    });
+
+    test('fromMap 往返一致（已结束态）', () {
+      final s = FocusSession(
+        id: 2,
+        startedAt: DateTime(2026, 8, 10, 9, 0, 0),
+        endedAt: DateTime(2026, 8, 10, 10, 0, 0),
+        durationMs: 3600000,
+      );
+      final back = FocusSession.fromMap(s.toMap());
+      expect(back.endedAt, s.endedAt);
+      expect(back.durationMs, 3600000);
+    });
+  });
+
+  group('FocusSessionTopic', () {
+    test('toMap/fromMap 往返一致', () {
+      final t = FocusSessionTopic(
+        id: 5,
+        sessionId: 3,
+        topicId: 11,
+        linkedAt: DateTime(2026, 8, 10, 9, 5, 0),
+      );
+      final back = FocusSessionTopic.fromMap(t.toMap());
+      expect(back.id, 5);
+      expect(back.sessionId, 3);
+      expect(back.topicId, 11);
+      expect(back.linkedAt, DateTime(2026, 8, 10, 9, 5, 0));
+    });
+
+    test('toMap 不含 id 时省略 id 键', () {
+      final t = FocusSessionTopic(
+        sessionId: 3, topicId: 11, linkedAt: DateTime(2026, 8, 10, 9, 5, 0),
+      );
+      expect(t.toMap().containsKey('id'), isFalse);
+    });
+  });
 }

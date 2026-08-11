@@ -15,6 +15,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         flutterEngine.plugins.add(ScreenshotPlugin())
+        flutterEngine.plugins.add(FocusTimerPlugin())
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_INSTALL_CHANNEL)
             .setMethodCallHandler { call, result ->

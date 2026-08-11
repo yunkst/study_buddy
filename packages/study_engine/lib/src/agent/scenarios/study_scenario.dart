@@ -18,6 +18,10 @@ class StudyScenario implements AgentScenario {
   final MasteryRepository mastery; // 掌握度记录/查询
   final ReviewRepository reviews; // 批改记录（Task 3 填实现，本阶段仅注入）
 
+  /// 知识点被接触时的回调（save_topic 新建/命中已存在、update_topic 成功）。
+  /// 默认 null = no-op。app 层注入实现以关联到当前专注会话。
+  final Future<void> Function(int topicId)? onTopicTouched;
+
   StudyScenario({
     required this.categories,
     required this.topics,
@@ -25,6 +29,7 @@ class StudyScenario implements AgentScenario {
     required this.memories,
     required this.mastery,
     required this.reviews,
+    this.onTopicTouched,
   });
 
   @override String get id => 'study';
@@ -180,6 +185,7 @@ $memBlock''';
   Future<String> _saveTopic(String path, String title, String question, String summary) async {
     final existing = await topics.findByTitle(title);
     if (existing != null) {
+      await onTopicTouched?.call(existing.id!);
       return '知识点「$title」已存在(id=${existing.id})。如需补充答案请用 update_topic(id=${existing.id}, summary=...)';
     }
     final segments = path.split('/').where((s) => s.trim().isNotEmpty).toList();
@@ -202,10 +208,12 @@ $memBlock''';
       // 非 UNIQUE 异常继续抛出。
       if (e.toString().contains('UNIQUE constraint failed')) {
         final existing = await topics.findByTitle(title);
+        await onTopicTouched?.call(existing!.id!);
         return '知识点「$title」已存在(id=${existing?.id})。如需补充答案请用 update_topic(id=${existing?.id}, summary=...)';
       }
       rethrow;
     }
+    await onTopicTouched?.call(id);
     return '已保存知识点「$title」(id=$id)，路径 $path';
   }
 
@@ -213,6 +221,7 @@ $memBlock''';
     final existing = await topics.findById(id);
     if (existing == null) return '知识点 id=$id 不存在';
     await topics.updateSummary(id, summary);
+    await onTopicTouched?.call(id);
     return '已更新知识点「${existing.title}」的答案';
   }
 

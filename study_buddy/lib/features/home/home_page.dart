@@ -94,6 +94,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                           ref.invalidate(planListProvider);
                         },
                       ),
+                      _FocusArticle(
+                        onFocus: () => context.go('/focus'),
+                        onDailyReport: () => context.go('/daily-report'),
+                      ),
                       if (Platform.isAndroid)
                         _UpdateArticle(onCheck: () => _checkForUpdate(context, ref)),
                       const _Colophon(),
@@ -598,6 +602,39 @@ class _Colophon extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 专注时钟入口文章块:开始专注(主) + 学习日报(次)。
+/// 套用纸感 _Article 容器,与 _StatusArticle / _PlansArticle 视觉统一。
+class _FocusArticle extends StatelessWidget {
+  const _FocusArticle({required this.onFocus, required this.onDailyReport});
+
+  final VoidCallback onFocus;
+  final VoidCallback onDailyReport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Article(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ArticleLabel(text: '专注与复盘'),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            icon: const Icon(Icons.timer),
+            label: const Text('开始专注'),
+            onPressed: onFocus,
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            icon: const Icon(Icons.assignment),
+            label: const Text('学习日报'),
+            onPressed: onDailyReport,
+          ),
+        ],
       ),
     );
   }
