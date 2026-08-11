@@ -14,6 +14,12 @@ final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 GoRouter buildRouter({bool showOnboarding = false}) {
   return GoRouter(
     navigatorKey: rootNavigatorKey,
+    redirect: (context, state) {
+      final loc = state.matchedLocation;
+      if (showOnboarding && loc != '/onboarding') return '/onboarding';
+      if (!showOnboarding && loc == '/onboarding') return '/';
+      return null;
+    },
     routes: [
       // Onboarding 在最前:若需要且当前是 /onboarding,放行;否则由 redirect 接管(Task 7 加)。
       GoRoute(
