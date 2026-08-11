@@ -147,10 +147,17 @@ class OverlayService : Service() {
     }
 
     /**
-     * 点击悬浮球 → 隐藏悬浮球 → 启动 TrampolineActivity 走 MediaProjection 授权 + 截图。
+     * 点击悬浮球 → 轻量 hide（置 suppressedByForeground=true，覆盖 paused→showOverlay 复位漏洞）
+     * → 启动 TrampolineActivity 走 MediaProjection 授权 + 截图。
      */
     private fun triggerScreenshot() {
-        hideOverlay()
+        val intent = Intent(this, OverlayService::class.java)
+            .setAction(OverlayService.ACTION_HIDE_OVERLAY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
         startActivity(Intent(this, TrampolineActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 

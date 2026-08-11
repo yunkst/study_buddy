@@ -19,6 +19,12 @@ Future<void> bootstrapOverlay(WidgetRef ref, BuildContext context) async {
     return;
   }
   await sp.showOverlay();
+  // 冷启动：App 在前台，悬浮球应隐藏（轻量 hide 保留 FGS）。
+  // 用户切后台 → paused → showOverlay 恢复；回前台 → resumed → _handleResumed hideOverlay。
+  // didChangeAppLifecycleState 不为冷启动发 resumed 事件，故此处手动补一次 hide。
+  if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    await sp.hideOverlay();
+  }
   // 取待处理截图（冷启动降级）
   final pending = await sp.takePendingScreenshot();
   if (pending != null && context.mounted) {

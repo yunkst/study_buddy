@@ -47,6 +47,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) setState(() => _overlayGranted = granted);
     if (granted) {
       await ref.read(screenshotProvider).showOverlay();
+      // 冷启动 home 初始化晚于 bootstrap，但仍在前台：hideOverlay 保证球不显示在 App 上。
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        await ref.read(screenshotProvider).hideOverlay();
+      }
     }
   }
 
