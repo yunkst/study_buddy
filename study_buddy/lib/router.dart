@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'features/focus/daily_report_page.dart';
 import 'features/focus/focus_page.dart';
 import 'features/home/home_page.dart';
-// import 'features/onboarding/onboarding_page.dart'; // 本步先注释掉,Task 9 引入
+import 'features/onboarding/onboarding_page.dart';
 import 'features/overlay/permission_guide_page.dart';
 import 'features/plan/plan_detail_page.dart';
 
@@ -24,7 +24,7 @@ GoRouter buildRouter({bool showOnboarding = false}) {
       // Onboarding 在最前:若需要且当前是 /onboarding,放行;否则由 redirect 接管(Task 7 加)。
       GoRoute(
         path: '/onboarding',
-        builder: (context, state) => const _OnboardingPlaceholder(),
+        builder: (context, state) => const OnboardingPage(),
       ),
       GoRoute(
         path: '/',
@@ -56,12 +56,4 @@ GoRouter buildRouter({bool showOnboarding = false}) {
       ),
     ],
   );
-}
-
-/// 临时占位,Task 9 替换为真实 OnboardingPage。
-class _OnboardingPlaceholder extends StatelessWidget {
-  const _OnboardingPlaceholder();
-  @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: Text('Onboarding (placeholder)')));
 }

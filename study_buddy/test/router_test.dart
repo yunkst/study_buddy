@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/router.dart';
 
 Future<String> _resolve(
@@ -12,7 +13,12 @@ Future<String> _resolve(
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
-      child: MaterialApp.router(routerConfig: router),
+      // AppTheme.light 提供 PaperColors 扩展:OnboardingPage 的 PaperArticle
+      // 依赖 theme.extension<PaperColors>(),缺主题会 null-check 崩溃。
+      child: MaterialApp.router(
+        theme: AppTheme.light,
+        routerConfig: router,
+      ),
     ),
   );
   router.go(loc);
