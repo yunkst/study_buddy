@@ -249,6 +249,7 @@ class _ScriptedLlm extends LlmProvider {
   Stream<LlmStreamChunk> chatStreamWithTools({
     required List<ChatMessage> messages,
     required List<Map<String, dynamic>> tools,
+    String? traceId,
   }) {
     final chunks = _i < script.length ? script[_i++] : const [LlmStreamChunk(textDelta: '完成')];
     return Stream.fromIterable(chunks);

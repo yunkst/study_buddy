@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../llm/llm_provider_core.dart';
+import '../logging/logger_sink.dart';
 import '../models/models.dart';
 import 'agent_event.dart';
 import 'agent_scenario.dart';
@@ -12,18 +13,24 @@ class AgentLoop {
   final AgentScenario scenario;
   final ContextCompactor compactor;
   final int maxRounds;
+  final LoggerSink logger;
 
   AgentLoop({
     required this.llm,
     required this.scenario,
+    LoggerSink? logger,
     ContextCompactor? compactor,
     this.maxRounds = 50,
-  }) : compactor = compactor ?? const ContextCompactor();
+  })  : logger = logger ?? const NullLoggerSink(),
+        compactor = compactor ?? const ContextCompactor();
 
   /// 运行 agent。messages 为初始消息（可选含 system）。返回实时事件流。
   /// 若调用方未传 system 消息，自动注入 scenario.buildSystemPrompt（含 context 动态信息）。
-  Stream<AgentEvent> run(List<ChatMessage> messages, {AgentScenarioContext? context}) async* {
+  Stream<AgentEvent> run(List<ChatMessage> messages,
+      {AgentScenarioContext? context, String? traceId}) async* {
     yield AgentStartedEvent();
+    logger.log(LoggerLevel.info, 'Agent 开始',
+        category: 'ai', traceId: traceId, tags: const ['agent-start']);
     final msgs = [...messages];
     // 注入场景 system prompt（含 context 动态信息）。调用方已传 system 则跳过。
     if (msgs.isEmpty || msgs.first.role != 'system') {
@@ -36,9 +43,12 @@ class AgentLoop {
     var round = 0;
     try {
       while (round < maxRounds) {
+        logger.log(LoggerLevel.debug, '第 $round 轮开始',
+            category: 'ai', traceId: traceId, tags: const ['round']);
         final agg = <ToolCall>[];
         final buf = StringBuffer();
-        await for (final chunk in llm.chatStreamWithTools(messages: msgs, tools: scenario.tools)) {
+        await for (final chunk in llm.chatStreamWithTools(
+            messages: msgs, tools: scenario.tools, traceId: traceId)) {
           if (chunk.textDelta.isNotEmpty) {
             buf.write(chunk.textDelta);
             yield TextDeltaEvent(chunk.textDelta); // 实时推送增量
@@ -53,6 +63,8 @@ class AgentLoop {
             round++;
             continue;
           }
+          logger.log(LoggerLevel.info, 'Agent 完成',
+              category: 'ai', traceId: traceId, tags: const ['agent-done']);
           yield AgentDoneEvent(buf.toString());
           return;
         }
@@ -62,6 +74,8 @@ class AgentLoop {
         msgs.add(assistantMsg);
         final roundNewMsgs = <ChatMessage>[assistantMsg];
         for (final tc in agg) {
+          logger.log(LoggerLevel.info, '工具调用: ${tc.name}',
+              category: 'ai', traceId: traceId, tags: const ['tool-call']);
           yield ToolCallStartEvent(tc.name, tc.id);
           final args = _parseArgs(tc.arguments);
           String result;
@@ -86,11 +100,18 @@ class AgentLoop {
         }
         round++;
         if (round >= maxRounds) {
+          logger.log(LoggerLevel.warning, 'Agent 达到最大轮次 $maxRounds',
+              category: 'ai', traceId: traceId, tags: const ['max-rounds']);
           yield AgentDoneEvent(null);
           return;
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      logger.log(LoggerLevel.error, 'Agent 异常: $e',
+          category: 'ai',
+          traceId: traceId,
+          stackTrace: st.toString(),
+          tags: const ['agent-error']);
       yield AgentErrorEvent(e.toString());
     }
   }

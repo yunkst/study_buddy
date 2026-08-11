@@ -11,6 +11,7 @@ class _FakeLlm extends LlmProvider {
   Stream<LlmStreamChunk> chatStreamWithTools({
     required List<ChatMessage> messages,
     required List<Map<String, dynamic>> tools,
+    String? traceId,
   }) {
     final chunks = _i < script.length ? script[_i++] : const [LlmStreamChunk(textDelta: '完成')];
     return Stream.fromIterable(chunks);
@@ -92,6 +93,31 @@ void main() {
     expect(done.finalText, '直接回答');
   });
 
+  test('AgentLoop 通过 sink 上报开始/完成并带 traceId', () async {
+    final logger = _RecordingLogger();
+    final llm = _FakeLlm([
+      const [LlmStreamChunk(textDelta: 'done')],
+    ]);
+    final loop = AgentLoop(llm: llm, scenario: _FakeScenario(), logger: logger);
+    await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')], traceId: 'trace-42')
+        .toList();
+
+    final messages = logger.calls.map((c) => c.$2).toList();
+    expect(messages.any((m) => m.contains('Agent') && m.contains('开始')), isTrue);
+    expect(messages.any((m) => m.contains('Agent') && m.contains('完成')), isTrue);
+    // 所有调用都带 traceId
+    expect(logger.calls.every((c) => c.$3 == 'trace-42'), isTrue);
+  });
+
+  test('AgentLoop 默认 NullLoggerSink 不抛异常(回归)', () async {
+    final llm = _FakeLlm([const [LlmStreamChunk(textDelta: 'ok')]]);
+    final loop = AgentLoop(llm: llm, scenario: _FakeScenario());
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.any((e) => e is AgentDoneEvent), isTrue);
+  });
+
   test('未传 system 消息时自动注入 scenario.buildSystemPrompt', () async {
     // 调用方未前置 system → AgentLoop 应自动调 getMemories + buildSystemPrompt 并 insert(0)。
     // 验证：_FakeLlm 收到的 messages.first 是 role=system,content=sys。
@@ -145,8 +171,22 @@ class _SpyLlm extends LlmProvider {
   Stream<LlmStreamChunk> chatStreamWithTools({
     required List<ChatMessage> messages,
     required List<Map<String, dynamic>> tools,
+    String? traceId,
   }) {
     onMessages(messages);
     return _inner.chatStreamWithTools(messages: messages, tools: tools);
+  }
+}
+
+/// 记录所有 log 调用的 fake LoggerSink。
+class _RecordingLogger implements LoggerSink {
+  final List<(LoggerLevel, String, String?)> calls = [];
+  @override
+  void log(LoggerLevel level, String message,
+      {String category = 'general',
+      String? traceId,
+      String? stackTrace,
+      List<String> tags = const []}) {
+    calls.add((level, message, traceId));
   }
 }

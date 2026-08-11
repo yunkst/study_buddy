@@ -22,6 +22,41 @@ void main() {
     expect(plain, isNotNull);
   });
 
+  test('LlmConfigRepository.update 按主键更新业务字段', () async {
+    final repo = LlmConfigRepository(sdb);
+    final id = await repo.insert(LlmConfig(
+      name: '原配置',
+      apiUrl: 'http://old',
+      apiKey: 'old-key',
+      model: 'old-model',
+      isDefault: true,
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final updated = LlmConfig(
+      id: id,
+      name: '新配置',
+      apiUrl: 'https://api.example.com/v1',
+      apiKey: 'secret-token',
+      model: 'gpt-4o',
+      supportsVision: true,
+      isDefault: true,
+      sortOrder: 0,
+      createdAt: DateTime(2026, 1, 1),
+    );
+    await repo.update(updated);
+    final all = await repo.all();
+    expect(all, hasLength(1));
+    expect(all.first.id, id);
+    expect(all.first.name, '新配置');
+    expect(all.first.apiUrl, 'https://api.example.com/v1');
+    expect(all.first.apiKey, 'secret-token');
+    expect(all.first.model, 'gpt-4o');
+    expect(all.first.supportsVision, isTrue);
+    expect(all.first.isDefault, isTrue);
+    // created_at 不应被 update 改动
+    expect(all.first.createdAt, DateTime(2026, 1, 1));
+  });
+
   test('AgentMemoryRepository 增删改查', () async {
     final repo = AgentMemoryRepository(sdb);
     final id = await repo.add('study', '经验1');

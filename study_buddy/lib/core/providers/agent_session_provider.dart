@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../services/llm_logger/llm_logger.dart';
+import '../services/logger_service.dart';
 import 'database_provider.dart';
 import 'focus_session_provider.dart';
 
@@ -36,7 +38,12 @@ class AgentSession {
     final edgesRepo = TopicEdgeRepository(db);
     final memories = AgentMemoryRepository(db);
 
-    final llm = LlmProvider(config: cfg);
+    final traceId = 'agent-${DateTime.now().millisecondsSinceEpoch}';
+    final llm = LlmProvider(
+      config: cfg,
+      llmSink: LlmLogger.instance,
+      logger: LoggerService.instance,
+    );
     final scenario = StudyScenario(
       categories: categories,
       topics: topics,
@@ -52,10 +59,12 @@ class AgentSession {
         await focusRepo.linkTopic(sessionId, topicId);
       },
     );
-    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final loop = AgentLoop(llm: llm, scenario: scenario, logger: LoggerService.instance);
+    LoggerService.instance.i('Agent 会话开始', category: LogCategory.ai, tags: const ['session-start'], traceId: traceId);
     return loop.run(
       messages,
       context: AgentScenarioContext(extra: chatSessionId == null ? const {} : {'chat_session_id': chatSessionId}),
+      traceId: traceId,
     );
   }
 }

@@ -191,6 +191,29 @@ class LlmConfig {
         'sort_order': sortOrder,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
+  LlmConfig copyWith({
+    int? id,
+    String? name,
+    String? apiUrl,
+    String? apiKey,
+    String? model,
+    bool? supportsVision,
+    bool? isDefault,
+    int? sortOrder,
+    DateTime? createdAt,
+  }) {
+    return LlmConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      apiUrl: apiUrl ?? this.apiUrl,
+      apiKey: apiKey ?? this.apiKey,
+      model: model ?? this.model,
+      supportsVision: supportsVision ?? this.supportsVision,
+      isDefault: isDefault ?? this.isDefault,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
 }
 
 /// agent 经验记忆。

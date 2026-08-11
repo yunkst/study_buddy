@@ -2096,6 +2096,590 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
+## Task 10b: 设置页 LLM 配置板块(engine update + provider + 种子 + UI)
+
+> 本任务由用户中途新增需求("在配置页,增加 LLM 的配置功能,可以配置 URL TOKEN MODEL")引入。复用 engine 现有 `LlmConfig`/`LlmConfigRepository`/`llm_config` 表,不重建。
+
+**Files:**
+- Modify: `packages/study_engine/lib/src/repos/llm_config_repository.dart`
+- Modify: `packages/study_engine/test/repos_test.dart`
+- Create: `study_buddy/lib/core/providers/llm_config_provider.dart`
+- Create: `study_buddy/test/core/providers/llm_config_provider_test.dart`
+- Modify: `study_buddy/lib/features/settings/settings_page.dart`
+- Modify: `study_buddy/test/features/settings/settings_page_test.dart`
+
+**Interfaces:**
+- Consumes: engine `LlmConfig`/`LlmConfigRepository`(已存在)、`databaseProvider`(Task 0 已存在)、Task 10 的 `SettingsPage`/`_SectionLabel`
+- Produces: `LlmConfigRepository.update(cfg)`(engine)、`llmConfigProvider` + `LlmConfigNotifier`(app Riverpod)、`SettingsPage` 内「LLM 配置」板块(名称/URL/Token/模型 四字段 + 保存)
+
+### Step 1: engine — 写 update 失败测试
+
+在 `packages/study_engine/test/repos_test.dart` 的 `main()` 内、现有 `'LlmConfigRepository.getDefault 视觉优先'` 测试**之后**,追加:
+
+```dart
+  test('LlmConfigRepository.update 按主键更新业务字段', () async {
+    final repo = LlmConfigRepository(sdb);
+    final id = await repo.insert(LlmConfig(
+      name: '原配置',
+      apiUrl: 'http://old',
+      apiKey: 'old-key',
+      model: 'old-model',
+      isDefault: true,
+      createdAt: DateTime(2026, 1, 1),
+    ));
+    final updated = LlmConfig(
+      id: id,
+      name: '新配置',
+      apiUrl: 'https://api.example.com/v1',
+      apiKey: 'secret-token',
+      model: 'gpt-4o',
+      supportsVision: true,
+      isDefault: true,
+      sortOrder: 0,
+      createdAt: DateTime(2026, 1, 1),
+    );
+    await repo.update(updated);
+    final all = await repo.all();
+    expect(all, hasLength(1));
+    expect(all.first.id, id);
+    expect(all.first.name, '新配置');
+    expect(all.first.apiUrl, 'https://api.example.com/v1');
+    expect(all.first.apiKey, 'secret-token');
+    expect(all.first.model, 'gpt-4o');
+    expect(all.first.supportsVision, isTrue);
+    expect(all.first.isDefault, isTrue);
+    // created_at 不应被 update 改动
+    expect(all.first.createdAt, DateTime(2026, 1, 1));
+  });
+```
+
+### Step 2: engine — 运行测试验证失败
+
+Run: `cd packages/study_engine && dart test test/repos_test.dart`
+Expected: FAIL — `update` 方法未定义(NoSuchMethodError 或编译期报错视 dart 版本)
+
+### Step 3: engine — 实现 update
+
+在 `packages/study_engine/lib/src/repos/llm_config_repository.dart` 的 `getDefault` 方法**之后**、类闭合 `}` **之前**追加:
+
+```dart
+  /// 按主键更新业务字段(不含 id 与 created_at)。
+  /// [c.id] 必须非空,否则抛 [ArgumentError]。
+  Future<void> update(LlmConfig c) async {
+    if (c.id == null) {
+      throw ArgumentError('LlmConfigRepository.update 需要非空 id');
+    }
+    await _db.db.rawUpdate(
+      'UPDATE llm_config SET name = ?, api_url = ?, api_key = ?, model = ?, '
+      'supports_vision = ?, is_default = ?, sort_order = ? WHERE id = ?',
+      [
+        c.name,
+        c.apiUrl,
+        c.apiKey,
+        c.model,
+        c.supportsVision ? 1 : 0,
+        c.isDefault ? 1 : 0,
+        c.sortOrder,
+        c.id,
+      ],
+    );
+  }
+```
+
+注:用 `rawUpdate` + 显式列名(非 `toMap`),避免 `toMap` 含/不含 id 的不确定性,且明确不动 `created_at`。`_db.db` 是 `StudyDatabase` 暴露的 `Database`(sqflite_common),`rawUpdate` 返回 `Future<int>`,这里忽略返回值(受影响行数)。
+
+### Step 4: engine — 运行测试验证通过
+
+Run: `cd packages/study_engine && dart test test/repos_test.dart`
+Expected: PASS(原有测试 + 新增 update 测试全过)
+
+### Step 5: engine — 提交
+
+```bash
+cd packages/study_engine
+git add lib/src/repos/llm_config_repository.dart test/repos_test.dart
+git commit -m "feat(engine): LlmConfigRepository.update 按主键更新业务字段
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+### Step 6: app — 写 provider 失败测试
+
+在 `study_buddy/test/core/providers/llm_config_provider_test.dart` 创建:
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:study_engine/study_engine.dart';
+
+import 'package:study_buddy/core/providers/database_provider.dart';
+import 'package:study_buddy/core/providers/llm_config_provider.dart';
+
+Future<ProviderContainer> _boot() async {
+  sqfliteFfiInit();
+  final overrides = <Override>[];
+  overrides.add(databaseProvider.overrideWith((ref) async {
+    final sdb = await StudyDatabase.open(
+      factory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
+    ref.onDispose(() => sdb.close());
+    return sdb;
+  }));
+  final container = ProviderContainer(overrides: overrides);
+  return container;
+}
+
+void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
+  test('首次 build:表为空时种子一条默认配置', () async {
+    final container = await _boot();
+    addTearDown(container.dispose);
+    final cfg = await container.read(llmConfigProvider.future);
+    expect(cfg, isNotNull);
+    expect(cfg!.name, '默认配置');
+    expect(cfg.isDefault, isTrue);
+    expect(cfg.supportsVision, isTrue);
+    // 种子后表里确实有一行
+    final db = await container.read(databaseProvider.future);
+    final rows = await db.db.query('llm_config');
+    expect(rows, hasLength(1));
+  });
+
+  test('save 更新现有配置,下次读取为新值', () async {
+    final container = await _boot();
+    addTearDown(container.dispose);
+    final initial = await container.read(llmConfigProvider.future);
+    expect(initial, isNotNull);
+    final saved = await container
+        .read(llmConfigProvider.notifier)
+        .save(initial!.copyWith(
+          apiUrl: 'https://api.example.com/v1',
+          apiKey: 'tok-123',
+          model: 'gpt-4o',
+          name: '我的模型',
+        ));
+    expect(saved.apiUrl, 'https://api.example.com/v1');
+    expect(saved.apiKey, 'tok-123');
+    // invalidate 后重新读取,拿到的是落库后的新值
+    container.invalidate(llmConfigProvider);
+    final reread = await container.read(llmConfigProvider.future);
+    expect(reread?.model, 'gpt-4o');
+    expect(reread?.name, '我的模型');
+    // 表里仍只有一行(非新增)
+    final db = await container.read(databaseProvider.future);
+    expect(await db.db.query('llm_config'), hasLength(1));
+  });
+}
+```
+
+注:`copyWith` 需在 `LlmConfig` 上存在。**若 engine 的 `LlmConfig` 无 `copyWith`,本任务的 Step 6 之前须先在 engine 补一个**(见 Step 6b)。implementer 须先读 `models.dart` 确认;若无,先做 Step 6b 再做 Step 6 测试。
+
+### Step 6b: engine — 若 LlmConfig 无 copyWith 则补上(条件步骤)
+
+先 `grep -n "copyWith" packages/study_engine/lib/src/models/models.dart` 确认。若已存在则跳过本步。若不存在,在 `LlmConfig` 类的 `toMap()` 方法**之后**、类闭合前追加:
+
+```dart
+  LlmConfig copyWith({
+    int? id,
+    String? name,
+    String? apiUrl,
+    String? apiKey,
+    String? model,
+    bool? supportsVision,
+    bool? isDefault,
+    int? sortOrder,
+    DateTime? createdAt,
+  }) {
+    return LlmConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      apiUrl: apiUrl ?? this.apiUrl,
+      apiKey: apiKey ?? this.apiKey,
+      model: model ?? this.model,
+      supportsVision: supportsVision ?? this.supportsVision,
+      isDefault: isDefault ?? this.isDefault,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+```
+
+若执行了本步,需并入 Step 5 的 commit(或单独 commit `feat(engine): LlmConfig.copyWith`)。implementer 自行判断。
+
+### Step 7: app — 运行测试验证失败
+
+Run: `cd study_buddy && flutter test test/core/providers/llm_config_provider_test.dart`
+Expected: FAIL — `llmConfigProvider` / `LlmConfigNotifier` 未定义
+
+### Step 8: app — 实现 provider
+
+在 `study_buddy/lib/core/providers/llm_config_provider.dart` 创建:
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:study_engine/study_engine.dart';
+
+import 'database_provider.dart';
+
+/// 当前生效的 LLM 配置(默认项)。
+///
+/// build() 时:
+/// - 读 `llm_config` 表 all();
+/// - 若表为空(全新安装),种子一条占位默认配置(name="默认配置"/url=""/key=""/model=""/supportsVision=true/isDefault=true),
+///   消除 [AgentSession]/[PlanSession] 的 getDefault() 返回 null 抛 StateError 的崩溃路径,
+///   并让用户在设置页看到"待填写"的初始态。
+/// - 返回 sort_order 最前的默认项(无默认项则返回首行)。
+///
+/// save() 时:id 为空走 insert,否则走 update;写库后 invalidateSelf 触发重建。
+final llmConfigProvider =
+    AsyncNotifierProvider<LlmConfigNotifier, LlmConfig?>(
+  LlmConfigNotifier.new,
+);
+
+class LlmConfigNotifier extends AsyncNotifier<LlmConfig?> {
+  @override
+  Future<LlmConfig?> build() async {
+    final db = await ref.watch(databaseProvider.future);
+    final repo = LlmConfigRepository(db);
+    var configs = await repo.all();
+    if (configs.isEmpty) {
+      await repo.insert(LlmConfig(
+        name: '默认配置',
+        apiUrl: '',
+        apiKey: '',
+        model: '',
+        supportsVision: true,
+        isDefault: true,
+        createdAt: DateTime.now(),
+      ));
+      configs = await repo.all();
+    }
+    // 优先默认项;无则首行
+    return configs.firstWhere(
+      (c) => c.isDefault,
+      orElse: () => configs.first,
+    );
+  }
+
+  /// 保存配置:id 为空 insert,否则 update。返回写入后的配置(带 id)。
+  Future<LlmConfig> save(LlmConfig cfg) async {
+    final db = await ref.read(databaseProvider.future);
+    final repo = LlmConfigRepository(db);
+    if (cfg.id == null) {
+      final newId = await repo.insert(cfg);
+      return cfg.copyWith(id: newId);
+    }
+    await repo.update(cfg);
+    return cfg;
+  }
+
+  /// 写库后刷新:调用方 save 后调用此方法,或直接 invalidate。
+  Future<void> refresh() async {
+    ref.invalidateSelf();
+    await future;
+  }
+}
+```
+
+注:
+- `AsyncNotifierProvider` 是 flutter_riverpod 现代 API(非 legacy)。项目已用 `flutter_riverpod`(见 database_provider.dart 的 import),此 API 可用。若版本不支持,降级为 `StateNotifierProvider<LlmConfigNotifier, AsyncValue<LlmConfig?>>`(legacy),但需在测试里用 `container.read(llmConfigProvider)` 而非 `.future`——implementer 须按项目实际 riverpod 版本调整,保持测试断言语义不变。
+- `DateTime.now()` 在 build() 中可用(engine 测试禁用 `Date.now` 是 Workflow 脚本限制,不是 app 代码限制)。
+- `ref.watch(databaseProvider.future)` 让本 provider 自动依赖 db,db 就绪后才 build。
+
+### Step 9: app — 运行测试验证通过
+
+Run: `cd study_buddy && flutter test test/core/providers/llm_config_provider_test.dart`
+Expected: PASS(2 个测试:种子 + save 更新)
+
+### Step 10: app — 提交 provider
+
+```bash
+cd study_buddy
+git add lib/core/providers/llm_config_provider.dart test/core/providers/llm_config_provider_test.dart
+git commit -m "feat(app): llmConfigProvider AsyncNotifier + 空表种子默认配置
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+### Step 11: app — 写设置页 LLM 板块失败测试
+
+在 `study_buddy/test/features/settings/settings_page_test.dart`(Task 10 已创建)的 `main()` 内、现有渲染测试**之后**追加:
+
+```dart
+  testWidgets('LLM 配置板块渲染四字段与保存按钮', (tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('LLM 配置'), findsOneWidget);
+    expect(find.text('名称'), findsWidgets);
+    expect(find.text('API 地址'), findsWidgets);
+    expect(find.text('API Key'), findsWidgets);
+    expect(find.text('模型'), findsWidgets);
+    expect(find.text('保存'), findsOneWidget);
+  });
+```
+
+注:Task 10 的渲染测试若用 `MaterialApp(home: const SettingsPage())`(无 ProviderScope),本测试需包裹 `ProviderScope`。若 Task 10 测试已包裹 ProviderScope,沿用即可。SettingsPage 现在依赖 `llmConfigProvider`,无 ProviderScope 会抛 ProviderScope 缺失,故本测试必须包。implementer 须确保两个测试的包裹方式一致(都用 ProviderScope)。
+
+### Step 12: app — 运行测试验证失败
+
+Run: `cd study_buddy && flutter test test/features/settings/settings_page_test.dart`
+Expected: FAIL — `LLM 配置` 文本找不到(或 SettingsPage 缺 ProviderScope 报错)
+
+### Step 13: app — 在 SettingsPage 加 LLM 配置板块
+
+修改 `study_buddy/lib/features/settings/settings_page.dart`:
+1. 顶部 import 区加:
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/providers/llm_config_provider.dart';
+```
+2. `class SettingsPage extends StatelessWidget` 改为 `class SettingsPage extends ConsumerWidget`,`build(BuildContext context)` 改为 `build(BuildContext context, WidgetRef ref)`。
+3. 在 ListView 的 `children` 中,`_SectionLabel(text: '诊断')` 之前(板块顺序:LLM 配置在上,诊断在下)插入:
+```dart
+            _LlmConfigSection(),
+            const SizedBox(height: 32),
+```
+4. 在文件末尾(其它私有 widget 之后)追加 `_LlmConfigSection`:
+```dart
+class _LlmConfigSection extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_LlmConfigSection> createState() => _LlmConfigSectionState();
+}
+
+class _LlmConfigSectionState extends ConsumerState<_LlmConfigSection> {
+  late final TextEditingController _name;
+  late final TextEditingController _url;
+  late final TextEditingController _key;
+  late final TextEditingController _model;
+  bool _loaded = false;
+  bool _saving = false;
+
+  void _ensureControllers(LlmConfig? cfg) {
+    if (_loaded) return;
+    _name = TextEditingController(text: cfg?.name ?? '');
+    _url = TextEditingController(text: cfg?.apiUrl ?? '');
+    _key = TextEditingController(text: cfg?.apiKey ?? '');
+    _model = TextEditingController(text: cfg?.model ?? '');
+    _loaded = true;
+  }
+
+  @override
+  void dispose() {
+    if (_loaded) {
+      _name.dispose();
+      _url.dispose();
+      _key.dispose();
+      _model.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final cfg = ref.read(llmConfigProvider).valueOrNull;
+    if (cfg == null) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(llmConfigProvider.notifier).save(cfg.copyWith(
+            name: _name.text.trim().isEmpty ? '默认配置' : _name.text.trim(),
+            apiUrl: _url.text.trim(),
+            apiKey: _key.text.trim(),
+            model: _model.text.trim(),
+          ));
+      await ref.read(llmConfigProvider.notifier).refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('LLM 配置已保存')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败:$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final asyncCfg = ref.watch(llmConfigProvider);
+    return asyncCfg.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.only(top: 16),
+        child: Center(
+            child: SizedBox(
+                width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+      ),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Text('加载配置失败:$e'),
+      ),
+      data: (cfg) {
+        _ensureControllers(cfg);
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionLabel(text: 'LLM 配置'),
+            const SizedBox(height: 8),
+            _Field(label: '名称', controller: _name, hint: '如:我的模型'),
+            _Field(
+              label: 'API 地址',
+              controller: _url,
+              hint: 'https://api.example.com/v1',
+              keyboard: TextInputType.url,
+            ),
+            _Field(
+              label: 'API Key',
+              controller: _key,
+              hint: 'sk-...',
+              obscure: true,
+            ),
+            _Field(
+              label: '模型',
+              controller: _model,
+              hint: '如:gpt-4o',
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: const Text('保存'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  const _Field({
+    required this.label,
+    required this.controller,
+    required this.hint,
+    this.keyboard = TextInputType.text,
+    this.obscure = false,
+  });
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final TextInputType keyboard;
+  final bool obscure;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'NotoSerifSC',
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 4),
+          TextField(
+            controller: controller,
+            keyboardType: keyboard,
+            obscureText: obscure,
+            style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'NotoSerifSC'),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: hint,
+              hintStyle: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant.withOpacity(0.5)),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(
+                    color: theme.extension<PaperColors>()!.ruleSoft, width: 0.6),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: theme.colorScheme.primary, width: 1),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+注:
+- `_SectionLabel` 复用 Task 10 已定义的私有 widget(同文件)。若 Task 10 的 `_SectionLabel` 是 `_SectionLabel`(下划线前缀,私有),同文件可直接用。
+- `FilledButton` 是 Material 3 内置,纸感页用主色填充,与 `_NavRow` 的克制风格形成"主操作"视觉层次。
+- API Key 字段 `obscure: true` 隐藏,防止肩窥;保存时取 `.text.trim()`。
+- `_ensureControllers` 用 `_loaded` 标志确保 controller 只在配置首次到达时初始化(避免重建时重置用户输入);`dispose` 里判断 `_loaded` 防止未初始化 dispose。
+- `PaperColors` import 来自 Task 10 已有的 `import '../../core/theme/paper_extension.dart';`(若 SettingsPage 已 import,`_Field` 同文件可直接用)。
+
+### Step 14: app — 运行测试验证通过
+
+Run: `cd study_buddy && flutter test test/features/settings/settings_page_test.dart`
+Expected: PASS(渲染测试 + LLM 板块测试全过)
+
+注:本测试 pumpAndSettle 会触发 `llmConfigProvider` 的 build(),需 `databaseProvider` 可用。测试若未 override `databaseProvider`,真实 db 会因 `getApplicationSupportDirectory` 失败。**处理**:测试用 `ProviderScope(overrides: [databaseProvider.overrideWith(... inMemory ...)])`。implementer 须把 Step 11 的测试改为带 override 的 ProviderScope,与 provider 测试的 `_boot()` 同款 inMemory override。示例:
+
+```dart
+  testWidgets('LLM 配置板块渲染四字段与保存按钮', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWith((ref) async {
+            sqfliteFfiInit();
+            final sdb = await StudyDatabase.open(
+              factory: databaseFactoryFfi,
+              path: inMemoryDatabasePath,
+            );
+            ref.onDispose(() => sdb.close());
+            return sdb;
+          }),
+        ],
+        child: const MaterialApp(home: SettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // ... 断言
+  });
+```
+
+同理,Task 10 的渲染测试若也因 SettingsPage 现依赖 provider 而失败,需同样 override。implementer 统一处理两个测试。
+
+### Step 15: app — 提交设置页
+
+```bash
+cd study_buddy
+git add lib/features/settings/settings_page.dart test/features/settings/settings_page_test.dart
+git commit -m "feat(app): 设置页加 LLM 配置板块(URL/Token/Model 保存)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+---
+
 ## Task 11: App 日志查看页
 
 **Files:**

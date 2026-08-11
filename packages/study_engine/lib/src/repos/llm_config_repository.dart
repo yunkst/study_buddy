@@ -27,4 +27,26 @@ class LlmConfigRepository {
     final rows = await _db.db.query('llm_config', where: 'is_default = 1', orderBy: 'sort_order', limit: 1);
     return rows.isEmpty ? null : LlmConfig.fromMap(rows.first);
   }
+
+  /// 按主键更新业务字段(不含 id 与 created_at)。
+  /// [c.id] 必须非空,否则抛 [ArgumentError]。
+  Future<void> update(LlmConfig c) async {
+    if (c.id == null) {
+      throw ArgumentError('LlmConfigRepository.update 需要非空 id');
+    }
+    await _db.db.rawUpdate(
+      'UPDATE llm_config SET name = ?, api_url = ?, api_key = ?, model = ?, '
+      'supports_vision = ?, is_default = ?, sort_order = ? WHERE id = ?',
+      [
+        c.name,
+        c.apiUrl,
+        c.apiKey,
+        c.model,
+        c.supportsVision ? 1 : 0,
+        c.isDefault ? 1 : 0,
+        c.sortOrder,
+        c.id,
+      ],
+    );
+  }
 }

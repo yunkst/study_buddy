@@ -203,4 +203,77 @@ void main() {
       await db2.close();
     });
   });
+
+  group('migrateDatabase 埋点', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('migrateDatabase 通过 sink 上报迁移日志', () async {
+      final logger = _RecordingLogger();
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: kCurrentDbVersion,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) =>
+                migrateDatabase(d, 0, kCurrentDbVersion, logger: logger),
+          ));
+      expect(await db.getVersion(), kCurrentDbVersion);
+      expect(
+        logger.messages.any((m) => m.contains('迁移')),
+        isTrue,
+        reason: '迁移日志应包含「迁移」关键字,实际 messages=${logger.messages}',
+      );
+      await db.close();
+    });
+
+    // I-2 回归守护:StudyDatabase.open(logger:) 必须把 logger 透传到
+    // onCreate/onUpgrade/onDowngrade 三条路径的 migrateDatabase。
+    // 此处覆盖 onCreate(新建库)路径——生产 app 首次启动走的就是这条。
+    test('StudyDatabase.open(logger:) 透传 logger 到 onCreate 迁移', () async {
+      final logger = _RecordingLogger();
+      final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+        logger: logger,
+      );
+      expect(await sdb.db.getVersion(), kCurrentDbVersion);
+      expect(
+        logger.messages.any((m) => m.contains('迁移开始')),
+        isTrue,
+        reason: 'open(logger:) 应透传到 migrateDatabase 的 migration-start 埋点,'
+            '实际 messages=${logger.messages}',
+      );
+      expect(
+        logger.messages.any((m) => m.contains('迁移完成')),
+        isTrue,
+        reason: '迁移完成后应上报 migration-done,实际 messages=${logger.messages}',
+      );
+      await sdb.close();
+    });
+
+    // 向后兼容:不传 logger 时行为不变(NullLoggerSink 兜底),不抛异常。
+    test('StudyDatabase.open 不传 logger 时向后兼容', () async {
+      final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      expect(await sdb.db.getVersion(), kCurrentDbVersion);
+      await sdb.close();
+    });
+  });
+}
+
+class _RecordingLogger implements LoggerSink {
+  final List<String> messages = [];
+
+  @override
+  void log(
+    LoggerLevel level,
+    String message, {
+    String category = 'general',
+    String? traceId,
+    String? stackTrace,
+    List<String> tags = const [],
+  }) {
+    messages.add(message);
+  }
 }
