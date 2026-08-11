@@ -38,7 +38,14 @@ class FocusSessionState {
 
 /// 专注计时状态机。计时主源在本 Notifier（Stopwatch），原生通知栏为镜像。
 class FocusSessionNotifier extends StateNotifier<FocusSessionState> {
-  FocusSessionNotifier(this._ref) : super(FocusSessionState.idle);
+  FocusSessionNotifier(this._ref) : super(FocusSessionState.idle) {
+    // 接线通知栏「停止」→ stop()：原生 FocusTimerService 收到停止 Action
+    // 后经 MethodChannel 反向调 onStopped，由 bridge 转发到这里触发完整 stop 流程
+    // （停 Stopwatch + 落库 ended_at + 清 state + 调原生 stop）。
+    // Notifier 实例生命周期与 provider 一致，recoverOrphan 仅改 state 不换实例，
+    // 故该注册在恢复 running 后依然有效。
+    _ref.read(focusTimerBridgeProvider).setOnStopped(stop);
+  }
   final Ref _ref;
   Stopwatch? _stopwatch;
   StreamSubscription<Duration>? _tick;

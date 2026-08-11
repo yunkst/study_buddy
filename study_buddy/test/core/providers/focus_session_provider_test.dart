@@ -163,4 +163,33 @@ void main() {
     expect(state.elapsed.inSeconds, greaterThanOrEqualTo(1));
     await notifier.stop();
   });
+
+  test('通知栏反向 onStopped 触发完整 stop 流程', () async {
+    // 端到端：原生 FocusTimerService 收停止 Action → 反向调 onStopped
+    // → bridge 转发 → Notifier 构造时注册的 setOnStopped(stop) → stop() 全流程。
+    // 这是 per-task review 的互盲区：Task 7 测 bridge 自洽、Task 8 测 stop 自洽，
+    // 此测试守护「setOnStopped 已接线」这条集成链路。
+    final container = makeContainer();
+    final notifier = container.read(focusSessionProvider.notifier);
+    // read notifier 即触发 Notifier 构造 → setOnStopped(stop) 已注册
+    await notifier.start();
+    expect(container.read(focusSessionProvider).running, isTrue);
+
+    // 模拟原生反向调用 onStopped（与 focus_timer_bridge_test 一致的 handlePlatformMessage 模式）
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec()
+          .encodeMethodCall(const MethodCall('onStopped')),
+      (data) {},
+    );
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    // stop 全流程已被触发：state 回 idle + DB 会话已结束
+    final state = container.read(focusSessionProvider);
+    expect(state.running, isFalse);
+    expect(state.sessionId, isNull);
+    final repo = FocusSessionRepository(sdb);
+    expect(await repo.findOpenSession(), isNull);
+  });
 }
