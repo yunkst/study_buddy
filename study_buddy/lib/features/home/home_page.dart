@@ -148,17 +148,21 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
     if (fromCamera == null) return;
-    // 相机/相册 Activity 让 App 进 paused：抑制 lifecycle 的 showOverlay
+    // 相机/相册 Activity 让 App 进 paused：抑制 lifecycle 的 showOverlay。
+    // 作用域仅限 pickImageForAi（相机/相册 Activity 期间）——取图返回后立即复位，
+    // 面板会话期间不能保持抑制，否则用户按 Home 进后台时 paused→showOverlay 被跳过，
+    // 悬浮球无法恢复（I-1）。
     ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
+    CapturedScreenshot? screenshot;
     try {
-      final screenshot = await pickImageForAi(fromCamera: fromCamera);
+      screenshot = await pickImageForAi(fromCamera: fromCamera);
       if (screenshot == null) return;
-      if (!context.mounted) return;
-      await showAiPanel(context, screenshot: screenshot);
     } finally {
       // 无论取消/失败/成功，都复位抑制标志，避免泄漏导致后续进后台不显示悬浮球。
       ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
     }
+    if (!context.mounted) return;
+    await showAiPanel(context, screenshot: screenshot);
   }
 
   Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
