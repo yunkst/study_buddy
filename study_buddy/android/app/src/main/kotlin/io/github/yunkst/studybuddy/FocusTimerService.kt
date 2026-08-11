@@ -55,6 +55,9 @@ class FocusTimerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // 立即停 tick：stopSelf → onDestroy 之间 tick 可能再跑一次刷新通知，
+            // 造成「停止」后通知内容仍跳一下秒的视觉抖动。onDestroy 也会 remove，此处提前。
+            handler.removeCallbacks(tickRunnable)
             // 先调 startForeground 再 stopSelf：服务存活时是 no-op 刷新；
             // 被系统回收后用户点残留通知重新拉起时，是正确的前台过渡（避免 ForegroundServiceStartNotAllowedException）。
             startForeground(NOTIFICATION_ID, buildNotification(elapsedMs = 0L))

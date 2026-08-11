@@ -145,4 +145,62 @@ void main() {
       await db.close();
     });
   });
+
+  group('mastery_log FK 约束', () {
+    late StudyDatabase sdb;
+    setUpAll(sqfliteFfiInit);
+    setUp(() async {
+      sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    });
+    tearDown(() async => await sdb.close());
+
+    test('mastery_log 有指向 topic(id) 的外键', () async {
+      // v2 为 DROP topic 临时移除了 mastery_log 的 FK，应在 topic 重建后恢复。
+      // foreign_key_list 返回 0 行 = FK 丢失（回归守护）。
+      final fks = await sdb.db.rawQuery('PRAGMA foreign_key_list(mastery_log)');
+      expect(fks, isNotEmpty, reason: 'mastery_log 应有外键指向 topic');
+      final table = fks.any((r) => r['table'] == 'topic');
+      expect(table, isTrue, reason: 'mastery_log 外键应指向 topic 表');
+    });
+
+    test('插入指向不存在 topic 的 mastery_log 触发 FK 约束', () async {
+      // PRAGMA foreign_keys 在 open 的 onConfigure 已开启。
+      expect(
+        () => sdb.db.insert('mastery_log', {
+          'topic_id': 9999, 'status': 'learning', 'changed_at': 0,
+        }),
+        throwsA(predicate((e) => e.toString().contains('FOREIGN KEY constraint failed'))),
+      );
+    });
+  });
+
+  group('降级处理', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('从高版本降级到低版本不崩溃且库可用', () async {
+      // 建一个 v5 库并写入数据
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: 5,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) => migrateDatabase(d, 0, 5),
+          ));
+      await db.insert('category', {'name': 'x', 'sort_order': 0, 'created_at': 0});
+      await db.close();
+
+      // 用「降级到 v3」重新打开：onDowngrade 应清空并重建，而非抛异常
+      final db2 = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: 3,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onUpgrade: (d, o, n) => migrateDatabase(d, o, n),
+            onCreate: (d, _) => migrateDatabase(d, 0, 3),
+            onDowngrade: StudyDatabase.onDowngradeRecreate,
+          ));
+      // 库可用：version=3，旧数据已清空
+      expect(await db2.getVersion(), 3);
+      expect(await db2.query('category'), isEmpty);
+      await db2.close();
+    });
+  });
 }

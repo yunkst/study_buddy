@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -224,6 +226,27 @@ void main() {
     expect(state.streamingText, isEmpty);
     expect(state.toolEvents, isEmpty);
   });
+
+  test('send 运行中 clear:挂起的 send future 必须返回(不永久挂起)', () async {
+    // 用 controller 制造一个不会自动结束的流，模拟 agent 仍在跑时用户关闭抽屉。
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _HangingAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+
+    final notifier = container.read(currentChatProvider.notifier);
+    final sendFuture = notifier.send('问', image: _screenshot());
+    // 等一拍让流订阅建立、send 进入 await done.future
+    await Future.delayed(const Duration(milliseconds: 10));
+    expect(container.read(currentChatProvider).busy, isTrue);
+
+    // 中途 clear：取消订阅不触发 onDone，必须靠 clear 主动 complete done
+    notifier.clear();
+
+    // send future 应在合理时间内完成，而非永久挂起
+    await sendFuture.timeout(const Duration(seconds: 1));
+    expect(container.read(currentChatProvider).messages, isEmpty);
+  });
 }
 
 class _ThrowingAgentSession extends AgentSession {
@@ -231,5 +254,17 @@ class _ThrowingAgentSession extends AgentSession {
   @override
   Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     throw StateError('未配置支持视觉的默认 LLM');
+  }
+}
+
+/// 制造永不自动结束的流：模拟 agent 长时间运行（如等待 LLM 流式响应），
+/// 供 clear/dispose 中途打断场景测试。controller 不 close，onDone 不触发。
+class _HangingAgentSession extends AgentSession {
+  _HangingAgentSession(super.ref);
+  @override
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+    final ctrl = StreamController<AgentEvent>();
+    // 不 emit、不 close —— 流保持打开，模拟 agent 正在跑
+    return ctrl.stream;
   }
 }

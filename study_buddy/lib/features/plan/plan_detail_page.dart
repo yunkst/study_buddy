@@ -110,12 +110,15 @@ class PlanDetailPage extends ConsumerWidget {
               ...milestones.map((m) {
                 final isDone = m.status == 'done';
                 final daysTo = m.targetDate.difference(DateTime.now()).inDays;
-                final near = daysTo.abs() <= 3;
+                final expired = daysTo < 0;
+                // 临期仅指未来 0~3 天；过期单独走"已过期"分支，不显示负数天数
+                final near = !isDone && !expired && daysTo <= 3;
+                final overdue = !isDone && expired;
                 return Card(
                   child: ListTile(
                     leading: IconButton(
                       icon: Icon(isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                          color: isDone ? Colors.green : (near ? Colors.orange : Colors.grey)),
+                          color: isDone ? Colors.green : (overdue ? Colors.red : (near ? Colors.orange : Colors.grey))),
                       onPressed: () async {
                         final repo = await ref.read(planRepositoryAsyncProvider.future);
                         await repo.updateMilestone(m.id!, status: isDone ? 'pending' : 'done');
@@ -127,9 +130,9 @@ class PlanDetailPage extends ConsumerWidget {
                       style: TextStyle(decoration: isDone ? TextDecoration.lineThrough : null, color: isDone ? Colors.grey : null),
                     ),
                     subtitle: Text(m.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                    trailing: near && !isDone
-                        ? Text(daysTo == 0 ? '今天' : '$daysTo天', style: TextStyle(color: Colors.orange.shade800, fontSize: 12))
-                        : null,
+                    trailing: overdue
+                        ? const Text('已过期', style: TextStyle(color: Colors.red, fontSize: 12))
+                        : (near ? Text(daysTo == 0 ? '今天' : '$daysTo天', style: TextStyle(color: Colors.orange.shade800, fontSize: 12)) : null),
                   ),
                 );
               }),
@@ -141,10 +144,8 @@ class PlanDetailPage extends ConsumerWidget {
   }
 
   int? _extractScore(String text) {
+    // 仅认「X分」模式；纯数字回退会把日期/年份（如「2026年上岸」的 2026）误判为目标分。
     final m = RegExp(r'(\d+)\s*分').firstMatch(text);
-    if (m != null) return int.tryParse(m.group(1)!);
-    // 回退：纯数字（无"分"字时）
-    final m2 = RegExp(r'\d+').firstMatch(text);
-    return m2 == null ? null : int.tryParse(m2.group(0)!);
+    return m == null ? null : int.tryParse(m.group(1)!);
   }
 }

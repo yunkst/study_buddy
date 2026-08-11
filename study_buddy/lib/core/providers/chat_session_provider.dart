@@ -55,6 +55,9 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
   final Ref _ref;
 
   StreamSubscription<AgentEvent>? _sub;
+  /// 当前 send 轮的完成信号。clear()/dispose() 在流被取消（不触发 onDone）时
+  /// 主动 complete，避免 send() 的 await done.future 永久挂起 + 闭包泄漏。
+  Completer<void>? _done;
 
   /// 发送一轮：组装 user 消息（文字+可选图）→ append → 调 AgentSession.run
   /// 监听事件流回填 state。构造期抛错回滚 user 消息。
@@ -84,7 +87,8 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       final stream = await session.run(msgs);
       // 监听流：_onEvent 实时回填 state（UI 增量更新）；onDone 解除 busy。
       // send() 本身 await 整轮完成，调用方据此感知「本轮结束」。
-      final done = Completer<void>();
+      _done = Completer<void>();
+      final done = _done!;
       _sub = stream.listen(
         _onEvent,
         onError: (Object e, StackTrace _) {
@@ -108,6 +112,8 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
         busy: false,
         error: '$e',
       );
+    } finally {
+      _done = null;
     }
   }
 
@@ -179,12 +185,20 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
   void clear() {
     _sub?.cancel();
     _sub = null;
+    // 取消订阅不触发 onDone，主动 complete 让挂起的 send() 返回，避免 future 永久悬空。
+    if (_done != null && !_done!.isCompleted) {
+      _done!.complete();
+    }
+    _done = null;
     state = ChatSessionState.initial;
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    if (_done != null && !_done!.isCompleted) {
+      _done!.complete();
+    }
     super.dispose();
   }
 }

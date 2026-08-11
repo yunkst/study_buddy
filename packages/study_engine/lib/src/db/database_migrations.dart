@@ -122,7 +122,8 @@ void _v1(Batch batch) {
 void _v2(Batch batch) {
   // 删除依赖 topic 的旧索引（mastery_log 的 idx_mastery_topic 不依赖 topic 字段，保留）
   batch.execute('DROP TABLE IF EXISTS topic_domain');
-  // mastery_log 引用 topic(id)，先临时移除 FK 约束：重建 mastery_log 不带 FK
+  // mastery_log 引用 topic(id)，先临时移除 FK 约束：重建 mastery_log 不带 FK。
+  // topic 重建完成后会在 _v2 末尾再次重建 mastery_log 恢复 FK，见下方。
   batch.execute('CREATE TABLE mastery_log_new AS SELECT * FROM mastery_log');
   batch.execute('DROP TABLE mastery_log');
   batch.execute('''
@@ -167,6 +168,24 @@ void _v2(Batch batch) {
     )
   ''');
   batch.execute('CREATE INDEX idx_topic_category ON topic(category_id)');
+
+  // topic 已重建完成，恢复 mastery_log 的 FK 约束（v2 开头临时移除了它以便 DROP topic）。
+  // 重建带 FK 的 mastery_log，迁移数据，清理临时表。
+  batch.execute('CREATE TABLE mastery_log_fk AS SELECT * FROM mastery_log');
+  batch.execute('DROP TABLE mastery_log');
+  batch.execute('''
+    CREATE TABLE mastery_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      topic_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT,
+      changed_at INTEGER NOT NULL,
+      FOREIGN KEY (topic_id) REFERENCES topic(id) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('INSERT INTO mastery_log SELECT * FROM mastery_log_fk');
+  batch.execute('DROP TABLE mastery_log_fk');
+  batch.execute('CREATE INDEX IF NOT EXISTS idx_mastery_topic ON mastery_log(topic_id, changed_at)');
 
   batch.execute('''
     CREATE TABLE topic_edge (
