@@ -65,7 +65,7 @@ $memBlock''';
 
   @override
   Future<String> executeTool(String name, Map<String, dynamic> args,
-      {void Function(String p)? onProgress, String? toolCallId}) async {
+      {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async {
     switch (name) {
       case 'create_plan':
         return _createPlan(args);

@@ -57,7 +57,7 @@ class AgentLoop {
           final args = _parseArgs(tc.arguments);
           String result;
           try {
-            result = await scenario.executeTool(tc.name, args, toolCallId: tc.id);
+            result = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
           } catch (e) {
             result = '工具执行出错: $e';
           }

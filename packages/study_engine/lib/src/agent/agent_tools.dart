@@ -1,4 +1,4 @@
-/// Agent 工具 schema（OpenAI function calling）。知识点体系 6 个工具。
+/// Agent 工具 schema（OpenAI function calling）。知识点体系 8 个工具。
 class AgentTools {
   AgentTools._();
 
@@ -98,5 +98,78 @@ class AgentTools {
     },
   };
 
-  static const studyTools = [listTopics, searchTopics, getTopic, saveTopic, updateTopic, linkTopics];
+  static const setMastery = {
+    'type': 'function',
+    'function': {
+      'name': 'set_mastery',
+      'description': '记录某知识点/技巧的掌握程度(基于一次作答或复习判定)。映射规则:全对→升一级(unknown/weak→learning、learning→mastered、mastered 保持);部分对→learning(已 mastered 则回退 learning);全错→weak。reason 必填,写明判定依据。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'topic_id': {'type': 'integer', 'description': '知识点/技巧 id'},
+          'status': {'type': 'string', 'enum': ['learning', 'mastered', 'weak'], 'description': '目标掌握状态'},
+          'reason': {'type': 'string', 'description': '判定依据,如"洛必达题答错:混淆适用条件"'},
+        },
+        'required': ['topic_id', 'status', 'reason'],
+      },
+    },
+  };
+
+  static const getMastery = {
+    'type': 'function',
+    'function': {
+      'name': 'get_mastery',
+      'description': '查询某知识点/技巧的当前掌握程度与最近变更历史。批改前了解现状以决定如何调整。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'topic_id': {'type': 'integer', 'description': '知识点/技巧 id'},
+        },
+        'required': ['topic_id'],
+      },
+    },
+  };
+
+  static const saveReview = {
+    'type': 'function',
+    'function': {
+      'name': 'save_review',
+      'description': '批改完成后保存结构化批改明细(逐题对错/解析/涉及知识点),供卡片展示与复盘对话。调用后前端渲染批改卡片,用户可点进查看、继续探讨。与 set_mastery 各司其职:set_mastery 写掌握度日志,save_review 写批改明细。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'summary': {'type': 'string', 'description': '批改摘要,如"批改3题,对1错2,薄弱:洛必达适用条件"'},
+          'items': {
+            'type': 'array',
+            'description': '逐题明细',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'seq': {'type': 'integer', 'description': '题序,从1开始'},
+                'question': {'type': 'string', 'description': '题目文本'},
+                'user_answer': {'type': 'string', 'description': '用户作答(可空)'},
+                'verdict': {'type': 'string', 'enum': ['correct', 'partial', 'wrong'], 'description': '判定'},
+                'analysis': {'type': 'string', 'description': '解析'},
+                'topic_ids': {'type': 'array', 'items': {'type': 'integer'}, 'description': '涉及知识点 id 列表'},
+              },
+              'required': ['seq', 'question', 'verdict', 'analysis'],
+            },
+          },
+        },
+        'required': ['summary', 'items'],
+      },
+    },
+  };
+
+  static const studyTools = [
+    listTopics,
+    searchTopics,
+    getTopic,
+    saveTopic,
+    updateTopic,
+    linkTopics,
+    setMastery,
+    getMastery,
+    saveReview,
+  ];
 }

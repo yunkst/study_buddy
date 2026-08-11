@@ -10,6 +10,8 @@ void main() {
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
         memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
       );
 
   test('场景1 save_topic 新建（分类自动建）', () async {
