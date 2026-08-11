@@ -203,4 +203,42 @@ void main() {
       await db2.close();
     });
   });
+
+  group('migrateDatabase 埋点', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('migrateDatabase 通过 sink 上报迁移日志', () async {
+      final logger = _RecordingLogger();
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: kCurrentDbVersion,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) =>
+                migrateDatabase(d, 0, kCurrentDbVersion, logger: logger),
+          ));
+      expect(await db.getVersion(), kCurrentDbVersion);
+      expect(
+        logger.messages.any((m) => m.contains('迁移')),
+        isTrue,
+        reason: '迁移日志应包含「迁移」关键字,实际 messages=${logger.messages}',
+      );
+      await db.close();
+    });
+  });
+}
+
+class _RecordingLogger implements LoggerSink {
+  final List<String> messages = [];
+
+  @override
+  void log(
+    LoggerLevel level,
+    String message, {
+    String category = 'general',
+    String? traceId,
+    String? stackTrace,
+    List<String> tags = const [],
+  }) {
+    messages.add(message);
+  }
 }

@@ -1,34 +1,74 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
+import '../logging/logger_sink.dart';
+
 /// 当前数据库版本号。每加一张表/字段 +1。
 /// 当前数据库版本号。每加一张表/字段 +1。
 const int kCurrentDbVersion = 5;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
-Future<void> migrateDatabase(Database db, int from, int to) async {
+///
+/// [logger] 可选；未注入时使用 [NullLoggerSink] 兜底，保证现有调用点
+/// `migrateDatabase(db, from, to)` 编译与行为不变。
+Future<void> migrateDatabase(
+  Database db,
+  int from,
+  int to, {
+  LoggerSink? logger,
+}) async {
+  final log = logger ?? const NullLoggerSink();
   final batch = db.batch();
+  log.log(
+    LoggerLevel.info,
+    '数据库迁移开始: v$from → v$to',
+    category: 'database',
+    tags: const ['migration-start'],
+  );
   for (var v = from + 1; v <= to; v++) {
-    switch (v) {
-      case 1:
-        _v1(batch);
-        break;
-      case 2:
-        _v2(batch);
-        break;
-      case 3:
-        _v3(batch);
-        break;
-      case 4:
-        _v4(batch);
-        break;
-      case 5:
-        _v5(batch);
-        break;
-      default:
-        throw StateError('未知数据库版本: $v');
+    try {
+      switch (v) {
+        case 1:
+          _v1(batch);
+          break;
+        case 2:
+          _v2(batch);
+          break;
+        case 3:
+          _v3(batch);
+          break;
+        case 4:
+          _v4(batch);
+          break;
+        case 5:
+          _v5(batch);
+          break;
+        default:
+          throw StateError('未知数据库版本: $v');
+      }
+      log.log(
+        LoggerLevel.debug,
+        '数据库迁移步骤 v$v 完成',
+        category: 'database',
+        tags: const ['migration-step'],
+      );
+    } catch (e, st) {
+      log.log(
+        LoggerLevel.error,
+        '数据库迁移失败 v$v: $e',
+        category: 'database',
+        stackTrace: st.toString(),
+        tags: const ['migration-failed'],
+      );
+      rethrow;
     }
   }
   await batch.commit();
+  log.log(
+    LoggerLevel.info,
+    '数据库迁移完成: v$to',
+    category: 'database',
+    tags: const ['migration-done'],
+  );
 }
 
 /// v1：建齐 8 张表。
