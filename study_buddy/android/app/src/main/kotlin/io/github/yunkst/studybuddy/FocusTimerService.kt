@@ -30,11 +30,15 @@ class FocusTimerService : Service() {
         private var startTimeMs: Long = 0L
         private val handler = Handler(Looper.getMainLooper())
 
-        fun isRunning(context: Context): Boolean {
-            val mgr = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            return mgr.getRunningServices(Int.MAX_VALUE)
-                ?.any { it.service.className == FocusTimerService::class.java.name } == true
-        }
+        // 进程内运行标志：onStartCommand 置 true、onDestroy 置 false。
+        // 替代 deprecated ActivityManager.getRunningServices——后者在国产 ROM
+        // （华为/小米/OPPO）后台限制下对正在跑的前台服务误报 false，
+        // 导致 recoverOrphan 把活跃会话当孤儿补结束（通知在跑但 app 不认）。
+        @Volatile
+        @JvmStatic
+        private var running: Boolean = false
+
+        fun isRunning(context: Context): Boolean = running
     }
 
     private val tickRunnable = object : Runnable {
@@ -61,6 +65,7 @@ class FocusTimerService : Service() {
         startTimeMs = System.currentTimeMillis()
         startForeground(NOTIFICATION_ID, buildNotification(elapsedMs = 0L))
         handler.post(tickRunnable)
+        running = true
         return START_NOT_STICKY
     }
 
@@ -113,6 +118,7 @@ class FocusTimerService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(tickRunnable)
+        running = false
         super.onDestroy()
     }
 

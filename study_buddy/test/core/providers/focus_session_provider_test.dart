@@ -150,7 +150,17 @@ void main() {
     expect(state.sessionId, isNotNull);
     // offset 至少 5 分钟
     expect(state.elapsed.inMinutes, greaterThanOrEqualTo(5));
+    final recoveredId = state.sessionId;
     await notifier.stop();
+
+    // #2 回归守护：recoverOrphan 恢复后 stop，落库 duration 必须保留崩溃前的 offset
+    // （旧实现用 stopwatch.elapsed，恢复后 stopwatch 从 0 起，会丢掉恢复前的 5+ 分钟）。
+    final rows = await sdb.db.query('focus_session',
+        where: 'id = ?', whereArgs: [recoveredId], limit: 1);
+    expect(rows, isNotEmpty);
+    final durationMin = (rows.first['duration_ms'] as int) ~/ 60000;
+    expect(durationMin, greaterThanOrEqualTo(5),
+        reason: 'recoverOrphan 恢复路径下 stop 落库时长应含崩溃前 offset');
   });
 
   test('start 后 tick 每秒推进 elapsed', () async {

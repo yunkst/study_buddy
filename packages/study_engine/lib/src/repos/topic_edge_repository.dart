@@ -21,8 +21,9 @@ class TopicEdgeRepository {
         'type': type,
         'created_at': DateTime.now().millisecondsSinceEpoch,
       });
-    } catch (_) {
-      // UNIQUE 冲突，忽略
+    } catch (e) {
+      // 仅忽略 UNIQUE 冲突；FK/锁/IO 等异常必须上抛，否则知识点图谱静默断链。
+      if (!e.toString().contains('UNIQUE constraint failed')) rethrow;
     }
   }
 

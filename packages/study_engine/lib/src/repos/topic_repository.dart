@@ -40,15 +40,20 @@ class TopicRepository {
   }
 
   /// 跨 title+question+summary 的 LIKE 搜索。limit 默认 30。
+  /// 转义 keyword 中的 LIKE 元字符（% _ \），避免 "50%"/"_" 匹配语义错乱。
   Future<TopicSearchResult> search(String keyword, {int limit = 30, int offset = 0}) async {
-    final like = '%$keyword%';
+    final escaped = keyword.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+    final like = '%$escaped%';
     final countRows = await _db.db.rawQuery(
-      'SELECT COUNT(*) AS c FROM topic WHERE title LIKE ? OR question LIKE ? OR summary LIKE ?',
+      'SELECT COUNT(*) AS c FROM topic WHERE title LIKE ? ESCAPE \'\\\' '
+      'OR question LIKE ? ESCAPE \'\\\' OR summary LIKE ? ESCAPE \'\\\'',
       [like, like, like],
     );
     final total = countRows.isNotEmpty ? (countRows.first['c'] as int) : 0;
     final rows = await _db.db.rawQuery(
-      'SELECT id, title, category_id FROM topic WHERE title LIKE ? OR question LIKE ? OR summary LIKE ? ORDER BY title LIMIT ? OFFSET ?',
+      'SELECT id, title, category_id FROM topic '
+      'WHERE title LIKE ? ESCAPE \'\\\' OR question LIKE ? ESCAPE \'\\\' OR summary LIKE ? ESCAPE \'\\\' '
+      'ORDER BY title LIMIT ? OFFSET ?',
       [like, like, like, limit, offset],
     );
     final items = rows.map((r) => TopicSearchItem(r['id'] as int, r['title'] as String, r['category_id'] as int)).toList();

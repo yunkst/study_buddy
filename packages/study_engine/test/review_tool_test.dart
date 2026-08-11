@@ -102,6 +102,45 @@ void main() {
     expect(list.first.items.first.verdict, 'wrong');
     await sdb.close();
   });
+
+  test('save_review 容忍 LLM 字符串化数字传参(国产 OpenAI 兼容端点)', () async {
+    // seq/topic_ids 被序列化成字符串 "1"/"7"(国产端点常见)，不应抛 type cast 异常。
+    final sdb = await openDb();
+    final scenario = StudyScenario(
+      categories: CategoryRepository(sdb),
+      topics: TopicRepository(sdb),
+      edges: TopicEdgeRepository(sdb),
+      memories: AgentMemoryRepository(sdb),
+      mastery: MasteryRepository(sdb),
+      reviews: ReviewRepository(sdb),
+    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await sdb.db.insert('chat_session', {'id': 43, 'scenario_id': 'study', 'title': 's43', 'created_at': now, 'updated_at': now});
+
+    final llm = _ScriptedLlm([
+      const [
+        LlmStreamChunk(textDelta: '', toolCalls: [
+          ToolCall(
+            id: 'c1',
+            name: 'save_review',
+            arguments: '{"summary":"字符串化测试","items":[{"seq":"2","question":"q","verdict":"correct","analysis":"a","topic_ids":["7","8"]}]}',
+          ),
+        ])
+      ],
+      const [LlmStreamChunk(textDelta: '完成')],
+    ]);
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    await loop.run(
+      [const ChatMessage(role: 'system', content: 'sys')],
+      context: const AgentScenarioContext(extra: {'chat_session_id': 43}),
+    ).toList();
+
+    final list = await ReviewRepository(sdb).findBySession(43);
+    expect(list.length, 1);
+    expect(list.first.items.first.seq, 2);
+    expect(list.first.items.first.topicIds, [7, 8]);
+    await sdb.close();
+  });
 }
 
 class _ScriptedLlm extends LlmProvider {

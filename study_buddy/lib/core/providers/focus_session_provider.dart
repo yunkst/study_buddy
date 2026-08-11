@@ -84,14 +84,18 @@ class FocusSessionNotifier extends StateNotifier<FocusSessionState> {
     _tick?.cancel();
     _tick = null;
     _stopwatch?.stop();
-    final elapsed = _stopwatch?.elapsed ?? Duration.zero;
     _stopwatch = null;
 
+    // 落库时长以 startedAt 差值为准：recoverOrphan 恢复路径下 stopwatch 从 0 重启，
+    // .elapsed 只含恢复后增量；startedAt 是会话真实起点（start 时记录 / recover 时取
+    // open.startedAt），用它与 now 的差值才能保留崩溃前的完整时长。
     final sessionId = state.sessionId;
-    if (sessionId != null) {
+    final startedAt = state.startedAt;
+    if (sessionId != null && startedAt != null) {
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
       final db = await _ref.read(databaseProvider.future);
       final repo = FocusSessionRepository(db);
-      await repo.end(sessionId, DateTime.now(), elapsed.inMilliseconds);
+      await repo.end(sessionId, DateTime.now(), elapsedMs);
     }
 
     final bridge = _ref.read(focusTimerBridgeProvider);

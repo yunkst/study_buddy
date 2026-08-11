@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'features/focus/daily_report_page.dart';
 import 'features/focus/focus_page.dart';
@@ -18,9 +19,15 @@ GoRouter buildRouter() {
       ),
       GoRoute(
         path: '/plan/:id',
-        builder: (context, state) => PlanDetailPage(
-          planId: int.parse(state.pathParameters['id']!),
-        ),
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          if (id == null) {
+            // 非数字 id（deeplink/通知误传）：回首页，避免 FormatException 红屏
+            WidgetsBinding.instance.addPostFrameCallback((_) => context.go('/'));
+            return const SizedBox.shrink();
+          }
+          return PlanDetailPage(planId: id);
+        },
       ),
       GoRoute(
         path: '/focus',

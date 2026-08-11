@@ -105,6 +105,11 @@ void main() {
     // 命中 summary
     r = await topics.search('严格定义');
     expect(r.total, 1);
+    // LIKE 元字符被转义：搜 '%' 不应匹配全表，搜 '_' 不应匹配任意单字符
+    r = await topics.search('%');
+    expect(r.total, 0);
+    r = await topics.search('_');
+    expect(r.total, 0);
   });
 
   test('TopicRepository.updateSummary 刷新 updated_at', () async {

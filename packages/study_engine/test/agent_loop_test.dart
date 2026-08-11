@@ -92,30 +92,61 @@ void main() {
     expect(done.finalText, '直接回答');
   });
 
-  test('纯文本轮事件序列: TextDelta* + AgentDoneEvent(finalText),无 RoundEnd', () async {
-    // 多 delta 流式输出验证：finalText 是累积值，不是最新 delta
+  test('未传 system 消息时自动注入 scenario.buildSystemPrompt', () async {
+    // 调用方未前置 system → AgentLoop 应自动调 getMemories + buildSystemPrompt 并 insert(0)。
+    // 验证：_FakeLlm 收到的 messages.first 是 role=system,content=sys。
+    List<ChatMessage>? captured;
     final llm = _FakeLlm([
-      const [
-        LlmStreamChunk(textDelta: '你好'),
-        LlmStreamChunk(textDelta: '，'),
-        LlmStreamChunk(textDelta: '世界'),
-      ],
+      const [LlmStreamChunk(textDelta: '回答')],
     ]);
-    final scenario = _FakeScenario();
-    final loop = AgentLoop(llm: llm, scenario: scenario);
-    final events =
-        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    final scenario = _RecordingScenario();
+    final loop = AgentLoop(llm: _SpyLlm(llm, (m) => captured = m), scenario: scenario);
+    await loop.run([const ChatMessage(role: 'user', content: '嗨')]).toList();
 
-    // 严格结构：事件流只含 Started + TextDeltas + Done,不含 RoundEnd
-    final types = events.map((e) => e.runtimeType).toList();
-    expect(types, [
-      AgentStartedEvent,
-      TextDeltaEvent,
-      TextDeltaEvent,
-      TextDeltaEvent,
-      AgentDoneEvent,
-    ]);
-    final done = events.last as AgentDoneEvent;
-    expect(done.finalText, '你好，世界');
+    expect(scenario.memoriesQueried, isTrue, reason: '应先调 getMemories 填充记忆缓存');
+    expect(scenario.promptBuilt, isTrue, reason: '应调 buildSystemPrompt');
+    expect(captured, isNotNull);
+    expect(captured!.first.role, 'system');
+    expect(captured!.first.content, 'sys-prompt');
+    expect(captured!.last.role, 'user');
   });
+}
+
+/// 记录是否被调用的 scenario。
+class _RecordingScenario implements AgentScenario {
+  bool memoriesQueried = false;
+  bool promptBuilt = false;
+  @override String get id => 'rec';
+  @override String get displayName => 'Rec';
+  @override List<Map<String, dynamic>> get tools => AgentTools.studyTools;
+  @override String buildSystemPrompt(AgentScenarioContext ctx) {
+    promptBuilt = true;
+    return 'sys-prompt';
+  }
+  @override Future<String> executeTool(String name, Map<String, dynamic> args,
+      {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async => '{}';
+  @override Future<String?> onNoToolCalls(List<ChatMessage> messages) async => null;
+  @override Future<List<String>> getMemories() async {
+    memoriesQueried = true;
+    return [];
+  }
+  @override Future<MemoryPatchResult> patchMemory(int? index, String newText) async => MemoryPatchResult(true, '');
+  @override Future<void> cleanup() async {}
+}
+
+/// 包装 _FakeLlm，捕获喂给 LLM 的 messages。
+class _SpyLlm extends LlmProvider {
+  _SpyLlm(this._inner, this.onMessages)
+      : super(config: LlmConfig(
+            name: '', apiUrl: '', apiKey: '', model: '', createdAt: DateTime(2026)));
+  final LlmProvider _inner;
+  final void Function(List<ChatMessage>) onMessages;
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+  }) {
+    onMessages(messages);
+    return _inner.chatStreamWithTools(messages: messages, tools: tools);
+  }
 }

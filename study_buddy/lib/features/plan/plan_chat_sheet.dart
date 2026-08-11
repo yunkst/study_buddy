@@ -96,7 +96,13 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               case AgentStartedEvent():
                 // no-op：保持 _busy=true，"思考中"禁用态在 Done/Error 前持续有效
                 break;
-              case AgentDoneEvent():
+              case AgentDoneEvent(:final finalText):
+                // finalText==null 表示达到 maxRounds。
+                // 非 null 时把纯文本轮的最终回答并入 _history，供下一轮多轮引用
+                // （对比 chat_session_provider 同类分支；否则连续两轮 user 消息，AI 丢上下文）。
+                if (finalText != null) {
+                  _history.add(ChatMessage(role: 'assistant', content: finalText));
+                }
                 _busy = false;
                 break;
               case AgentRoundEndEvent(:final newMessages):

@@ -270,17 +270,28 @@ $memBlock''';
       final m = raw as Map<String, dynamic>;
       final tids = m['topic_ids'];
       return ReviewItem(
-        seq: m['seq'] as int,
+        seq: _asInt(m['seq']) ?? 0,
         question: m['question'] as String,
         userAnswer: m['user_answer'] as String?,
         verdict: m['verdict'] as String,
         analysis: m['analysis'] as String,
-        topicIds: tids == null ? const [] : (tids as List).map((e) => e as int).toList(),
+        topicIds: tids == null
+            ? const []
+            : (tids as List).map((e) => _asInt(e)!).whereType<int>().toList(),
       );
     }).toList();
     final sessionId = ctx?.extra['chat_session_id'] as int?;
     final id = await reviews.save(chatSessionId: sessionId, summary: summary, items: items);
     return '已保存批改(共 ${items.length} 题,review_id=$id)';
+  }
+
+  /// 宽松 int 解析：容忍 LLM 把数字序列化成字符串或 num（国产 OpenAI 兼容端点常见）。
+  /// 解析失败返回 null，由调用方兜底。
+  int? _asInt(Object? v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v);
+    return null;
   }
 
   @override

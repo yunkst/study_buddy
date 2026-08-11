@@ -35,7 +35,10 @@ class LlmProvider {
     await for (final data in _client.postStream(uri, headers, body)) {
       final chunk = jsonDecode(data) as Map<String, dynamic>;
       agg.onChunk(chunk);
-      final delta = ((chunk['choices'] as List).first as Map)['delta'];
+      // 辅助包（usage / prompt_filter_results / error）无 choices 字段或为空，跳过。
+      final choices = chunk['choices'] as List?;
+      if (choices == null || choices.isEmpty) continue;
+      final delta = (choices.first as Map)['delta'];
       final content = delta['content'];
       if (content is String && content.isNotEmpty) {
         yield LlmStreamChunk(textDelta: content);
