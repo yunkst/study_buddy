@@ -7,25 +7,20 @@ void main() {
     sqfliteFfiInit();
   });
 
-  test('建库后 9 张表存在', () async {
+  test('建库后 8 张表存在', () async {
     final factory = databaseFactoryFfi;
     final dbPath = inMemoryDatabasePath;
     final sdb = await StudyDatabase.open(factory: factory, path: dbPath);
     final tables = await sdb.db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     );
-    expect(tables, hasLength(9));
     final names = tables.map((r) => r['name'] as String).toSet();
     for (final t in [
       'category', 'topic', 'topic_edge', 'mastery_log',
       'llm_config', 'agent_memory', 'chat_session', 'chat_message',
-      'review_schedule',
     ]) {
       expect(names, contains(t), reason: '缺表: $t');
     }
-    // v4：chat_session 有 topic_id 列
-    final cols = await sdb.db.rawQuery('PRAGMA table_info(chat_session)');
-    expect(cols.map((c) => c['name']), contains('topic_id'));
     await sdb.close();
   });
 

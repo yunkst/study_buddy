@@ -14,13 +14,14 @@ import '../../core/theme/paper_scaffold.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 import '../../core/update/ui/app_update_dialog.dart';
+import '../../features/external_qbank/ai_panel_sheet.dart';
+import '../../main.dart' show PendingScreenshotStore;
 
 /// 主页:纸感学术刊头 + 文章块结构。
 ///
 /// 视觉参照 `design-preview/02-paper.html`:刊头双线、印章、drop-cap、
-/// tip-card、colophon。作为 MainShell 第三 Tab(悬浮窗页)存在——悬浮窗权限检查、
-/// Android 检查更新入口均保留。冷启动截图消费由 MainShell.initState 统一负责,
-/// 此处不再消费(避免双消费竞态)。
+/// tip-card、colophon。功能与原默认 AppBar 版本完全一致——悬浮窗权限检查、
+/// 冷启动待处理截图消费、Android 检查更新入口均保留。
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
   @override
@@ -34,6 +35,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void initState() {
     super.initState();
     _checkPermission();
+    _consumePendingScreenshot();
   }
 
   Future<void> _checkPermission() async {
@@ -42,6 +44,17 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (granted) {
       await ref.read(screenshotProvider).showOverlay();
     }
+  }
+
+  Future<void> _consumePendingScreenshot() async {
+    // 冷启动降级：弹出待处理截图的 AI 面板
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pending = PendingScreenshotStore.pending;
+      if (pending != null) {
+        PendingScreenshotStore.pending = null;
+        if (mounted) await showAiPanel(context, screenshot: pending);
+      }
+    });
   }
 
   @override

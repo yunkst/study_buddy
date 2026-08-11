@@ -17,14 +17,7 @@ class AgentSession {
   ///
   /// 每次调用都会重新从 DB 读取 LLM 配置、构造新的 StudyScenario 与 AgentLoop。
   /// 调用方负责监听流并在 done/error 时释放资源。
-  ///
-  /// [context] 注入场景动态信息（如当前知识点），由 AgentLoop 透传给
-  /// `buildSystemPrompt`。既有调用方（如 ai_panel_sheet）不传 context，
-  /// 走默认空上下文，行为不变。
-  Future<Stream<AgentEvent>> run(
-    List<ChatMessage> messages, {
-    AgentScenarioContext? context,
-  }) async {
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
     final db = await _ref.read(databaseProvider.future);
     final llmConfigs = LlmConfigRepository(db);
     final cfg = await llmConfigs.getDefault(vision: true);
@@ -47,7 +40,7 @@ class AgentSession {
       memories: memories,
     );
     final loop = AgentLoop(llm: llm, scenario: scenario);
-    return loop.run(messages, context: context);
+    return loop.run(messages);
   }
 }
 

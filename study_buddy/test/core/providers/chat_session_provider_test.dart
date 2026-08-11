@@ -17,8 +17,7 @@ class _FakeAgentSession extends AgentSession {
   final List<List<ChatMessage>> receivedMessages = [];
 
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages,
-      {AgentScenarioContext? context}) async {
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
     receivedMessages.add(List.of(messages));
     return Stream.fromIterable(_events);
   }
@@ -230,8 +229,7 @@ void main() {
 class _ThrowingAgentSession extends AgentSession {
   _ThrowingAgentSession(super.ref);
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages,
-      {AgentScenarioContext? context}) async {
+  Future<Stream<AgentEvent>> run(List<ChatMessage> messages) async {
     throw StateError('未配置支持视觉的默认 LLM');
   }
 }
