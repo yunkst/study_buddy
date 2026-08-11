@@ -13,6 +13,7 @@ import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/dashed_border.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
+import '../../core/theme/paper_widgets.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 import '../../core/update/ui/app_update_dialog.dart';
@@ -198,94 +199,6 @@ class _Masthead extends StatelessWidget {
   }
 }
 
-/// 文章块通用容器:纸白底 + 边 + 暖阴影 + 四角订书钉 L 形角标。
-/// 还原 02-paper.html `.article`。
-class _Article extends StatelessWidget {
-  const _Article({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final paper = theme.extension<PaperColors>()!;
-    return Container(
-      margin: const EdgeInsets.only(top: 24),
-      padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        boxShadow: [
-          // 暖色阴影:纸面浮起质感。
-          BoxShadow(color: paper.warmShadow, blurRadius: 24, offset: const Offset(0, 8)),
-        ],
-      ),
-      // Stack 叠四角 L 形订书钉角标(容器内部四角,还原 .article::before/::after)。
-      // HTML 原型:左上角标画 top+left 边(开口朝右下)、右下角标画 bottom+right 边(开口朝左上)。
-      child: Stack(
-        children: [
-          child,
-          Positioned(
-            top: 8,
-            left: 8,
-            child: CustomPaint(
-              size: const Size(18, 18),
-              painter: _CornerMarkPainter(
-                color: theme.colorScheme.outlineVariant,
-                corner: _CornerMark.topLeft,
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 8,
-            right: 8,
-            child: CustomPaint(
-              size: const Size(18, 18),
-              painter: _CornerMarkPainter(
-                color: theme.colorScheme.outlineVariant,
-                corner: _CornerMark.bottomRight,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 订书钉角标类型:左上画 top+left 边,右下画 bottom+right 边。
-enum _CornerMark { topLeft, bottomRight }
-
-class _CornerMarkPainter extends CustomPainter {
-  const _CornerMarkPainter({required this.color, required this.corner});
-
-  final Color color;
-  final _CornerMark corner;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-    // 左上角为原点:top 边在 y=0,left 边在 x=0,bottom 边在 y=height,right 边在 x=width。
-    switch (corner) {
-      case _CornerMark.topLeft:
-        // top + left:L 形开口朝右下,还原 .article::before(border-right:none;border-bottom:none)。
-        canvas.drawLine(Offset.zero, Offset(size.width, 0), paint);
-        canvas.drawLine(Offset.zero, Offset(0, size.height), paint);
-      case _CornerMark.bottomRight:
-        // bottom + right:L 形开口朝左上,还原 .article::after(border-left:none;border-top:none)。
-        canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), paint);
-        canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CornerMarkPainter oldDelegate) =>
-      color != oldDelegate.color || corner != oldDelegate.corner;
-}
-
 /// 悬浮窗状态文章块:article-label + 印章 + drop-cap lede + tip-card + 未授权按钮。
 class _StatusArticle extends StatelessWidget {
   const _StatusArticle({
@@ -299,17 +212,17 @@ class _StatusArticle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Article(
+    return PaperArticle(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _ArticleLabel(text: '悬浮窗状态'),
+          PaperArticleLabel(text: '悬浮窗状态'),
           const SizedBox(height: 16),
           Center(child: _Stamp(state: overlayGranted)),
           const SizedBox(height: 16),
           _Lede(state: overlayGranted),
           const SizedBox(height: 16),
-          const _TipCard(),
+          const PaperTipCard(label: '注', text: '部分小米机型需额外开启「后台弹出界面」权限,方可在应用外唤起截图框选。'),
           if (overlayGranted == false) ...[
             const SizedBox(height: 18),
             SizedBox(
@@ -322,35 +235,6 @@ class _StatusArticle extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// article-label:朱砂斜体下划线小标题。还原 02-paper.html `.article-label`。
-class _ArticleLabel extends StatelessWidget {
-  const _ArticleLabel({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.only(bottom: 2),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: theme.colorScheme.primary, width: 1),
-        ),
-      ),
-      child: Text(
-        text,
-        style: theme.textTheme.labelSmall?.copyWith(
-          fontFamily: 'NotoSerifSC',
-          fontStyle: FontStyle.italic,
-          fontSize: 13,
-          color: theme.colorScheme.primary,
-        ),
       ),
     );
   }
@@ -487,53 +371,6 @@ class _Lede extends StatelessWidget {
   }
 }
 
-/// 金边提示卡:goldContainer 底 + gold 左边框 3px + 「注」标签 + 提示文本。
-/// 还原 02-paper.html `.tip-card`(小米机型「后台弹出界面」权限提示)。
-class _TipCard extends StatelessWidget {
-  const _TipCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final paper = theme.extension<PaperColors>()!;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      decoration: BoxDecoration(
-        color: paper.goldContainer,
-        border: Border(
-          left: BorderSide(color: paper.gold, width: 3),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 「注」标签:金色 NotoSerifSC 粗体。
-          Text(
-            '注',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'NotoSerifSC',
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-              color: paper.gold,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '部分小米机型需额外开启「后台弹出界面」权限,方可在应用外唤起截图框选。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 12.5,
-                height: 1.7,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 检查更新文章块(Android):article-label + 说明 + 墨蓝 primary TextButton。
 class _UpdateArticle extends StatelessWidget {
   const _UpdateArticle({required this.onCheck});
@@ -543,11 +380,11 @@ class _UpdateArticle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return _Article(
+    return PaperArticle(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _ArticleLabel(text: '版本更新'),
+          PaperArticleLabel(text: '版本更新'),
           const SizedBox(height: 14),
           Text(
             '点按下方按钮检查是否有新版本可用。',
@@ -617,11 +454,11 @@ class _FocusArticle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Article(
+    return PaperArticle(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ArticleLabel(text: '专注与复盘'),
+          PaperArticleLabel(text: '专注与复盘'),
           const SizedBox(height: 14),
           FilledButton.icon(
             icon: const Icon(Icons.timer),
@@ -652,11 +489,11 @@ class _PlansArticle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return _Article(
+    return PaperArticle(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ArticleLabel(text: '我的学习计划'),
+          PaperArticleLabel(text: '我的学习计划'),
           const SizedBox(height: 8),
           plansAsync.when(
             loading: () => const Padding(
