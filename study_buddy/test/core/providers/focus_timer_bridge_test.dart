@@ -43,8 +43,9 @@ void main() {
   test('setOnStopped 注册的回调在原生反向调用 onStopped 时触发', () async {
     var stopped = false;
     bridge.setOnStopped(() => stopped = true);
-    // 模拟原生反向调用 Flutter
-    await ServicesBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
+    // 模拟原生反向调用 Flutter（用 TestDefaultBinaryMessengerBinding 避免 deprecated 警告）
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
       channel.name,
       const StandardMethodCodec().encodeMethodCall(const MethodCall('onStopped')),
       (data) {},
