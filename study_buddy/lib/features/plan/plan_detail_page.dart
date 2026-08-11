@@ -25,6 +25,7 @@ class PlanDetailPage extends ConsumerWidget {
               final name = detailAsync.maybeWhen(data: (d) => d.plan.name, orElse: () => null);
               await showPlanChat(context, planId: planId, planName: name);
               // 对话可能改了计划，刷新
+              if (!context.mounted) return;
               ref.invalidate(planDetailProvider(planId));
             },
           ),
@@ -99,6 +100,7 @@ class PlanDetailPage extends ConsumerWidget {
                   label: const Text('记录测评'),
                   onPressed: () async {
                     final ok = await showAssessmentEntry(context, planId);
+                    if (!context.mounted) return;
                     if (ok == true) ref.invalidate(planDetailProvider(planId));
                   },
                 ),
@@ -122,6 +124,7 @@ class PlanDetailPage extends ConsumerWidget {
                       onPressed: () async {
                         final repo = await ref.read(planRepositoryAsyncProvider.future);
                         await repo.updateMilestone(m.id!, status: isDone ? 'pending' : 'done');
+                        if (!context.mounted) return;
                         ref.invalidate(planDetailProvider(planId));
                       },
                     ),

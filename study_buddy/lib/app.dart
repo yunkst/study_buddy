@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/providers/screenshot_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/focus_session_provider.dart';
+import 'features/external_qbank/ai_panel_sheet.dart';
 import 'router.dart';
 import 'main.dart';
 
@@ -36,7 +37,14 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
   Future<void> _checkPending() async {
     final sp = ref.read(screenshotProvider);
     final pending = await sp.takePendingScreenshot();
-    if (pending != null && mounted) {
+    if (pending == null) return;
+    // 截图回流：直接弹 AI 面板（不再写静态字段等 home 读取——home 的 initState 只在冷启动跑一次，
+    // 热回流时 resumed 不重跑 initState，静态 pending 会被永久搁置 → 无动作）。
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx != null && ctx.mounted) {
+      await showAiPanel(ctx, screenshot: pending);
+    } else {
+      // 兜底：context 不可用（极早期 resumed）→ 落静态字段，待 home 首帧消费
       PendingScreenshotStore.pending = pending;
     }
   }

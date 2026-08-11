@@ -29,9 +29,9 @@ class TrampolineActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 会话已存在（ScreenCaptureService 存活）→ 直接截图，不弹授权
+        // 会话已存在（ScreenCaptureService 存活）→ 直接复用 projection 取新帧，不弹授权
         if (ScreenCaptureService.isSessionAlive()) {
-            ScreenCaptureService.requestCapture()
+            ScreenCaptureService.requestCapture(this)
             finish()
             return
         }
