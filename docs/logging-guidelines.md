@@ -18,7 +18,7 @@ study_buddy 的可观测性由两个独立但关联的系统承担:
 | **App 运行日志** | 记录应用生命周期、Agent 循环、数据库迁移、UI 交互等业务流程日志 | `LoggerService`(单例) | 内存 1000 条 FIFO + SharedPreferences(文件回退) |
 | **LLM 调用日志** | 记录每次 LLM 请求/响应的完整内容、耗时、token 用量 | `LlmLogger`(单例) | JSONL 按日文件,7 天保留 |
 
-两者通过 **traceId** 关联:同一次 Agent 会话内产生的所有 App 日志条目与 LLM 调用记录共享同一个 traceId,可在查看页交叉跳转定位。
+两者通过 **traceId** 关联:同一次 Agent 会话内产生的所有 App 日志条目与 LLM 调用记录共享同一个 traceId,可在查看页交叉比对定位(当前查看页未实现按 traceId 自动过滤/跳转,靠共享 traceId 人工比对)。
 
 **查看入口**:首页 `_Masthead` 右上角齿轮 → 设置页(`/settings`)→ 诊断板块 → 应用日志(`/logs/app`)/ LLM 调用日志(`/logs/llm`)。
 
@@ -264,9 +264,9 @@ AgentSession.run() 生成 traceId
 ### 4.3 交叉关联
 
 同一次 Agent 会话:
-- App 日志查看页按 traceId 过滤 → 看到会话开始、每轮 round、工具调用、异常等全部条目。
-- LLM 日志详情页显示 traceId → 同一次会话内可能有多轮 LLM 调用,共享同一 traceId。
-- 双向定位:App 日志看到 LLM 调用失败条目 → 复制 traceId → LLM 日志页按 traceId 找到对应请求/响应。
+- App 日志与 LLM 调用记录共享同一 traceId,可在查看页按时间倒序人工比对同一时刻的条目。
+- LLM 日志详情页概要卡展示 TraceId,可用于手动定位 App 日志中同 traceId 的条目。
+- 数据模型已把 traceId 落到 `LogEntry.traceId` 与 `LlmCallRecord.traceId`(JSON 键 `trace_id`),为后续在查看页加按 traceId 过滤/搜索预留了字段;当前查看页尚无按 traceId 过滤的 UI。
 
 ---
 
@@ -308,14 +308,16 @@ LoggerService.instance.e('LLM 调用失败: $e',
 
 `LogCategory { database, ai, focus, plan, ui, general }`,对应 study 业务域:
 
-| 分类 | 场景 | 示例 |
+| 分类 | 场景 | 现有埋点(本期落地) / 推荐用法 |
 |---|---|---|
-| `database` | 数据库迁移、表操作、查询异常 | `'数据库迁移开始: v$from → v$to'` |
-| `ai` | Agent 循环、LLM 调用、工具调用、场景执行 | `'Agent 开始'`、`'工具调用: save_review'`、`'LLM 调用失败'` |
-| `focus` | 专注时钟会话开始/停止/恢复、关联知识点 | `'专注会话开始: topicId=...'` |
-| `plan` | 学习计划生成、计划项调整、计划会话 | `'计划会话开始: date=...'` |
-| `ui` | 页面跳转、设置变更、用户交互关键节点 | `'设置入口点击'`、`'LLM 配置已保存'` |
-| `general` | 应用生命周期、不属于上述域的通用日志 | `'应用启动'` |
+| `database` | 数据库迁移、表操作、查询异常 | 现有:`migrateDatabase` 的 `migration-start`/`migration-step`/`migration-done`/`migration-failed` |
+| `ai` | Agent 循环、LLM 调用、工具调用、场景执行 | 现有:`AgentLoop` 的 `agent-start`/`round`/`tool-call`/`agent-done`/`agent-error`、`LlmProvider` 失败、`AgentSession` 的 `session-start` |
+| `focus` | 专注时钟会话开始/停止/恢复、关联知识点 | 推荐用法(本期未埋点):`'专注会话开始'`、`'专注会话停止'` |
+| `plan` | 学习计划生成、计划项调整、计划会话 | 推荐用法(本期未埋点):`'计划会话开始'`、`'计划已保存'` |
+| `ui` | 页面跳转、设置变更、用户交互关键节点 | 推荐用法(本期未埋点):`'设置入口点击'`、`'LLM 配置已保存'` |
+| `general` | 应用生命周期、不属于上述域的通用日志 | 现有:`app.dart` 的 `app-start` |
+
+> **注**:`focus`/`plan`/`ui` 三个分类本期仅在 `LogCategory` 枚举与 `_parseCategory` 中预留,尚无实际埋点调用。后续相关模块开发时应按上表推荐用法补齐。
 
 **engine 侧 category 为字符串**:engine 调用 `logger.log(...)` 时传字符串(如 `'ai'`、`'database'`),app 侧 `LoggerService._parseCategory()` 映射到枚举,未知 category 归 `general`。
 
@@ -468,32 +470,35 @@ class MyEngineModule {
 
 文件:`study_buddy/lib/features/logs/app_log_viewer_page.dart`
 
-- 顶部统计条:总数 + 各级占比
-- 级别过滤 chip(多选级别)
+- 顶部统计条:总数 + 错误数(`'共 N 条 · 错误 M'`)
+- 级别过滤 chip(单选:点击选中某级别,再点取消;`_levelFilter` 为 `LogLevel?`)
 - 关键词搜索框(匹配消息 + 标签)
-- 列表项:时间 · 级别色标圆点 · `[分类]` · 消息(2 行截断) · traceId 末段(若有)
-- 点击展开详情:全消息 + 堆栈 + 分类 + 标签 + traceId
-- AppBar actions:清空(确认) · 导出(写文件 + toast 路径)
+- 列表项:时间 · 级别色标圆点 · `[分类]` · 级别名 · 消息(2 行截断)
+- 点击展开详情:全消息 + 堆栈(若有) + traceId(若有)
+- AppBar actions:清空(确认对话框) · 导出(写 `app_logs.txt` + SnackBar 提示路径)
 - 实时刷新:监听 `LoggerService.logChangeNotifier`
+- 空态:`'暂无日志'`
 
 ### 8.4 LLM 日志列表页
 
 文件:`study_buddy/lib/features/logs/llm_log_viewer_page.dart`
 
-- 统计条:条数 + 占用大小(`getTotalSize()`)
-- 列表项:成功/失败色标图标 · model(monospace) · `流式` tag(若是) · previewText · 时间 · 耗时 · tokens
+- 统计条:条数 + 占用大小(`getTotalSize()`,格式化为 B/KB/MB)
+- 列表项:成功/失败色标图标(`check_circle`/`error`) · model(monospace) · `流式` tag(若是) · previewText(2 行截断) · 耗时 · tokens(`totalTokens ?? '-'`)
 - 点击 → `/logs/llm/:id`
-- AppBar actions:刷新 · 清空(确认)
+- AppBar actions:刷新 · 清空(确认对话框)
 - 实时刷新:监听 `LlmLogger.changeNotifier`
+- 空态:`'暂无 LLM 调用记录'`
 
 ### 8.5 LLM 日志详情页
 
 文件:`study_buddy/lib/features/logs/llm_log_detail_page.dart`
 
-- 概要卡:时间 · 状态(成功/失败色) · model · Endpoint · 流式 · 耗时 · Tokens(prompt/completion/total) · traceId
-- 请求体:JSON 格式化展示,SelectableText,monospace
-- 响应体:JSON 格式化(失败时显示 errorMessage)
-- AppBar actions:复制完整记录 JSON
+- 概要卡(键值对列表):时间 · 状态(成功/失败色) · 模型 · Endpoint · 流式 · 耗时 · Tokens(仅 `total: N`) · TraceId
+- 请求体:JSON 格式化展示,SelectableText,monospace,maxHeight 360 滚动
+- 响应体分节:成功时展示响应体 JSON;失败时优先展示 `errorMessage`(失败请求的 responseBody 常为空,此时 errorMessage 承载失败原因)
+- AppBar actions:复制完整记录 JSON 到剪贴板
+- 空态(找不到记录):`'未找到该记录'`
 
 ---
 
@@ -608,7 +613,7 @@ LoggerService.instance.e('下载失败: $e',
 
 ### 留扩展点(本期不做)
 
-- **远程日志上报**:`LoggerService` 已有 reporter 回调钩子(对齐 novel_builder),未来接 Sentry/自建后端。
+- **远程日志上报**:本期未实现远程上报(对齐 novel_builder 的 reporter 钩子是未来扩展点,`LoggerService` 当前无此接口),后续可加 reporter 回调接 Sentry/自建后端。
 - **崩溃收集**:native crash handler 思路,本期不接。
 - **日志级别运行时配置**:release 直接不写 debug,不做运行时开关。
 - **app 层全量埋点**:仅埋关键路径(启动/会话/迁移/LLM),其余模块逐步迁移。
