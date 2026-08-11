@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+// image_picker_platform_interface 是 image_picker 的传递依赖：
+// 我们直接 import 它来 mock ImagePickerPlatform.instance（无需在 pubspec 中声明）。
+// ignore: depend_on_referenced_packages
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/screenshot_provider.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
@@ -54,6 +59,26 @@ Finder _selectableTextContaining(String text) =>
     find.byWidgetPredicate((w) =>
         w is SelectableText &&
         (w.textSpan?.toPlainText() ?? '').contains(text));
+
+/// 假 image_picker platform：与 Task 2 测试同范式，本任务内复制到本文件。
+/// 只 mock getImage 路径（面板走的 picker 接口），其他方法留默认 noop。
+class _FakeImagePickerPlatform extends ImagePickerPlatform {
+  XFile? returnValue;
+  Object? throwOnPick;
+
+  @override
+  Future<XFile?> getImage({
+    required ImageSource source,
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+    CameraDevice preferredCameraDevice = CameraDevice.rear,
+    bool requestFullMetadata = true,
+  }) async {
+    if (throwOnPick != null) throw throwOnPick!;
+    return returnValue;
+  }
+}
 
 void main() {
   testWidgets('首轮:截图预览可见,发送后显示 user 与 assistant 气泡', (tester) async {
@@ -157,5 +182,52 @@ void main() {
 
     // 结束后不再 busy
     expect(find.text('分析中...'), findsNothing);
+  });
+
+  testWidgets('追问轮:tap 加图按钮弹 Sheet,选相册后预览出现', (tester) async {
+    // 1. mock picker —— 完整 1x1 PNG 字节(复用 _pngBytes)，确保 Image.memory
+    //    异步解码不抛异常污染 pumpAndSettle 队列。
+    final fake = _FakeImagePickerPlatform()
+      ..returnValue = XFile.fromData(
+        _pngBytes(),
+        mimeType: 'image/png',
+        name: 'q.png',
+      );
+    final original = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = fake;
+    addTearDown(() => ImagePickerPlatform.instance = original);
+
+    // 2. 面板启动
+    final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
+        return ElevatedButton(
+          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
+          child: const Text('open'),
+        );
+      }))),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // 3. 先点「开始分析」让 _firstSent=true（追问轮加图才生效；实际首轮加图也可，
+    //    但测追问轮更贴近真实使用场景）
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+
+    // 4. tap 加图按钮 → Sheet 弹出 → 选"从相册选择"
+    await tester.tap(find.byIcon(Icons.add_photo_alternate_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从相册选择'));
+    await tester.pumpAndSettle();
+
+    // 5. _pendingImage 预览出现：Image widget + 移除按钮(close icon)
+    expect(find.byType(Image), findsWidgets);
+    expect(find.byIcon(Icons.close), findsOneWidget);
   });
 }

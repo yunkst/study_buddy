@@ -15,6 +15,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
+import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/paper_extension.dart';
 
@@ -92,6 +93,36 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
       _firstSent = true;
     });
     await ref.read(currentChatProvider.notifier).send(text, image: image);
+  }
+
+  /// 追问轮加图：Sheet 选拍照/相册 → pickImageForAi → setState 更新 _pendingImage。
+  Future<void> _pickImageForFollowUp(BuildContext context) async {
+    final fromCamera = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('拍照'),
+              onTap: () => Navigator.of(sheetCtx).pop(true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_outlined),
+              title: const Text('从相册选择'),
+              onTap: () => Navigator.of(sheetCtx).pop(false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (fromCamera == null) return; // Sheet 滑掉/点外区
+    final screenshot = await pickImageForAi(fromCamera: fromCamera);
+    if (screenshot == null) return; // 用户取消或失败
+    if (!mounted) return;
+    setState(() => _pendingImage = screenshot);
   }
 
   @override
@@ -199,11 +230,7 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                   icon: const Icon(Icons.add_photo_alternate_outlined),
                   onPressed: state.busy
                       ? null
-                      : () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('加图功能待截图入口接入')),
-                          );
-                        },
+                      : () => _pickImageForFollowUp(context),
                 ),
                 Expanded(
                   child: TextField(
