@@ -4,9 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/database_provider.dart';
+import '../../core/providers/plan_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/dashed_border.dart';
 import '../../core/theme/paper_extension.dart';
@@ -15,6 +17,7 @@ import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 import '../../core/update/ui/app_update_dialog.dart';
 import '../../features/external_qbank/ai_panel_sheet.dart';
+import '../../features/plan/plan_chat_sheet.dart';
 import '../../main.dart' show PendingScreenshotStore;
 
 /// 主页:纸感学术刊头 + 文章块结构。
@@ -60,6 +63,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final dbAsync = ref.watch(databaseProvider);
+    final plansAsync = ref.watch(planListProvider);
     // PaperScaffold 无 appBar:刊头作为页面永久首元素(含 'Study Buddy' 标题,
     // 任何 db 状态都渲染,保证 widget_test 单帧 pump 即可找到),还原 02-paper.html。
     return PaperScaffold(
@@ -72,20 +76,30 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: dbAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('数据库初始化失败: $e')),
-              data: (_) => SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _StatusArticle(
-                      overlayGranted: _overlayGranted,
-                      onOpenPermission: () => context.go('/permission-guide'),
-                    ),
-                    if (Platform.isAndroid)
-                      _UpdateArticle(onCheck: () => _checkForUpdate(context, ref)),
-                    const _Colophon(),
-                    const SizedBox(height: 32),
-                  ],
+              data: (_) => RefreshIndicator(
+                onRefresh: () async => ref.invalidate(planListProvider),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _StatusArticle(
+                        overlayGranted: _overlayGranted,
+                        onOpenPermission: () => context.go('/permission-guide'),
+                      ),
+                      _PlansArticle(
+                        plansAsync: plansAsync,
+                        onNewPlan: () async {
+                          await showPlanChat(context);
+                          ref.invalidate(planListProvider);
+                        },
+                      ),
+                      if (Platform.isAndroid)
+                        _UpdateArticle(onCheck: () => _checkForUpdate(context, ref)),
+                      const _Colophon(),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -583,6 +597,118 @@ class _Colophon extends StatelessWidget {
               TextSpan(text: '— Study Buddy · 纸感学术 —'),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 学习计划文章块:article-label + 计划行列表(空态文案) + 新建计划按钮。
+/// 套用纸感 _Article 容器,与 _StatusArticle / _UpdateArticle 视觉统一。
+/// 计划行用极简 InkWell(下沿细分隔线),避免 Material Card 破坏纸感。
+class _PlansArticle extends StatelessWidget {
+  const _PlansArticle({required this.plansAsync, required this.onNewPlan});
+
+  final AsyncValue<List<Plan>> plansAsync;
+  final Future<void> Function() onNewPlan;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _Article(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ArticleLabel(text: '我的学习计划'),
+          const SizedBox(height: 8),
+          plansAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+            ),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text('加载计划失败: $e', style: TextStyle(color: theme.colorScheme.error, fontSize: 12.5)),
+            ),
+            data: (plans) {
+              if (plans.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    '还没有计划，新建一个吧',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontFamily: 'NotoSerifSC',
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  for (final p in plans) _PlanRow(plan: p),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('新建计划'),
+              onPressed: onNewPlan,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 计划单行:考试日期 + 名称 + 目标，下沿细分隔线，点击进详情。
+class _PlanRow extends StatelessWidget {
+  const _PlanRow({required this.plan});
+  final Plan plan;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final d = plan.examDate;
+    final dateStr = '${d.year}/${d.month}/${d.day}';
+    return InkWell(
+      onTap: () => context.go('/plan/${plan.id}'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: theme.extension<PaperColors>()!.ruleSoft, width: 0.6),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plan.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontFamily: 'NotoSerifSC',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '考试 $dateStr · 目标 ${plan.target}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant, size: 20),
+          ],
         ),
       ),
     );

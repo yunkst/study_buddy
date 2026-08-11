@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'features/home/home_page.dart';
 import 'features/overlay/permission_guide_page.dart';
+import 'features/plan/plan_detail_page.dart';
 
 GoRouter buildRouter() {
   return GoRouter(
@@ -12,6 +13,12 @@ GoRouter buildRouter() {
       GoRoute(
         path: '/permission-guide',
         builder: (context, state) => const PermissionGuidePage(),
+      ),
+      GoRoute(
+        path: '/plan/:id',
+        builder: (context, state) => PlanDetailPage(
+          planId: int.parse(state.pathParameters['id']!),
+        ),
       ),
     ],
   );
