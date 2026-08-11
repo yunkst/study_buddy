@@ -8,7 +8,8 @@ import 'router.dart';
 import 'main.dart';
 
 class StudyBuddyApp extends ConsumerStatefulWidget {
-  const StudyBuddyApp({super.key});
+  const StudyBuddyApp({super.key, required this.showOnboarding});
+  final bool showOnboarding;
   @override
   ConsumerState<StudyBuddyApp> createState() => _StudyBuddyAppState();
 }
@@ -62,7 +63,7 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
-      routerConfig: buildRouter(showOnboarding: false),
+      routerConfig: buildRouter(showOnboarding: widget.showOnboarding),
     );
   }
 }
