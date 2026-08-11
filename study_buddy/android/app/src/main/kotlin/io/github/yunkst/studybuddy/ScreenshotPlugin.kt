@@ -15,11 +15,11 @@ import io.flutter.plugin.common.MethodChannel
  * MethodChannel("study_buddy/overlay") 处理：
  * - checkOverlayPermission: Settings.canDrawOverlays()
  * - requestOverlayPermission: 跳 ACTION_MANAGE_OVERLAY_PERMISSION（厂商判断见 [jumpOverlaySettings]）
- * - showOverlay / hideOverlay: 启停 OverlayService（Task 4 实现后接入）
+ * - showOverlay / hideOverlay: 通过 intent action 驱动 OverlayService（轻量 hide，保留 FGS 通知）
  * - takePendingScreenshot: 从 PendingScreenshotHolder 取
  *
- * showOverlay/hideOverlay 在 Task 4 前先返回未实现（避免编译期依赖未存在类）；
- * Task 4 接入时替换为真实 startService/stopService。
+ * hideOverlay 走 ACTION_HIDE_OVERLAY 而非 stopService，避免销毁前台服务；
+ * 配合 OverlayService.suppressedByForeground 标志解决截图回流与前台隐藏竞态。
  */
 class ScreenshotPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var channel: MethodChannel? = null
@@ -49,15 +49,28 @@ class ScreenshotPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
             "showOverlay" -> {
                 val ctx = appContext ?: run { result.success(null); return }
+                // 走 ACTION_SHOW_OVERLAY：恢复悬浮球 + 复位 suppressedByForeground。
+                // 冷启动时 service 未运行，startForegroundService 先 onCreate（showFloatBall）
+                // 再 onStartCommand（ACTION_SHOW_OVERLAY → showOverlayInternal，floatView 非 null 跳过，无害）。
+                val intent = Intent(ctx, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_SHOW_OVERLAY)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ctx.startForegroundService(Intent(ctx, OverlayService::class.java))
+                    ctx.startForegroundService(intent)
                 } else {
-                    ctx.startService(Intent(ctx, OverlayService::class.java))
+                    ctx.startService(intent)
                 }
                 result.success(null)
             }
             "hideOverlay" -> {
-                appContext?.stopService(Intent(appContext, OverlayService::class.java))
+                val ctx = appContext ?: run { result.success(null); return }
+                // 轻量 hide：只移除 floatView，保留 FGS 通知，绝不 stopService。
+                val intent = Intent(ctx, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_HIDE_OVERLAY)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
                 result.success(null)
             }
             "takePendingScreenshot" -> {

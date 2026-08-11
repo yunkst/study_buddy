@@ -118,6 +118,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   /// 首页「拍题问 AI」入口：Sheet 选拍照/相册 → pickImageForAi → showAiPanel。
+  ///
+  /// 拍照/相册 Activity 期间需抑制 paused→showOverlay，避免悬浮球在相机界面闪现。
+  /// suppressOverlayOnPauseProvider 在 finally 中复位（即使取消/失败）。
   Future<void> _pickImageAndAskAi(BuildContext context) async {
     final fromCamera = await showModalBottomSheet<bool>(
       context: context,
@@ -141,10 +144,17 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
     if (fromCamera == null) return;
-    final screenshot = await pickImageForAi(fromCamera: fromCamera);
-    if (screenshot == null) return;
-    if (!context.mounted) return;
-    await showAiPanel(context, screenshot: screenshot);
+    // 相机/相册 Activity 让 App 进 paused：抑制 lifecycle 的 showOverlay
+    ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
+    try {
+      final screenshot = await pickImageForAi(fromCamera: fromCamera);
+      if (screenshot == null) return;
+      if (!context.mounted) return;
+      await showAiPanel(context, screenshot: screenshot);
+    } finally {
+      // 无论取消/失败/成功，都复位抑制标志，避免泄漏导致后续进后台不显示悬浮球。
+      ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
+    }
   }
 
   Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {

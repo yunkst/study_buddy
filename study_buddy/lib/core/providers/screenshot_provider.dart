@@ -62,3 +62,27 @@ class ScreenshotProvider {
 final screenshotProvider = Provider<ScreenshotProvider>((ref) {
   return ScreenshotProvider();
 });
+
+/// 相机/相册 Activity 期间抑制 paused→showOverlay 的临时标志。
+///
+/// 背景：用户在 App 内点「拍题问 AI」时，image_picker 启动系统相机 Activity
+/// 让 App 进 paused 状态。若 lifecycle 在 paused 时无条件 showOverlay，悬浮球
+/// 会在系统相机界面闪现。
+///
+/// 用法：pickImage 前置 `set(true)`，finally 中 `set(false)`
+/// （即使取消/失败）。`app.dart` 的 `didChangeAppLifecycleState` 在 paused 时
+/// 读此标志判断是否跳过 showOverlay。
+///
+/// Riverpod 3 中 `Notifier.state` 是 protected，外部不能直接写，
+/// 故通过 [SuppressOverlayNotifier.set] 暴露公开修改入口。
+final suppressOverlayOnPauseProvider =
+    NotifierProvider<SuppressOverlayNotifier, bool>(SuppressOverlayNotifier.new);
+
+/// [suppressOverlayOnPauseProvider] 的 notifier：仅持有 bool 状态。
+class SuppressOverlayNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  /// 设置抑制标志。pickImage 前置 `set(true)`，finally 中 `set(false)`。
+  void set(bool value) => state = value;
+}
