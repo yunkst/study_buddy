@@ -23,4 +23,29 @@ void main() {
   test('LoggerLevel 枚举顺序为 debug<info<warning<error', () {
     expect(LoggerLevel.values, [LoggerLevel.debug, LoggerLevel.info, LoggerLevel.warning, LoggerLevel.error]);
   });
+
+  test('NullLlmCallSink 是 const 且三方法不抛异常', () {
+    const sink = NullLlmCallSink();
+    final id = sink.onRequest(
+      endpoint: 'https://x/v1/chat/completions',
+      model: 'gpt',
+      requestBody: '{}',
+      isStreaming: true,
+      traceId: 't1',
+    );
+    expect(id, '');
+    expect(
+      () => sink.onResponse(id, responseBody: 'resp', durationMs: 100, isSuccess: true),
+      returnsNormally,
+    );
+    expect(
+      () => sink.onError(id, errorMessage: 'boom', durationMs: 50),
+      returnsNormally,
+    );
+  });
+
+  test('NullLlmCallSink 可作为 LlmCallSink 使用', () {
+    LlmCallSink sink = const NullLlmCallSink();
+    expect(sink, isA<LlmCallSink>());
+  });
 }
