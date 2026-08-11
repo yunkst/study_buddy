@@ -62,7 +62,7 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
-      routerConfig: buildRouter(),
+      routerConfig: buildRouter(showOnboarding: false),
     );
   }
 }
