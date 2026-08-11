@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../services/llm_logger/llm_logger.dart';
+import '../services/logger_service.dart';
 import 'database_provider.dart';
 
 /// 异步获取 PlanRepository（等待 db 就绪）。
@@ -59,7 +61,11 @@ class PlanSession {
       planSummary = '（用户尚未指定计划，可能是新建场景。请收齐信息后 create_plan。）';
     }
 
-    final llm = LlmProvider(config: cfg);
+    final llm = LlmProvider(
+      config: cfg,
+      llmSink: LlmLogger.instance,
+      logger: LoggerService.instance,
+    );
     final scenario = PlanScenario(plans: plans, memories: memories);
     final ctx = AgentScenarioContext(extra: {
       'today': today,
@@ -68,8 +74,15 @@ class PlanSession {
     // system prompt 由 AgentLoop 自动注入(见 agent_loop.dart:24 注释)：
     // 检测到 messages 无 system 时调 scenario.buildSystemPrompt(ctx) 并补 getMemories()。
     // 故调用方只需传 ctx，无需自前置 system(否则会跳过记忆填充)。
-    final loop = AgentLoop(llm: llm, scenario: scenario);
-    return loop.run(messages, context: ctx);
+    final traceId = 'plan-${DateTime.now().millisecondsSinceEpoch}';
+    final loop = AgentLoop(llm: llm, scenario: scenario, logger: LoggerService.instance);
+    LoggerService.instance.i(
+      '计划会话开始',
+      category: LogCategory.ai,
+      tags: const ['session-start'],
+      traceId: traceId,
+    );
+    return loop.run(messages, context: ctx, traceId: traceId);
   }
 }
 
