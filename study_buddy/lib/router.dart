@@ -5,6 +5,7 @@ import 'features/focus/focus_page.dart';
 import 'features/home/home_page.dart';
 import 'features/overlay/permission_guide_page.dart';
 import 'features/plan/plan_detail_page.dart';
+import 'features/settings/settings_page.dart';
 
 GoRouter buildRouter() {
   return GoRouter(
@@ -36,6 +37,10 @@ GoRouter buildRouter() {
       GoRoute(
         path: '/daily-report',
         builder: (context, state) => const DailyReportPage(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsPage(),
       ),
     ],
   );

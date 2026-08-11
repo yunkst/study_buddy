@@ -156,40 +156,53 @@ class _Masthead extends StatelessWidget {
           ),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          // kicker:EB Garamond 斜体小字 → labelSmall italic + NotoSerifSC。
-          Text(
-            'Vol. I · No. 2',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'NotoSerifSC',
-              fontStyle: FontStyle.italic,
-              letterSpacing: 4,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // kicker:EB Garamond 斜体小字 → labelSmall italic + NotoSerifSC。
+              Text(
+                'Vol. I · No. 2',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'NotoSerifSC',
+                  fontStyle: FontStyle.italic,
+                  letterSpacing: 4,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              // 标题:displayLarge 已是 NotoSerifSC w700 30 ls2.0。
+              Text('Study Buddy', style: theme.textTheme.displayLarge),
+              const SizedBox(height: 6),
+              // 副标题:斜体小字。
+              Text(
+                'A Companion for the Curious Mind',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'NotoSerifSC',
+                  fontStyle: FontStyle.italic,
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 10),
+              // ❦ ornament:居中朱砂红装饰符。
+              Text(
+                '❦',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 14,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          // 标题:displayLarge 已是 NotoSerifSC w700 30 ls2.0。
-          Text('Study Buddy', style: theme.textTheme.displayLarge),
-          const SizedBox(height: 6),
-          // 副标题:斜体小字。
-          Text(
-            'A Companion for the Curious Mind',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'NotoSerifSC',
-              fontStyle: FontStyle.italic,
-              fontSize: 13,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 10),
-          // ❦ ornament:居中朱砂红装饰符。
-          Text(
-            '❦',
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 14,
-              color: theme.colorScheme.primary,
+          Positioned(
+            top: 4,
+            right: 0,
+            child: IconButton(
+              icon: const Icon(Icons.settings_outlined, size: 22),
+              tooltip: '设置',
+              onPressed: () => context.go('/settings'),
             ),
           ),
         ],
