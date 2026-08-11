@@ -3,6 +3,8 @@ import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
 
 void main() {
+  setUpAll(sqfliteFfiInit);
+
   late StudyDatabase sdb;
   late LlmConfigRepository repo;
 
