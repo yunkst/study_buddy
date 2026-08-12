@@ -50,6 +50,11 @@ dependencies:
   image_picker: ">=1.2.2 <1.2.3"
   device_info_plus: ^11.0.0
   shared_preferences: ^2.2.2
+  # Markdown + LaTeX 渲染（Phase 2 复用 widget）
+  flutter_markdown: ^0.7.5
+  flutter_math_fork: ^0.7.2
+  # markdown: 直接依赖（实现自定义 BlockSyntax/InlineSyntax 所需，纯 Dart，已随 flutter_markdown 传递解析）
+  markdown: ^7.3.1
   study_engine:
     path: ../packages/study_engine
 
