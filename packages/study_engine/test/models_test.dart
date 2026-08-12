@@ -123,4 +123,25 @@ void main() {
       expect(t.toMap().containsKey('id'), isFalse);
     });
   });
+
+  test('Rating round-trip via wire', () {
+    for (final r in Rating.values) {
+      expect(RatingX.fromWire(r.wire), r);
+    }
+  });
+
+  test('TopicSchedule fromMap/toMap preserves all fields including nulls', () {
+    final s = TopicSchedule(
+      topicId: 7, stability: 3.5, difficulty: 6.0, reps: 2, lapses: 1,
+      lastReviewedAt: null, dueAt: null,
+    );
+    final m = s.toMap();
+    expect(TopicSchedule.fromMap(m).stability, 3.5);
+    expect(TopicSchedule.fromMap(m).dueAt, isNull);
+  });
+
+  test('SaveTopicResult.toJson shape', () {
+    final r = SaveTopicResult(id: 9, isNew: true, message: '已保存');
+    expect(r.toJson(), {'id': 9, 'is_new': true, 'msg': '已保存'});
+  });
 }

@@ -4,6 +4,9 @@ library;
 import 'dart:convert';
 
 export 'plan_models.dart';
+export 'rating.dart';
+export 'save_topic_result.dart';
+export 'topic_schedule.dart';
 
 /// 分类节点。自引用树，承载 学科→模块→章节。学科是顶级节点（parent_id 为 null）。
 class Category {
