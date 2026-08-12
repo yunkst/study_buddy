@@ -48,7 +48,13 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       try {
         final formKey = _formKey.currentState;
         if (formKey != null) {
-          await formKey.submit();
+          // submit() 在 _canSubmit=false 时 return false 不写库（_BottomBar.enabled 已置灰
+          // 按钮作主防护，此处为竞态兜底：enabled=true 时用户清空输入再点完成仍能挡住）。
+          final ok = await formKey.submit();
+          if (!ok) {
+            if (mounted) setState(() => _saving = false);
+            return;
+          }
         }
       } catch (e) {
         if (mounted) {
