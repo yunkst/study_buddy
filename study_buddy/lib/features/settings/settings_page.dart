@@ -7,6 +7,7 @@ import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/llm_config_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
+import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 
 /// 设置页:诊断版块含「应用日志」「LLM 调用日志」两个入口 + LLM 配置板块。
@@ -152,10 +153,15 @@ class _VersionRow extends ConsumerWidget {
   }
 
   /// 触发更新检查:forceCheck 忽略 1 小时频率限制,结果以 SnackBar 反馈。
+  /// 与首页一致,先读预览通道开关,再按通道查 GitHub(避免 preview 版本被跳过)。
   Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final service = ref.read(appUpdateServiceProvider);
-    final result = await service.checkForUpdateDetailed(forceCheck: true);
+    final preview = await AppUpdateService.isPreviewChannelEnabled();
+    final result = await service.checkForUpdateDetailed(
+      forceCheck: true,
+      includePrerelease: preview,
+    );
     if (!context.mounted) return;
     switch (result) {
       case AppUpdateAvailable(:final version):
