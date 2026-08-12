@@ -68,10 +68,10 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('onboarding_done', true);
-    // 写 prefs 成功,翻转 onboardingActive 以便 redirect 放行 go('/'),
-    // 否则 redirect 仍读到 true 会把 '/' 弹回 '/onboarding' 形成死循环。
+    // 写 prefs 成功,翻转 onboardingActive 以便 redirect 放行 go('/today'),
+    // 否则 redirect 仍读到 true 会把 '/today' 弹回 '/onboarding' 形成死循环。
     onboardingActive.value = false;
-    if (mounted) context.go('/');
+    if (mounted) context.go('/today');
   }
 
   @override

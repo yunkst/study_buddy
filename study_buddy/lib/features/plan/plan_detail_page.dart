@@ -51,7 +51,7 @@ class PlanDetailPage extends ConsumerWidget {
               await repo.deletePlan(planId);
               if (!context.mounted) return;
               ref.invalidate(planListProvider);
-              context.go('/');
+              context.go('/today');
             },
           ),
         ],
