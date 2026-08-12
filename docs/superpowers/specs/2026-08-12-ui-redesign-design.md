@@ -137,7 +137,7 @@ S 更新（g = 增长系数，D 越大增长越慢）：
   Hard:   S_next = S * 1.2  * (10 - D) / 9
   Good:   S_next = S * 2.5  * (10 - D) / 9
   Easy:   S_next = S * 4.0  * (10 - D) / 9
-  Forgot: S_next = max(0.4, S * 0.3)   // 失误重置路径，lapses += 1，reps 归 0
+  Forgot: S_next = max(0.4, S * 0.3)   // 失误：降低稳定性，lapses += 1（reps 保留，下次仍走后续评分分支）
 
 due_at = last_reviewed_at + interval
   interval = round(S_next) 天（转毫秒）
@@ -157,7 +157,7 @@ S < 1                                → weak（薄弱）
 S >= 21                              → mastered（已掌握）
 ```
 
-`set_mastery`（AI 工具 + 详情页手动）仍写 `mastery_log`（留作轨迹），**并作为对 D 的修正信号**：手动标 `weak` 时把 D 拉高、`mastered` 时把 S 抬到 ≥21 区间，使人工判断能影响后续调度。**阈值（1 天 / 21 天）为默认值，可调。**
+`set_mastery`（AI 工具 + 详情页手动）仍写 `mastery_log`（留作轨迹），**并作为对 S / D 的修正信号**——具体：`set_mastery(weak)` → `D = max(D, 8.0)` 且 `S = min(S, 0.5)`；`set_mastery(mastered)` → `S = max(S, 21)`；`set_mastery(learning)` → `S = clamp(S, 1, 21)`；`set_mastery(unknown)` → `S = 0.4`（视作遗忘）。修正后同步重算 `due_at`（用降低 / 抬高后的 S）。**阈值（1 天 / 21 天）为默认值，可调。**
 
 ### 7.4 队列与负担控制
 
