@@ -19,6 +19,8 @@ class PaperColors extends ThemeExtension<PaperColors> {
     required this.paperHighlight,
     required this.warmShadow,
     required this.polaroidBg,
+    required this.bottomNavBg,
+    required this.bottomNavInk,
   });
 
   /// 提示金(亮色 #B08938 / 暗色 #C9A45A)。
@@ -45,6 +47,12 @@ class PaperColors extends ThemeExtension<PaperColors> {
   /// 拍立得白底。
   final Color polaroidBg;
 
+  /// 底部 NavigationBar 背景。
+  final Color bottomNavBg;
+
+  /// 底部 NavigationBar 选中态墨色(文字/图标)。
+  final Color bottomNavInk;
+
   /// 亮色「日光纸」品牌语义色。
   static const PaperColors light = PaperColors(
     gold: Color(0xFFB08938),
@@ -56,6 +64,10 @@ class PaperColors extends ThemeExtension<PaperColors> {
     // 暖色阴影:0x14 alpha(8%)+ 0x4C3C28 暖棕。
     warmShadow: Color(0x144C3C28),
     polaroidBg: Color(0xFFFFFFFF),
+    // 底部导航背景:亮色近纸面高光。
+    bottomNavBg: Color(0xFFFAF6EC),
+    // 底部导航选中墨:亮色=印章红。
+    bottomNavInk: Color(0xFFB8472D),
   );
 
   /// 暗色「夜读灯下纸」品牌语义色。
@@ -69,6 +81,10 @@ class PaperColors extends ThemeExtension<PaperColors> {
     // 暗色暖阴影:0x66 alpha(40%)纯黑。
     warmShadow: Color(0x66000000),
     polaroidBg: Color(0xFF2B241C),
+    // 底部导航背景:暗色=夜读纸底。
+    bottomNavBg: Color(0xFF2B241C),
+    // 底部导航选中墨:暗色=印章红亮化。
+    bottomNavInk: Color(0xFFD9664A),
   );
 
   @override
@@ -81,6 +97,8 @@ class PaperColors extends ThemeExtension<PaperColors> {
     Color? paperHighlight,
     Color? warmShadow,
     Color? polaroidBg,
+    Color? bottomNavBg,
+    Color? bottomNavInk,
   }) =>
       PaperColors(
         gold: gold ?? this.gold,
@@ -91,6 +109,8 @@ class PaperColors extends ThemeExtension<PaperColors> {
         paperHighlight: paperHighlight ?? this.paperHighlight,
         warmShadow: warmShadow ?? this.warmShadow,
         polaroidBg: polaroidBg ?? this.polaroidBg,
+        bottomNavBg: bottomNavBg ?? this.bottomNavBg,
+        bottomNavInk: bottomNavInk ?? this.bottomNavInk,
       );
 
   @override
@@ -105,6 +125,8 @@ class PaperColors extends ThemeExtension<PaperColors> {
       paperHighlight: Color.lerp(paperHighlight, other.paperHighlight, t)!,
       warmShadow: Color.lerp(warmShadow, other.warmShadow, t)!,
       polaroidBg: Color.lerp(polaroidBg, other.polaroidBg, t)!,
+      bottomNavBg: Color.lerp(bottomNavBg, other.bottomNavBg, t)!,
+      bottomNavInk: Color.lerp(bottomNavInk, other.bottomNavInk, t)!,
     );
   }
 
@@ -119,7 +141,9 @@ class PaperColors extends ThemeExtension<PaperColors> {
           ruleSoft == other.ruleSoft &&
           paperHighlight == other.paperHighlight &&
           warmShadow == other.warmShadow &&
-          polaroidBg == other.polaroidBg;
+          polaroidBg == other.polaroidBg &&
+          bottomNavBg == other.bottomNavBg &&
+          bottomNavInk == other.bottomNavInk;
 
   @override
   int get hashCode => Object.hash(
@@ -131,5 +155,7 @@ class PaperColors extends ThemeExtension<PaperColors> {
         paperHighlight,
         warmShadow,
         polaroidBg,
+        bottomNavBg,
+        bottomNavInk,
       );
 }
