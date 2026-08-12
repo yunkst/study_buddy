@@ -21,6 +21,17 @@ class FocusSessionRepository {
     );
   }
 
+  /// 写入用户备注（停止专注时弹框收集的「这段时间做了什么」）。
+  /// 允许空串以显式清空；调用方应自行 trim 决定是否写入空。
+  Future<void> setSummary(int sessionId, String summary) {
+    return _db.db.update(
+      'focus_session',
+      {'summary': summary},
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
   /// 关联知识点到会话。UNIQUE(session_id, topic_id) 保证幂等，重复关联被吞。
   Future<void> linkTopic(int sessionId, int topicId) async {
     try {

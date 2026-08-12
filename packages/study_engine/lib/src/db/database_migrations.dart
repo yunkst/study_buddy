@@ -3,7 +3,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 6;
+const int kCurrentDbVersion = 7;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -43,6 +43,9 @@ Future<void> migrateDatabase(
           break;
         case 6:
           _v6(batch);
+          break;
+        case 7:
+          _v7(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -354,4 +357,14 @@ void _v6(Batch batch) {
   ''');
   batch.execute('CREATE INDEX idx_topic_schedule_due ON topic_schedule(due_at)');
   batch.execute('DELETE FROM mastery_log');
+}
+
+/// v7：专注会话 summary 列。新增 focus_session.summary TEXT 字段，
+/// 用于保存用户停止专注时输入的「这段时间做了什么」备注（App 内停止触发弹框），
+/// 通知栏停止不留备注。
+///
+/// - 非破坏性 ALTER TABLE 老数据该列为 NULL,不需回填。
+/// - 不变更其它列、不动 v6 表。
+void _v7(Batch batch) {
+  batch.execute('ALTER TABLE focus_session ADD COLUMN summary TEXT');
 }
