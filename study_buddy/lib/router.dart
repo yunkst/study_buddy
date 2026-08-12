@@ -11,13 +11,20 @@ import 'features/plan/plan_detail_page.dart';
 /// 弹出 AI 面板，挂此 key 供 app.dart 取用。
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
+/// 首启引导是否仍待显示。main() 预取 prefs 初始化，OnboardingPage._finish 翻转。
+/// redirect 读它而非 build 期参数，确保 _finish 写 prefs 后 go('/') 不被弹回。
+final ValueNotifier<bool> onboardingActive = ValueNotifier<bool>(false);
+
 GoRouter buildRouter({bool showOnboarding = false}) {
+  // 把传入参数同步到 live 标志，redirect 读 onboardingActive.value 决策；
+  // OnboardingPage._finish 写 prefs 成功后会翻转此标志，避免 redirect 把 go('/') 弹回。
+  onboardingActive.value = showOnboarding;
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     redirect: (context, state) {
       final loc = state.matchedLocation;
-      if (showOnboarding && loc != '/onboarding') return '/onboarding';
-      if (!showOnboarding && loc == '/onboarding') return '/';
+      if (onboardingActive.value && loc != '/onboarding') return '/onboarding';
+      if (!onboardingActive.value && loc == '/onboarding') return '/';
       return null;
     },
     routes: [

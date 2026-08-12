@@ -1,13 +1,18 @@
 // 学习伙伴 Onboarding:5 节纸感分页引导页。
 // 前 4 节为通用 _OnboardingStep(印章序号 + icon + 说明),
-// 第 5 节暂用 _FormPlaceholder 占位(Task 10 替换为真实 LLM 配置表单)。
+// 第 5 节为真实 _OnboardingStepForm(LLM 配置表单),完成时写库 + 写 prefs + 跳首页。
 // 底部固定区 _BottomBar:跳过 / 圆点指示器 / 下一步·完成。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/database_provider.dart';
 import '../../core/theme/dashed_border.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/theme/paper_widgets.dart';
+import '../../router.dart' show onboardingActive;
 
 class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
@@ -17,7 +22,11 @@ class OnboardingPage extends ConsumerStatefulWidget {
 
 class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   final PageController _pc = PageController();
+  final GlobalKey<_OnboardingStepFormState> _formKey =
+      GlobalKey<_OnboardingStepFormState>();
   int _index = 0;
+  bool _saving = false;
+  bool _canSubmit = false; // 仅第 5 节有意义,控制完成按钮置灰
   static const _total = 5;
 
   @override
@@ -32,6 +41,33 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     }
   }
 
+  Future<void> _finish({required bool skipped}) async {
+    if (!skipped) {
+      // 用户点了"完成,开始使用",先尝试写库
+      setState(() => _saving = true);
+      try {
+        final formKey = _formKey.currentState;
+        if (formKey != null) {
+          await formKey.submit();
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('保存失败：$e')),
+          );
+        }
+        return; // 不写 prefs,留在引导页
+      }
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_done', true);
+    // 写 prefs 成功,翻转 onboardingActive 以便 redirect 放行 go('/'),
+    // 否则 redirect 仍读到 true 会把 '/' 弹回 '/onboarding' 形成死循环。
+    onboardingActive.value = false;
+    if (mounted) context.go('/');
+  }
+
   @override
   Widget build(BuildContext context) {
     return PaperScaffold(
@@ -43,7 +79,9 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
               child: PageView(
                 controller: _pc,
                 onPageChanged: (i) => setState(() => _index = i),
-                children: const [
+                // 第 5 个 child 用 GlobalKey 引用 _OnboardingStepForm,
+                // 不能 const(整个 children list 也去 const)。
+                children: [
                   _OnboardingStep(
                     ordinal: '一', icon: Icons.screenshot_monitor,
                     title: '截图悬浮球',
@@ -64,11 +102,11 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                     title: '专注与日报',
                     body: '专注计时锁定，结束生成学习日报。',
                   ),
-                  _OnboardingStep(
-                    ordinal: '五', icon: Icons.key,
-                    title: '配置 AI',
-                    body: '占位 — Task 10 替换为表单',
-                    showForm: true, // 标记本步非通用结构
+                  _OnboardingStepForm(
+                    key: _formKey,
+                    onCanSubmitChanged: (v) {
+                      if (_canSubmit != v) setState(() => _canSubmit = v);
+                    },
                   ),
                 ],
               ),
@@ -79,16 +117,13 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
               onSkip: () => _finish(skipped: true),
               onNext: _next,
               onDone: () => _finish(skipped: false),
+              enabled: _canSubmit,
+              saving: _saving,
             ),
           ],
         ),
       ),
     );
-  }
-
-  void _finish({required bool skipped}) {
-    // Task 10 完整实现:写 prefs + (可选)写 llm_config + context.go('/')
-    debugPrint('[onboarding] finish skipped=$skipped');
   }
 }
 
@@ -118,20 +153,14 @@ class _OnboardingStep extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
-    this.showForm = false,
   });
   final String ordinal;
   final IconData icon;
   final String title;
   final String body;
-  final bool showForm;
 
   @override
   Widget build(BuildContext context) {
-    if (showForm) {
-      // Task 10 替换为真实 _OnboardingStepForm
-      return const _FormPlaceholder();
-    }
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: PaperArticle(
@@ -153,10 +182,121 @@ class _OnboardingStep extends StatelessWidget {
   }
 }
 
-class _FormPlaceholder extends StatelessWidget {
-  const _FormPlaceholder();
+/// 第 5 节真实 LLM 配置表单。父级通过 GlobalKey<_OnboardingStepFormState> 调 submit()。
+/// 通过 onCanSubmitChanged 把 _canSubmit 状态向上通知,控制完成按钮置灰。
+class _OnboardingStepForm extends ConsumerStatefulWidget {
+  const _OnboardingStepForm({super.key, this.onCanSubmitChanged});
+  final ValueChanged<bool>? onCanSubmitChanged;
   @override
-  Widget build(BuildContext context) => const Center(child: Text('Form 占位 (Task 10)'));
+  ConsumerState<_OnboardingStepForm> createState() => _OnboardingStepFormState();
+}
+
+class _OnboardingStepFormState extends ConsumerState<_OnboardingStepForm> {
+  final _urlCtrl = TextEditingController();
+  final _keyCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
+  bool _setAsDefault = true;
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _keyCtrl.dispose();
+    _modelCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _canSubmit =>
+      _urlCtrl.text.trim().isNotEmpty && _keyCtrl.text.trim().isNotEmpty;
+
+  void _notifyCanSubmit() =>
+      widget.onCanSubmitChanged?.call(_canSubmit);
+
+  /// 写 llm_config 行。父级通过 GlobalKey 调用,_canSubmit false 时直接返回 false 不写库。
+  Future<bool> submit() async {
+    if (!_canSubmit) return false;
+    final db = await ref.read(databaseProvider.future);
+    final repo = LlmConfigRepository(db);
+    final model = _modelCtrl.text.trim().isEmpty
+        ? 'gpt-4o-mini'
+        : _modelCtrl.text.trim();
+    await repo.insert(LlmConfig(
+      name: '默认',
+      apiUrl: _urlCtrl.text.trim(),
+      apiKey: _keyCtrl.text.trim(),
+      model: model,
+      supportsVision: false,
+      isDefault: _setAsDefault,
+      sortOrder: 0,
+      createdAt: DateTime.now(),
+    ));
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: PaperArticle(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const PaperArticleLabel(text: '配置 AI'),
+            const SizedBox(height: 16),
+            const Center(child: _OnboardingSeal(ordinal: '五')),
+            const SizedBox(height: 16),
+            Text('填好以下信息，AI 才能真正可用。',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlCtrl,
+              onChanged: (_) {
+                setState(() {});
+                _notifyCanSubmit();
+              },
+              decoration: const InputDecoration(
+                labelText: 'API 地址',
+                hintText: 'https://api.openai.com/v1',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _keyCtrl,
+              onChanged: (_) {
+                setState(() {});
+                _notifyCanSubmit();
+              },
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _modelCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: '模型名（可空，默认 gpt-4o-mini）',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              value: _setAsDefault,
+              onChanged: (v) => setState(() => _setAsDefault = v),
+              title: const Text('设为默认'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// 印章式序号：-3° 倾斜 + DashedBorder 外环 + 实线框 + 中文序号。
@@ -198,16 +338,21 @@ class _OnboardingSeal extends StatelessWidget {
 }
 
 /// 底部固定区：圆点 + 跳过 + 下一步/完成。
+/// [enabled] 仅控制最后一页的"完成"按钮;[saving] 控制保存中禁用按钮。
+/// "下一步"始终可点。
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.index, required this.total,
     required this.onSkip, required this.onNext, required this.onDone,
+    required this.enabled, required this.saving,
   });
   final int index;
   final int total;
   final VoidCallback onSkip;
   final VoidCallback onNext;
   final VoidCallback onDone;
+  final bool enabled;
+  final bool saving;
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +365,10 @@ class _BottomBar extends StatelessWidget {
           if (index < total - 1)
             FilledButton(onPressed: onNext, child: const Text('下一步'))
           else
-            FilledButton(onPressed: onDone, child: const Text('完成，开始使用')),
+            FilledButton(
+              onPressed: (enabled && !saving) ? onDone : null,
+              child: const Text('完成，开始使用'),
+            ),
         ],
       ),
     );
