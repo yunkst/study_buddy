@@ -1,3 +1,6 @@
+import 'dart:io' show Directory;
+
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
@@ -87,5 +90,80 @@ void main() {
     expect(open?.id, id);
     await repo.end(id, DateTime(2026, 8, 10, 9, 30), 1800000);
     expect(await repo.findOpenSession(), isNull);
+  });
+
+  group('setSummary', () {
+    test('写入 summary 字段', () async {
+      final id = await repo.start(DateTime(2026, 8, 10, 9, 0));
+      await repo.setSummary(id, '复习了洛必达法则');
+      final rows = await sdb.db.query('focus_session', where: 'id = ?', whereArgs: [id]);
+      expect(rows.first['summary'], '复习了洛必达法则');
+    });
+
+    test('空串也允许写入（显式清空）', () async {
+      final id = await repo.start(DateTime(2026, 8, 10, 9, 0));
+      await repo.setSummary(id, '先写点东西');
+      await repo.setSummary(id, '');
+      final rows = await sdb.db.query('focus_session', where: 'id = ?', whereArgs: [id]);
+      expect(rows.first['summary'], '');
+    });
+
+    test('不影响其它字段（ended_at/duration_ms 保留）', () async {
+      final id = await repo.start(DateTime(2026, 8, 10, 9, 0));
+      await repo.end(id, DateTime(2026, 8, 10, 9, 30), 1800000);
+      await repo.setSummary(id, '总结');
+      final rows = await sdb.db.query('focus_session', where: 'id = ?', whereArgs: [id]);
+      expect(rows.first['summary'], '总结');
+      expect(rows.first['ended_at'], DateTime(2026, 8, 10, 9, 30).millisecondsSinceEpoch);
+      expect(rows.first['duration_ms'], 1800000);
+    });
+
+    test('FocusSession.fromMap 读出 summary', () async {
+      final id = await repo.start(DateTime(2026, 8, 10, 9, 0));
+      await repo.setSummary(id, '高数刷题');
+      final rows = await sdb.db.query('focus_session', where: 'id = ?', whereArgs: [id]);
+      final session = FocusSession.fromMap(rows.first);
+      expect(session.summary, '高数刷题');
+    });
+  });
+
+  group('v6→v7 迁移', () {
+    test('ALTER 加 summary 列且老会话 summary 为 null', () async {
+      // 手动建 v6 库，写一条老 focus_session，再升级到 v7。
+      // 用临时文件路径而非 :memory:——sqflite FFI 默认单实例内存库会跨 open 复用，
+      // 上一个 setSummary 测试建的是 v7 库，复用到此会已含 summary 列导致 ADD COLUMN 报重复。
+      final tmp = Directory.systemTemp.createTempSync('focus_v6tov7_');
+      final path = p.join(tmp.path, 'db.sqlite');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final db = await databaseFactoryFfi.openDatabase(path,
+          options: OpenDatabaseOptions(
+            version: 6,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) => migrateDatabase(d, 0, 6),
+          ));
+      await db.insert('focus_session', {'started_at': 0});
+      final oldId = (await db.query('focus_session', limit: 1)).first['id'] as int;
+
+      // 升级 v6 → v7
+      await migrateDatabase(db, 6, 7);
+
+      // summary 列已存在
+      final cols = {
+        for (final r in await db.rawQuery('PRAGMA table_info(focus_session)')) r['name'] as String
+      };
+      expect(cols, contains('summary'), reason: 'v7 应给 focus_session 加 summary 列');
+      // 老会话 summary 为 null（未回填）
+      final rows = await db.query('focus_session', where: 'id = ?', whereArgs: [oldId]);
+      expect(rows.first['summary'], isNull);
+      // 升级后可正常写 summary
+      await db.update('focus_session', {'summary': '迁移后写入'},
+          where: 'id = ?', whereArgs: [oldId]);
+      expect(
+        (await db.query('focus_session', where: 'id = ?', whereArgs: [oldId]))
+            .first['summary'],
+        '迁移后写入',
+      );
+      await db.close();
+    });
   });
 }

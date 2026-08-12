@@ -410,16 +410,19 @@ class Review {
 }
 
 /// 一次专注学习会话。endedAt/durationMs 为 null 表示进行中。
+/// summary 为用户停止时输入的「这段时间做了什么」备注，可空。
 class FocusSession {
   final int? id;
   final DateTime startedAt;
   final DateTime? endedAt;
   final int? durationMs;
+  final String? summary;
   const FocusSession({
     this.id,
     required this.startedAt,
     this.endedAt,
     this.durationMs,
+    this.summary,
   });
 
   factory FocusSession.fromMap(Map<String, Object?> m) => FocusSession(
@@ -429,12 +432,14 @@ class FocusSession {
             ? DateTime.fromMillisecondsSinceEpoch(m['ended_at'] as int)
             : null,
         durationMs: m['duration_ms'] as int?,
+        summary: m['summary'] as String?,
       );
   Map<String, Object?> toMap() => {
         if (id != null) 'id': id,
         'started_at': startedAt.millisecondsSinceEpoch,
         if (endedAt != null) 'ended_at': endedAt!.millisecondsSinceEpoch,
         if (durationMs != null) 'duration_ms': durationMs,
+        if (summary != null) 'summary': summary,
       };
 }
 

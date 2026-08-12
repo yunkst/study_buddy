@@ -79,14 +79,14 @@ void main() {
     });
     tearDown(() async => await sdb.close());
 
-    test('建库后版本为 6', () async {
-      expect(await sdb.db.getVersion(), 6);
+    test('建库后版本为 7', () async {
+      expect(await sdb.db.getVersion(), 7);
     });
 
     test('focus_session 表存在且列结构正确', () async {
       final rows = await sdb.db.rawQuery('PRAGMA table_info(focus_session)');
       final cols = {for (final r in rows) r['name'] as String};
-      expect(cols, containsAll(['id', 'started_at', 'ended_at', 'duration_ms']));
+      expect(cols, containsAll(['id', 'started_at', 'ended_at', 'duration_ms', 'summary']));
     });
 
     test('focus_session_topic 表存在且列结构正确', () async {
