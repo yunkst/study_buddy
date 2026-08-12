@@ -4,7 +4,7 @@ import 'package:study_buddy/app.dart';
 
 void main() {
   testWidgets('app 启动并渲染首页', (WidgetTester tester) async {
-    await tester.pumpWidget(const ProviderScope(child: StudyBuddyApp()));
+    await tester.pumpWidget(const ProviderScope(child: StudyBuddyApp(showOnboarding: false)));
     await tester.pump(); // 触发数据库 FutureProvider
     // 至少应出现 AppBar 标题
     expect(find.text('Study Buddy'), findsOneWidget);

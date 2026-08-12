@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'features/focus/daily_report_page.dart';
 import 'features/focus/focus_page.dart';
@@ -6,6 +6,7 @@ import 'features/home/home_page.dart';
 import 'features/logs/app_log_viewer_page.dart';
 import 'features/logs/llm_log_detail_page.dart';
 import 'features/logs/llm_log_viewer_page.dart';
+import 'features/onboarding/onboarding_page.dart';
 import 'features/overlay/permission_guide_page.dart';
 import 'features/plan/plan_detail_page.dart';
 import 'features/settings/settings_page.dart';
@@ -14,10 +15,28 @@ import 'features/settings/settings_page.dart';
 /// 弹出 AI 面板，挂此 key 供 app.dart 取用。
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
-GoRouter buildRouter() {
+/// 首启引导是否仍待显示。main() 预取 prefs 初始化，OnboardingPage._finish 翻转。
+/// redirect 读它而非 build 期参数，确保 _finish 写 prefs 后 go('/') 不被弹回。
+final ValueNotifier<bool> onboardingActive = ValueNotifier<bool>(false);
+
+GoRouter buildRouter({bool showOnboarding = false}) {
+  // 把传入参数同步到 live 标志，redirect 读 onboardingActive.value 决策；
+  // OnboardingPage._finish 写 prefs 成功后会翻转此标志，避免 redirect 把 go('/') 弹回。
+  onboardingActive.value = showOnboarding;
   return GoRouter(
     navigatorKey: rootNavigatorKey,
+    redirect: (context, state) {
+      final loc = state.matchedLocation;
+      if (onboardingActive.value && loc != '/onboarding') return '/onboarding';
+      if (!onboardingActive.value && loc == '/onboarding') return '/';
+      return null;
+    },
     routes: [
+      // Onboarding 在最前:若需要且当前是 /onboarding,放行;否则由 redirect 接管(Task 7 加)。
+      GoRoute(
+        path: '/onboarding',
+        builder: (context, state) => const OnboardingPage(),
+      ),
       GoRoute(
         path: '/',
         builder: (context, state) => const HomePage(),
