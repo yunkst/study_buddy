@@ -6,6 +6,7 @@ import '../../repos/mastery_repository.dart';
 import '../../repos/review_repository.dart';
 import '../../repos/topic_edge_repository.dart';
 import '../../repos/topic_repository.dart';
+import '../../repos/topic_schedule_repository.dart';
 import '../agent_scenario.dart';
 import '../agent_tools.dart';
 
@@ -17,6 +18,7 @@ class StudyScenario implements AgentScenario {
   final AgentMemoryRepository memories;
   final MasteryRepository mastery; // 掌握度记录/查询
   final ReviewRepository reviews; // 批改记录（Task 3 填实现，本阶段仅注入）
+  final TopicScheduleRepository schedules; // FSRS 调度仓储（Task 1.6）
 
   /// 知识点被接触时的回调（save_topic 新建/命中已存在、update_topic 成功）。
   /// 默认 null = no-op。app 层注入实现以关联到当前专注会话。
@@ -29,6 +31,7 @@ class StudyScenario implements AgentScenario {
     required this.memories,
     required this.mastery,
     required this.reviews,
+    required this.schedules,
     this.onTopicTouched,
   });
 
@@ -186,10 +189,14 @@ $memBlock''';
     final existing = await topics.findByTitle(title);
     if (existing != null) {
       await onTopicTouched?.call(existing.id!);
-      return '知识点「$title」已存在(id=${existing.id})。如需补充答案请用 update_topic(id=${existing.id}, summary=...)';
+      return jsonEncode(SaveTopicResult(
+        id: existing.id!,
+        isNew: false,
+        message: '知识点「$title」已存在。如需补充答案请用 update_topic。',
+      ).toJson());
     }
     final segments = path.split('/').where((s) => s.trim().isNotEmpty).toList();
-    if (segments.isEmpty) return 'path 不能为空';
+    if (segments.isEmpty) return jsonEncode({'id': null, 'is_new': null, 'msg': 'path 不能为空'});
     final catId = await categories.ensurePath(segments);
     final now = DateTime.now();
     int id;
@@ -209,12 +216,20 @@ $memBlock''';
       if (e.toString().contains('UNIQUE constraint failed')) {
         final existing = await topics.findByTitle(title);
         await onTopicTouched?.call(existing!.id!);
-        return '知识点「$title」已存在(id=${existing?.id})。如需补充答案请用 update_topic(id=${existing?.id}, summary=...)';
+        return jsonEncode(SaveTopicResult(
+          id: existing!.id!,
+          isNew: false,
+          message: '知识点「$title」已存在。如需补充答案请用 update_topic。',
+        ).toJson());
       }
       rethrow;
     }
     await onTopicTouched?.call(id);
-    return '已保存知识点「$title」(id=$id)，路径 $path';
+    return jsonEncode(SaveTopicResult(
+      id: id,
+      isNew: true,
+      message: '已保存知识点「$title」(id=$id)，路径 $path',
+    ).toJson());
   }
 
   Future<String> _updateTopic(int id, String summary) async {

@@ -15,6 +15,7 @@ void main() {
       memories: AgentMemoryRepository(sdb),
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb), // Task 3 才有实现，本 Task 用占位桩
+      schedules: TopicScheduleRepository(sdb),
     );
     return (scenario, MasteryRepository(sdb), TopicRepository(sdb), sdb);
   }

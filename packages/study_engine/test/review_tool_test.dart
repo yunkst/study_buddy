@@ -71,6 +71,7 @@ void main() {
       memories: AgentMemoryRepository(sdb),
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb),
+      schedules: TopicScheduleRepository(sdb),
     );
 
     // FK 开启：先造 chat_session id=42 行，否则 save_review 落库 FOREIGN KEY 失败。
@@ -113,6 +114,7 @@ void main() {
       memories: AgentMemoryRepository(sdb),
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb),
+      schedules: TopicScheduleRepository(sdb),
     );
     final now = DateTime.now().millisecondsSinceEpoch;
     await sdb.db.insert('chat_session', {'id': 43, 'scenario_id': 'study', 'title': 's43', 'created_at': now, 'updated_at': now});

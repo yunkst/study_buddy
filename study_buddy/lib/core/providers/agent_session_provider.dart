@@ -51,6 +51,7 @@ class AgentSession {
       memories: memories,
       mastery: MasteryRepository(db),
       reviews: ReviewRepository(db),
+      schedules: TopicScheduleRepository(db),
       onTopicTouched: (topicId) async {
         // 仅专注会话进行中才关联；非专注期 no-op
         final sessionId = _ref.read(focusSessionProvider).sessionId;

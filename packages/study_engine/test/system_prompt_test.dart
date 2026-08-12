@@ -45,6 +45,7 @@ Future<String> _prompt() async {
     memories: AgentMemoryRepository(sdb),
     mastery: MasteryRepository(sdb),
     reviews: ReviewRepository(sdb),
+    schedules: TopicScheduleRepository(sdb),
   );
   final p = s.buildSystemPrompt(const AgentScenarioContext());
   await sdb.close();

@@ -12,6 +12,7 @@ void main() {
         memories: AgentMemoryRepository(sdb),
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
       );
 
   test('场景1 save_topic 新建（分类自动建）', () async {
@@ -160,6 +161,7 @@ void main() {
         memories: AgentMemoryRepository(sdb),
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
 
@@ -183,6 +185,7 @@ void main() {
         memories: AgentMemoryRepository(sdb),
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
       // 第一次新建
@@ -208,6 +211,7 @@ void main() {
         memories: AgentMemoryRepository(sdb),
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
       await scenario.executeTool('save_topic', {
@@ -229,6 +233,7 @@ void main() {
         memories: AgentMemoryRepository(sdb),
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
         // 不传 onTopicTouched
       );
       final result = await scenario.executeTool('save_topic', {

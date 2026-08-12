@@ -51,7 +51,7 @@ class AgentTools {
     'type': 'function',
     'function': {
       'name': 'save_topic',
-      'description': '保存一个细粒度知识点。知识点的粒度必须低：一个引子对应一个知识点，若内容需要多个引子才能讲清，应拆成多个知识点分别保存。学科/模块/章节不存在的会自动创建。title 全库唯一，重复会被拒绝。',
+      'description': '保存一个细粒度知识点。知识点的粒度必须低：一个引子对应一个知识点，若内容需要多个引子才能讲清，应拆成多个知识点分别保存。学科/模块/章节不存在的会自动创建。title 全库唯一，重复会被拒绝。返回 JSON {id, is_new, msg}：is_new=true 表示新建成功并返回新 id；is_new=false 表示该知识点已存在（id 为已有记录 id），此时如需补充答案请改用 update_topic；path 为空时 id=null。',
       'parameters': {
         'type': 'object',
         'properties': {
