@@ -8,12 +8,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/database_provider.dart';
 import '../../core/providers/topic_schedule_provider.dart';
 
 /// 今日复习队列：dueNow 取前 kDailyReviewCap(20) 张。
 final reviewQueueProvider = FutureProvider<List<TopicSchedule>>((ref) async {
   final repo = await ref.watch(topicScheduleRepositoryProvider.future);
   return repo.dueNow(DateTime.now()); // limit 默认 20
+});
+
+/// 单个知识点查询（按 id）。复习页通过 schedule.topicId 拿到对应 Topic；
+/// 返回 null 表示该 topic 已被删除（schedule 仍挂在 topic_schedule 表里）。
+final reviewTopicProvider = FutureProvider.family<Topic?, int>((ref, topicId) async {
+  final db = await ref.watch(databaseProvider.future);
+  return TopicRepository(db).findById(topicId);
 });
 
 /// 复习会话进度。
@@ -56,8 +64,11 @@ final reviewSessionProvider =
 ///    若 >= kDailyNewCardCap(5) → 该卡顺延：due=明天、reps 不变、不调 grade，
 ///    直接返回 false 表示"额度用尽"。
 /// 2. 否则 ReviewScheduler.grade → repo.upsert → 返回 true。
+///
+/// 参数用 [WidgetRef]：唯一调用方是复习页（widget 层）；Riverpod 3 中
+/// WidgetRef 与 Ref 是平级 sealed 类型，不可互转。
 Future<bool> gradeAndUpsert(
-  Ref ref, {
+  WidgetRef ref, {
   required TopicSchedule schedule,
   required Rating rating,
   required DateTime now,
