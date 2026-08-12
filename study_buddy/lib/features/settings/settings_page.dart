@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/llm_config_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
+import '../../core/update/models/update_check_result.dart';
 
 /// 设置页:诊断版块含「应用日志」「LLM 调用日志」两个入口 + LLM 配置板块。
 ///
@@ -24,7 +26,13 @@ class SettingsPage extends ConsumerWidget {
           children: [
             _LlmConfigSection(),
             const SizedBox(height: 32),
-            _SectionLabel(text: '诊断'),
+            const _SectionLabel(text: '系统'),
+            const SizedBox(height: 8),
+            const _OverlayPermissionRow(),
+            const _VersionRow(),
+            const _AboutRow(),
+            const SizedBox(height: 32),
+            const _SectionLabel(text: '诊断'),
             const SizedBox(height: 8),
             _NavRow(
               icon: Icons.article_outlined,
@@ -111,6 +119,69 @@ class _NavRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 系统分组:悬浮窗权限 / 版本更新 / 关于。
+///
+/// 三个入口复用 _NavRow 极简导航行样式,ConsumerWidget 以便访问 ref
+/// (版本更新需要 ref.read 更新服务触发检查)。
+class _OverlayPermissionRow extends ConsumerWidget {
+  const _OverlayPermissionRow();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.remove_red_eye_outlined,
+      label: '悬浮窗权限',
+      onTap: () => context.go('/permission-guide'),
+    );
+  }
+}
+
+class _VersionRow extends ConsumerWidget {
+  const _VersionRow();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.system_update_alt_outlined,
+      label: '版本更新',
+      onTap: () => _checkForUpdate(context, ref),
+    );
+  }
+
+  /// 触发更新检查:forceCheck 忽略 1 小时频率限制,结果以 SnackBar 反馈。
+  Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final service = ref.read(appUpdateServiceProvider);
+    final result = await service.checkForUpdateDetailed(forceCheck: true);
+    if (!context.mounted) return;
+    switch (result) {
+      case AppUpdateAvailable(:final version):
+        messenger.showSnackBar(
+          SnackBar(content: Text('发现新版本 v${version.version}')),
+        );
+      case AppUpdateUpToDate():
+        messenger.showSnackBar(const SnackBar(content: Text('已是最新版本')));
+      case AppUpdateCheckFailed(:final reason):
+        messenger.showSnackBar(SnackBar(content: Text('检查失败:$reason')));
+    }
+  }
+}
+
+class _AboutRow extends ConsumerWidget {
+  const _AboutRow();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.info_outline,
+      label: '关于',
+      onTap: () => showAboutDialog(
+        context: context,
+        applicationName: 'Study Buddy',
+        applicationVersion: '0.1.0-preview.3',
+        applicationLegalese: '© Study Buddy',
       ),
     );
   }

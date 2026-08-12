@@ -48,6 +48,10 @@ void main() {
     // SettingsPage 现依赖 llmConfigProvider(进而依赖 databaseProvider),
     // 故测试需用 ProviderScope + inMemory database override,否则 build 抛缺失。
     await pumpSettings(tester);
+    // Task 8.2 在 LLM 配置与诊断之间插入了「系统」分组,诊断版块被推至首屏下方,
+    // ListView 懒构建不渲染屏外子项 → 先上滚 300px 再断言。
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
     expect(find.text('诊断'), findsOneWidget);
     expect(find.text('应用日志'), findsOneWidget);
     expect(find.text('LLM 调用日志'), findsOneWidget);
