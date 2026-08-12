@@ -93,6 +93,19 @@ class AppTheme {
             typography.textTheme.bodyMedium?.copyWith(color: colors.surface),
         behavior: SnackBarBehavior.floating,
       ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: paper.bottomNavBg,
+        indicatorColor: paper.goldContainer,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+          fontFamily: 'NotoSansSC', fontSize: 12,
+          color: states.contains(WidgetState.selected) ? paper.bottomNavInk : colors.onSurfaceVariant,
+        )),
+        iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+          color: states.contains(WidgetState.selected) ? paper.bottomNavInk : colors.onSurfaceVariant,
+          size: 24)),
+        height: 64,
+        elevation: 0,
+      ),
       extensions: [paper],
     );
   }
