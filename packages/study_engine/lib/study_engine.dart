@@ -18,6 +18,8 @@ export 'src/repos/plan_repository.dart';
 export 'src/repos/focus_session_repository.dart';
 export 'src/aggregations/daily_report.dart';
 export 'src/llm/llm_provider.dart';
+export 'src/review_scheduler/params.dart';
+export 'src/review_scheduler/review_scheduler.dart';
 export 'src/agent/agent_event.dart';
 export 'src/agent/agent_scenario.dart';
 export 'src/agent/context_compactor.dart';
