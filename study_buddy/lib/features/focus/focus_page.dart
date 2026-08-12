@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/focus_session_provider.dart';
+import '../../core/theme/paper_scaffold.dart';
 
 /// 专注时钟页：大号计时显示 + 开始/结束按钮 + 状态提示文案。
 class FocusPage extends ConsumerWidget {
@@ -16,7 +17,7 @@ class FocusPage extends ConsumerWidget {
     final m = (state.elapsed.inMinutes % 60).toString().padLeft(2, '0');
     final s = (state.elapsed.inSeconds % 60).toString().padLeft(2, '0');
 
-    return Scaffold(
+    return PaperScaffold(
       appBar: AppBar(title: const Text('专注时钟')),
       body: Center(
         child: Column(
@@ -24,10 +25,10 @@ class FocusPage extends ConsumerWidget {
           children: [
             Text(
               '$h:$m:$s',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 64,
                 fontWeight: FontWeight.w300,
-                color: Colors.deepPurple,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             const SizedBox(height: 8),

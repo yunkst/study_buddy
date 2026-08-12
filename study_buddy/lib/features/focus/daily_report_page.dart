@@ -85,7 +85,7 @@ class _DailyReportPageState extends ConsumerState<DailyReportPage> {
             children: [
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.timer, color: Colors.deepPurple),
+                  leading: Icon(Icons.timer, color: Theme.of(context).colorScheme.primary),
                   title: const Text('总专注用时'),
                   subtitle: Text(_fmtDuration(report.totalDurationMs),
                       style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
