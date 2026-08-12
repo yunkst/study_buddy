@@ -27,7 +27,7 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
       await LoggerService.instance.init();
       await LlmLogger.instance.initialize();
       LoggerService.instance.i('应用启动', category: LogCategory.general, tags: const ['app-start']);
-      bootstrapOverlay(ref, context);
+      if (mounted) bootstrapOverlay(ref, context);
       // 恢复或清理上次未结束的专注会话
       ref.read(focusSessionProvider.notifier).recoverOrphan();
     });

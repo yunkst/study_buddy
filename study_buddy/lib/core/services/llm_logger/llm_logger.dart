@@ -2,7 +2,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show ChangeNotifier, ValueNotifier, debugPrint;
+import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:study_engine/study_engine.dart';
