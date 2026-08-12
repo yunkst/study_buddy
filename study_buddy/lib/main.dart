@@ -32,14 +32,14 @@ Future<void> bootstrapOverlay(WidgetRef ref, BuildContext context) async {
   // 取待处理截图（冷启动降级）
   final pending = await sp.takePendingScreenshot();
   if (pending != null && context.mounted) {
-    // 延迟到首页 build 完，用 home 的 context 弹面板
-    // （实际由 home_page 在 didChangeDependencies 检查，避免顶层 context 时机问题）
+    // 延迟到 TodayPage build 完，用其 context 弹面板
+    // （实际由 TodayPage 在 initState 消费，见 today_page.dart _consumePendingScreenshot）
     // 此处仅触发：存入一个临时 holder
     PendingScreenshotStore.pending = pending;
   }
 }
 
-/// 临时存储启动期取到的待处理截图，供 home_page 取用。
+/// 临时存储启动期取到的待处理截图，供 TodayPage 取用。
 class PendingScreenshotStore {
   static dynamic pending; // CapturedScreenshot?
 }
