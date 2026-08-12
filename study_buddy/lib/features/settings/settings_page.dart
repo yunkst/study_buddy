@@ -5,6 +5,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/llm_config_provider.dart';
+import '../../core/providers/theme_mode_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/update/app_update_service.dart';
@@ -26,6 +27,10 @@ class SettingsPage extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
             _LlmConfigSection(),
+            const SizedBox(height: 32),
+            const _SectionLabel(text: '外观'),
+            const SizedBox(height: 8),
+            const _ThemeModeRow(),
             const SizedBox(height: 32),
             const _SectionLabel(text: '系统'),
             const SizedBox(height: 8),
@@ -365,4 +370,138 @@ class _Field extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 主题模式行:展示当前模式,点击弹出底部 Sheet 切换。
+/// 沿用 _NavRow 的 InkWell + ruleSoft 底线样式,右侧额外显示当前值。
+class _ThemeModeRow extends ConsumerWidget {
+  const _ThemeModeRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final mode = ref.watch(themeModeProvider).value ?? ThemeMode.system;
+    return InkWell(
+      onTap: () => showThemeModeSheet(context, ref),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: theme.extension<PaperColors>()!.ruleSoft,
+              width: 0.6,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.brightness_6_outlined,
+                size: 20, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '主题模式',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontFamily: 'NotoSerifSC'),
+              ),
+            ),
+            Text(
+              _modeLabel(mode),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _modeLabel(ThemeMode mode) => switch (mode) {
+        ThemeMode.system => '跟随系统',
+        ThemeMode.light => '浅色',
+        ThemeMode.dark => '深色',
+      };
+}
+
+/// 主题模式选择底部 Sheet。
+/// 三行(跟随系统/浅色/深色),选中项右侧朱砂红勾选。
+Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetCtx) {
+      final theme = Theme.of(sheetCtx);
+      final current =
+          ref.watch(themeModeProvider).value ?? ThemeMode.system;
+      final options = const <(ThemeMode, IconData, String)>[
+        (ThemeMode.system, Icons.brightness_auto_outlined, '跟随系统'),
+        (ThemeMode.light, Icons.light_mode_outlined, '浅色'),
+        (ThemeMode.dark, Icons.dark_mode_outlined, '深色'),
+      ];
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(
+                  left: 24, right: 24, top: 4, bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '主题模式',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontFamily: 'NotoSerifSC'),
+                ),
+              ),
+            ),
+            for (final (mode, icon, label) in options)
+              InkWell(
+                onTap: () {
+                  ref.read(themeModeProvider.notifier).set(mode);
+                  Navigator.of(sheetCtx).pop();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 14),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: theme.extension<PaperColors>()!.ruleSoft,
+                        width: 0.6,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon,
+                          size: 20, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: theme.textTheme.bodyLarge
+                              ?.copyWith(fontFamily: 'NotoSansSC'),
+                        ),
+                      ),
+                      if (mode == current)
+                        Icon(Icons.check,
+                            size: 20, color: theme.colorScheme.primary),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
+  );
 }

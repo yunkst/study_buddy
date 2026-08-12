@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/providers/screenshot_provider.dart';
+import 'core/providers/theme_mode_provider.dart';
 import 'core/services/logger_service.dart';
 import 'core/services/llm_logger/llm_logger.dart';
 import 'core/theme/app_theme.dart';
@@ -90,7 +91,9 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
       title: 'Study Buddy',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      // 偏好异步加载期间回退跟随系统(与改动前硬编码一致,无闪烁);
+      // 加载完成后 ref.watch 驱动 MaterialApp 重建切到用户选择。
+      themeMode: ref.watch(themeModeProvider).value ?? ThemeMode.system,
       routerConfig: buildRouter(showOnboarding: widget.showOnboarding),
     );
   }
