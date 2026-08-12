@@ -259,7 +259,8 @@ $memBlock''';
       return 'status 不合法(允许 learning/mastered/weak,禁止 unknown)';
     }
     await mastery.log(topicId, parsed, reason: reason);
-    return '已记录掌握度: $status (reason: $reason)';
+    final corrected = await schedules.applyMasteryOverride(topicId: topicId, status: parsed);
+    return '已记录掌握度: $status, 已同步 schedule (S=${corrected.stability.toStringAsFixed(2)}, D=${corrected.difficulty.toStringAsFixed(2)}) (reason: $reason)';
   }
 
   Future<String> _getMastery(int topicId) async {
