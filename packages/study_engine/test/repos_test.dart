@@ -153,10 +153,12 @@ void main() {
     final catId = await cats.ensurePath(['数学']);
     final now = DateTime.now();
     final id = await topics.insert(Topic(categoryId: catId, question: 'q', title: 't', summary: '旧答案', createdAt: now, updatedAt: now));
+    // 捕获更新前 updated_at（DB 毫秒精度还原），与更新后同标尺比较，避免外部 now 微秒精度在同毫秒边界 flake。
+    final before = (await topics.findById(id))!.updatedAt;
     await topics.updateSummary(id, '新答案');
     final got = await topics.findById(id);
     expect(got?.summary, '新答案');
-    expect(got!.updatedAt.isAfter(now) || got.updatedAt == now, isTrue);
+    expect(got!.updatedAt.compareTo(before) >= 0, isTrue);
   });
 
   test('TopicEdgeRepository 建边与双向查询', () async {
