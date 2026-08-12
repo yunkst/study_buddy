@@ -21,12 +21,14 @@ import '../../core/theme/paper_extension.dart';
 
 /// 弹出底部抽屉：消息列表 + 连续输入框 + 可选附图。
 ///
-/// 截图来自 [CapturedScreenshot]，纯内存持有；会话结束即释放。
-/// 抽屉关闭后通过 [ProviderScope.containerOf] 取容器清空会话（纯内存），
-/// 避免在 widget dispose 阶段修改 provider state（Riverpod 3.x 禁止）。
+/// [screenshot] 可空：来自 [CapturedScreenshot] 的截图（拍题入口），纯内存持有，
+/// 会话结束即释放；为 null 时表示纯文字聊天入口（TodayPage「直接聊」），
+/// 不预填拍立得预览，首轮仅发文字。抽屉关闭后通过 [ProviderScope.containerOf]
+/// 取容器清空会话（纯内存），避免在 widget dispose 阶段修改 provider state
+/// （Riverpod 3.x 禁止）。
 Future<void> showAiPanel(
   BuildContext context, {
-  required CapturedScreenshot screenshot,
+  CapturedScreenshot? screenshot,
 }) async {
   // 在 await 前捕获容器：抽屉关闭后清空会话（纯内存），不依赖 context.mounted。
   final container = ProviderScope.containerOf(context, listen: false);
@@ -42,8 +44,8 @@ Future<void> showAiPanel(
 }
 
 class _AiPanelSheet extends ConsumerStatefulWidget {
-  const _AiPanelSheet({required this.initialScreenshot});
-  final CapturedScreenshot initialScreenshot;
+  const _AiPanelSheet({this.initialScreenshot});
+  final CapturedScreenshot? initialScreenshot;
 
   @override
   ConsumerState<_AiPanelSheet> createState() => _AiPanelSheetState();
