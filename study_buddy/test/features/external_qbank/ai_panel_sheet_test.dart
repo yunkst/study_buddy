@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/screenshot_provider.dart';
+import 'package:study_buddy/core/widgets/markdown_latex.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -229,5 +230,60 @@ void main() {
     // 5. _pendingImage 预览出现：Image widget + 移除按钮(close icon)
     expect(find.byType(Image), findsWidgets);
     expect(find.byIcon(Icons.close), findsOneWidget);
+  });
+
+  testWidgets('save_topic 工具结果落地后,流式轨迹转 SavedTopicCapsule,AI 走 MarkdownLatex',
+      (tester) async {
+    // 接线回归（task 7.2）：save_topic 工具结果(JSON) → SavedTopicCapsule，
+    // AI 文本经 MarkdownLatex 渲染。
+    final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
+    final controller = StreamController<AgentEvent>();
+    addTearDown(controller.close);
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider
+          .overrideWith((ref) => _ControllableAgentSession(ref, controller)),
+    ]);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
+        return ElevatedButton(
+          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
+          child: const Text('open'),
+        );
+      }))),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始分析'));
+    await tester.pump();
+
+    // save_topic 事件：tool result 与 tool 消息 content 都是
+    // SaveTopicResult.toJson() 字符串。落库走 AgentRoundEndEvent（持久路径
+    // _buildMessage tool 分支），流式走 ToolCallStart/End（_AiNote toolEvents）。
+    const args = '{"path":"数学/导数","title":"极限","question":"q","summary":"s"}';
+    const toolResult = '{"id":7,"is_new":true,"msg":"已保存知识点"}';
+    await tester.runAsync(() async {
+      controller.add(ToolCallStartEvent('save_topic', 't1'));
+      controller.add(ToolCallEndEvent('save_topic', toolResult, 't1'));
+      controller.add(AgentRoundEndEvent([
+        ChatMessage(role: 'assistant', content: '已保存', toolCalls: [
+          ToolCall(id: 't1', name: 'save_topic', arguments: args),
+        ]),
+        ChatMessage(role: 'tool', content: toolResult, toolCallId: 't1'),
+      ]));
+      controller.add(AgentDoneEvent('已保存'));
+      await controller.close();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    // (1) save_topic 工具结果渲染为 SavedTopicCapsule —— isNew=true → 「新」badge。
+    // (2) 不再出现原始『save_topic: …』灰色轨迹行（流式+持久路径均已转卡片）。
+    expect(find.text('新'), findsWidgets);
+    expect(find.textContaining('save_topic:'), findsNothing);
+    // (3) AI 文本经 MarkdownLatex 渲染（selectable）。
+    expect(find.byType(MarkdownLatex), findsWidgets);
   });
 }
