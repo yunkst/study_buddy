@@ -71,6 +71,8 @@ class LlmProvider {
         final choices = chunk['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
         final delta = (choices.first as Map)['delta'];
+        // delta 可能为 null（仅含 finish_reason / role 标记的辅助包）——跳过，避免对 null 调 [] 崩溃。
+        if (delta == null) continue;
         final content = delta['content'];
         if (content is String && content.isNotEmpty) {
           yield LlmStreamChunk(textDelta: content);
