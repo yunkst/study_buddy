@@ -34,6 +34,16 @@ class OverlayService : Service() {
     private var floatView: View? = null
     private lateinit var params: WindowManager.LayoutParams
 
+    /**
+     * App 前台抑制标志：true 时不恢复悬浮球（即使截图回流 notifyCaptureFinished）。
+     * 由 onStartCommand 按 action 维护：
+     * - ACTION_HIDE_OVERLAY → true（来自 Flutter 切到前台）
+     * - ACTION_SHOW_OVERLAY → false（来自 Flutter 切到后台 / 外部恢复）
+     * - 截图回流（action 为 null）→ 仅在 false 时恢复，避免与前台隐藏竞态
+     */
+    @Volatile
+    private var suppressedByForeground = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -47,11 +57,24 @@ class OverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
-        // 闭合 IMP-1：截图完成 notifyCaptureFinished → startForegroundService → 此处恢复悬浮球。
-        // 首次启动 onCreate→onStartCommand 会重复 startForeground（无害），showFloatBall 因 floatView 非 null 跳过。
-        // 截图后 onStartCommand→floatView==null→showFloatBall 恢复。
-        if (floatView == null && Settings.canDrawOverlays(this)) {
-            showFloatBall()
+        when (intent?.action) {
+            ACTION_HIDE_OVERLAY -> {
+                // 轻量隐藏：只移除 floatView，保留 FGS 通知，绝不 stopService。
+                suppressedByForeground = true
+                hideOverlay()
+            }
+            ACTION_SHOW_OVERLAY -> {
+                // 恢复：清除前台抑制（用户进后台 / 外部唤起）。
+                suppressedByForeground = false
+                showOverlayInternal()
+            }
+            else -> {
+                // 默认（首次启动 / notifyCaptureFinished 截图回流）。
+                // 截图回流时若 App 在前台（suppressedByForeground=true），不恢复悬浮球，避免竞态。
+                if (!suppressedByForeground && floatView == null && Settings.canDrawOverlays(this)) {
+                    showFloatBall()
+                }
+            }
         }
         return START_STICKY
     }
@@ -124,10 +147,17 @@ class OverlayService : Service() {
     }
 
     /**
-     * 点击悬浮球 → 隐藏悬浮球 → 启动 TrampolineActivity 走 MediaProjection 授权 + 截图。
+     * 点击悬浮球 → 轻量 hide（置 suppressedByForeground=true，覆盖 paused→showOverlay 复位漏洞）
+     * → 启动 TrampolineActivity 走 MediaProjection 授权 + 截图。
      */
     private fun triggerScreenshot() {
-        hideOverlay()
+        val intent = Intent(this, OverlayService::class.java)
+            .setAction(OverlayService.ACTION_HIDE_OVERLAY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
         startActivity(Intent(this, TrampolineActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -163,6 +193,15 @@ class OverlayService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 1001
+
+        /**
+         * onStartCommand 通过 intent action 区分操作：
+         * - HIDE_OVERLAY：轻量 hide（保留 FGS），同时置 suppressedByForeground=true
+         * - SHOW_OVERLAY：恢复悬浮球，同时复位 suppressedByForeground=false
+         * - null（默认启动 / notifyCaptureFinished 截图回流）：仅在未抑制时恢复
+         */
+        const val ACTION_HIDE_OVERLAY = "io.github.yunkst.studybuddy.action.HIDE_OVERLAY"
+        const val ACTION_SHOW_OVERLAY = "io.github.yunkst.studybuddy.action.SHOW_OVERLAY"
 
         /** 截图流程结束（完成/取消/失败）→ 恢复悬浮球。 */
         fun notifyCaptureFinished(ctx: Context) {

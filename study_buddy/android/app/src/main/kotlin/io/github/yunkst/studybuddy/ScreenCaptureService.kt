@@ -61,6 +61,9 @@ class ScreenCaptureService : Service() {
             // 首次授权：建立会话
             val resultIntent = intent.getParcelableExtra<Intent>(TrampolineActivity.EXTRA_RESULT_INTENT)!!
             setupSession(resultIntent)
+        } else if (alive) {
+            // 会话内存活：无授权 Intent，复用 projection 取新帧
+            captureAgain()
         }
         return START_STICKY
     }
@@ -85,6 +88,7 @@ class ScreenCaptureService : Service() {
                 virtualDisplay?.release(); virtualDisplay = null
                 // 闭合 D：projection 停止时关闭 imageReader（onDestroy 已有，此处覆盖运行期 stop）
                 imageReader?.close(); imageReader = null
+                alive = false
             }
         }, Handler(Looper.getMainLooper()))
 
@@ -96,12 +100,23 @@ class ScreenCaptureService : Service() {
         )
         // 闭合 B：AtomicBoolean 守卫，取首帧后移除 listener，避免重复 showCropOverlay
         frameCaptured.set(false)
-        imageReader!!.setOnImageAvailableListener({ reader ->
+        armFrameListener()
+        // 会话建立成功 → 标记存活，后续截图走 requestCapture 免授权复用
+        alive = true
+    }
+
+    /**
+     * 挂 ImageReader 取帧 listener：取到首帧后 detach（避免重复 showCropOverlay）。
+     * 会话制下 requestCapture() 会重新调用本方法取新帧。
+     */
+    private fun armFrameListener() {
+        val reader = imageReader ?: return
+        reader.setOnImageAvailableListener({ r ->
             if (!frameCaptured.compareAndSet(false, true)) return@setOnImageAvailableListener
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
             val bmp = image.toBitmap()
             image.close()
-            reader.setOnImageAvailableListener(null, null)  // 停止收帧
+            r.setOnImageAvailableListener(null, null)  // 停止收帧
             // 取到全屏 Bitmap → 交 CropOverlayView（Task 6）
             showCropOverlay(bmp)
         }, Handler(Looper.getMainLooper()))
@@ -138,10 +153,10 @@ class ScreenCaptureService : Service() {
         startActivity(launchIntent)
     }
 
-    /** 会话内再次截图：VirtualDisplay 已在，重新挂 surface 取一帧。 */
+    /** 会话内再次截图：VirtualDisplay 已在，重置守卫 + 重挂 listener 取新帧。 */
     private fun captureAgain() {
-        // 会话存活时 ImageReader listener 仍在，触发一次取帧即可。
-        // 简化：VirtualDisplay 持续投递，listener 自动取最新帧。此处空实现保留扩展点。
+        frameCaptured.set(false)
+        armFrameListener()
     }
 
     private fun buildNotification(): Notification {
@@ -163,12 +178,25 @@ class ScreenCaptureService : Service() {
         projection?.stop()
         virtualDisplay?.release()
         imageReader?.close()
+        alive = false
     }
 
     companion object {
         private const val NOTIFICATION_ID = 1002
         @Volatile private var alive = false
         fun isSessionAlive(): Boolean = alive
-        fun requestCapture() { /* 会话内存活时由 TrampolineActivity 调用，触发取帧 */ }
+
+        /**
+         * 会话内存活时由 TrampolineActivity 调用：重新拉起本服务（不带 EXTRA），
+         * onStartCommand 检测到 alive=true → captureAgain() 取新帧，免重新授权。
+         */
+        fun requestCapture(ctx: Context) {
+            val intent = Intent(ctx, ScreenCaptureService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
+        }
     }
 }

@@ -1,0 +1,478 @@
+<title>Study Buddy · UI 重设计 — 学习闭环 · 3 Tab</title>
+<meta name="description" content="Study Buddy App UI 重设计：今日/知识/设置 3 Tab。今日=问AI+计划+专注+日报，知识=浏览+背诵，设置=系统。">
+
+<style>
+  /* ===== 主题令牌（取自 App 纸感主题 app_colors.dart） ===== */
+  :root {
+    --paper: #F5F0E6; --paper-low: #F2ECDF; --paper-card: #FAF6EC;
+    --ink: #2C2620; --ink-soft: #6B5D4F;
+    --cinnabar: #B8472D; --cinnabar-bg: #F0DBD0;
+    --moss: #5A7D4A; --moss-bg: #E6EEDE;
+    --indigo: #3A5A7A; --gold: #B08A3E;
+    --rule: #D9CFB8; --rule-strong: #A89880;
+    --shadow: rgba(76,60,40,0.10); --shadow-soft: rgba(76,60,40,0.05);
+    --phone-bezel: #2C2620; --phone-screen: #F5F0E6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1F1A14; --paper-low: #251F18; --paper-card: #17130E;
+      --ink: #E8DCC4; --ink-soft: #B8A888;
+      --cinnabar: #D9664A; --cinnabar-bg: #6B2A18;
+      --moss: #8FB07A; --moss-bg: #2E4226;
+      --indigo: #7BA0C0; --gold: #C9A55C;
+      --rule: #3D3428; --rule-strong: #7A6A52;
+      --shadow: rgba(0,0,0,0.40); --shadow-soft: rgba(0,0,0,0.20);
+      --phone-bezel: #0A0805; --phone-screen: #1F1A14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1F1A14; --paper-low: #251F18; --paper-card: #17130E;
+    --ink: #E8DCC4; --ink-soft: #B8A888;
+    --cinnabar: #D9664A; --cinnabar-bg: #6B2A18;
+    --moss: #8FB07A; --moss-bg: #2E4226;
+    --indigo: #7BA0C0; --gold: #C9A55C;
+    --rule: #3D3428; --rule-strong: #7A6A52;
+    --shadow: rgba(0,0,0,0.40); --shadow-soft: rgba(0,0,0,0.20);
+    --phone-bezel: #0A0805; --phone-screen: #1F1A14;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.6; font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  header.masthead { border-bottom: 1px solid var(--rule); padding: 56px 0 40px; }
+  .kicker {
+    font-family: "Noto Serif SC", Georgia, serif; font-style: italic;
+    font-size: 13px; letter-spacing: 4px; color: var(--ink-soft); text-transform: uppercase;
+  }
+  h1.thesis {
+    font-family: "Noto Serif SC", Georgia, serif; font-weight: 700;
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.15;
+    margin: 14px 0 0; color: var(--ink); text-wrap: balance; letter-spacing: 0.5px;
+  }
+  h1.thesis .accent { color: var(--cinnabar); }
+  .lede { margin: 18px 0 0; max-width: 64ch; color: var(--ink-soft); font-size: 16px; }
+  .ornament { color: var(--cinnabar); font-size: 16px; margin-top: 14px; }
+
+  .topbar { display: flex; justify-content: flex-end; padding: 18px 0 0; }
+  .theme-toggle {
+    display: inline-flex; border: 1px solid var(--rule-strong);
+    border-radius: 2px; overflow: hidden; background: var(--paper-card);
+  }
+  .theme-toggle button {
+    border: none; background: transparent; color: var(--ink-soft);
+    font: inherit; font-size: 12px; padding: 6px 12px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .theme-toggle button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .theme-toggle button:hover { color: var(--ink); }
+
+  /* 闭环图 */
+  .loop { margin: 48px 0 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .loop-step {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 14px; border: 1px solid var(--rule-strong);
+    background: var(--paper-card); border-radius: 2px; font-size: 13px;
+  }
+  .loop-step .num { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; color: var(--cinnabar); }
+  .loop-step .lbl { font-weight: 600; }
+  .loop-step .sub { color: var(--ink-soft); font-size: 11px; }
+  .loop-step .tabchip {
+    font-size: 9px; padding: 1px 6px; border-radius: 2px;
+    background: var(--cinnabar-bg); color: var(--cinnabar); margin-left: 4px; font-weight: 600;
+  }
+  .loop-arrow { color: var(--rule-strong); font-size: 16px; }
+  .loop-note { margin-top: 12px; font-size: 13px; color: var(--ink-soft); max-width: 72ch; }
+
+  /* 手机框 */
+  .phones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin: 56px 0 24px; }
+  @media (max-width: 900px) { .phones { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; } }
+  .phone-cell { display: flex; flex-direction: column; align-items: center; }
+  .phone-tag {
+    font-family: "Noto Serif SC", Georgia, serif; font-style: italic;
+    font-size: 13px; color: var(--cinnabar); margin-bottom: 10px; letter-spacing: 1px;
+  }
+  .phone-tag::before { content: "— "; }
+  .phone {
+    width: 100%; max-width: 280px; aspect-ratio: 9 / 19;
+    background: var(--phone-bezel); border-radius: 30px; padding: 8px;
+    box-shadow: 0 12px 30px var(--shadow), 0 2px 6px var(--shadow); position: relative;
+  }
+  .phone-screen {
+    width: 100%; height: 100%; background: var(--phone-screen);
+    border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; position: relative;
+  }
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 16px 4px; font-size: 10px; color: var(--ink); font-weight: 600; flex-shrink: 0;
+  }
+  .screen-body { flex: 1; overflow: hidden; padding: 6px 14px 0; }
+  .screen-body.scroll { overflow-y: auto; }
+  .tabbar {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--rule); background: var(--paper-card); flex-shrink: 0;
+  }
+  .tabbar .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 11px; color: var(--ink-soft); font-size: 10px; }
+  .tabbar .tab.active { color: var(--cinnabar); }
+  .tabbar .tab .ic { font-size: 16px; line-height: 1; }
+
+  /* 屏内组件 */
+  .greet { font-family: "Noto Serif SC", Georgia, serif; font-size: 12px; color: var(--ink-soft); padding: 6px 0 8px; }
+  .greet .big { display: block; font-size: 15px; font-weight: 700; color: var(--ink); margin-top: 2px; }
+  .section-label {
+    font-family: "Noto Serif SC", Georgia, serif; font-style: italic;
+    font-size: 11px; color: var(--cinnabar);
+    border-bottom: 1px solid var(--cinnabar); padding-bottom: 2px; display: inline-block; margin-bottom: 8px;
+  }
+  .card {
+    background: var(--paper-card); border: 1px solid var(--rule); border-radius: 4px;
+    padding: 11px 12px; margin-bottom: 10px; box-shadow: 0 2px 6px var(--shadow-soft);
+  }
+  .card-title { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .card-sub { font-size: 10px; color: var(--ink-soft); margin-top: 2px; }
+
+  /* 问 AI 三入口 */
+  .ask-row { display: flex; gap: 8px; }
+  .ask-entry {
+    flex: 1; border: 1px solid var(--rule-strong); border-radius: 3px;
+    background: var(--paper-card); padding: 12px 6px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+  }
+  .ask-entry.primary { background: var(--ink); border-color: var(--ink); }
+  .ask-entry .ae-ic { font-size: 20px; }
+  .ask-entry.primary .ae-ic { color: var(--paper-card); }
+  .ask-entry .ae-t { font-size: 11px; font-weight: 600; color: var(--ink); }
+  .ask-entry.primary .ae-t { color: var(--paper-card); }
+
+  /* 计划/专注卡 */
+  .progress-track { height: 5px; background: var(--paper-low); border-radius: 3px; margin: 7px 0 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--cinnabar); border-radius: 3px; }
+  .progress-meta { font-size: 9.5px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+  .mini-btn-row { display: flex; gap: 7px; margin-top: 8px; }
+  .mini-btn { flex: 1; font-size: 10.5px; padding: 6px 0; border-radius: 2px; text-align: center; font-weight: 600; }
+  .mini-btn.primary { background: var(--ink); color: var(--paper-card); }
+  .mini-btn.ghost { background: transparent; color: var(--cinnabar); border: 1px solid var(--cinnabar); }
+
+  /* 知识 Tab */
+  .search-box {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--rule-strong); border-radius: 3px; padding: 7px 10px;
+    background: var(--paper-card); margin-bottom: 10px;
+  }
+  .search-box .ic { color: var(--ink-soft); font-size: 12px; }
+  .search-box .ph { color: var(--ink-soft); font-size: 11px; }
+  .tree-label { font-family: "Noto Serif SC", Georgia, serif; font-size: 11px; color: var(--ink-soft); margin: 2px 0 4px; }
+  .topic-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 2px; border-bottom: 1px solid var(--rule); font-size: 11.5px;
+  }
+  .topic-row:last-of-type { border-bottom: none; }
+  .topic-row .t-title { color: var(--ink); }
+  .topic-row .t-title .indent { color: var(--rule-strong); margin-right: 4px; }
+  .mastery { font-size: 9px; padding: 1px 6px; border-radius: 2px; font-weight: 600; letter-spacing: 0.3px; }
+  .m-weak { background: var(--cinnabar-bg); color: var(--cinnabar); }
+  .m-learn { background: #EEE6D4; color: var(--gold); }
+  .m-ok { background: var(--moss-bg); color: var(--moss); }
+  .recite-bar {
+    margin-top: 10px; background: var(--ink); color: var(--paper-card);
+    text-align: center; padding: 10px; border-radius: 2px; font-size: 11.5px; font-weight: 600;
+  }
+  .recite-bar .cnt { color: var(--cinnabar); }
+
+  /* 设置 */
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 4px; border-bottom: 1px solid var(--rule); font-size: 12px;
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-row .left { display: flex; align-items: center; gap: 9px; color: var(--ink); }
+  .setting-row .ic { font-size: 14px; color: var(--ink-soft); }
+  .setting-row .right { display: flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 11px; }
+  .badge-ok { color: var(--moss); font-weight: 600; }
+
+  /* 背诵机制详解 */
+  .recite-explain {
+    margin-top: 14px; border: 1px dashed var(--rule-strong); border-radius: 4px;
+    padding: 16px 18px; background: var(--paper-low);
+  }
+  .recite-explain .re-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 15px; color: var(--cinnabar); }
+  .recite-explain .re-body { font-size: 13px; color: var(--ink-soft); margin-top: 6px; line-height: 1.75; }
+  .flashcard { display: flex; gap: 12px; margin-top: 12px; }
+  .fc { flex: 1; border: 1px solid var(--rule-strong); border-radius: 4px; padding: 12px; background: var(--paper-card); font-size: 12px; }
+  .fc .fc-label { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 10px; color: var(--cinnabar); margin-bottom: 6px; }
+  .fc .fc-q { font-weight: 700; color: var(--ink); font-size: 13px; }
+  .fc .fc-a { color: var(--ink); margin-top: 4px; font-size: 11.5px; }
+  .fc-arrow { align-self: center; color: var(--rule-strong); font-size: 18px; }
+
+  /* 改动范围 */
+  section.scope { margin: 64px 0 24px; }
+  .scope h2 { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 22px; margin: 0 0 6px; color: var(--ink); }
+  .scope .h-sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 20px; max-width: 72ch; }
+  .scope-table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; }
+  table.scope-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 620px; }
+  .scope-table th, .scope-table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .scope-table th { background: var(--paper-low); font-weight: 700; color: var(--ink); font-size: 12px; letter-spacing: 0.5px; }
+  .scope-table tr:last-child td { border-bottom: none; }
+  .scope-table .file { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; color: var(--cinnabar); white-space: nowrap; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 2px; font-weight: 600; letter-spacing: 0.3px; }
+  .tag-new { background: var(--cinnabar-bg); color: var(--cinnabar); }
+  .tag-edit { background: var(--paper-low); color: var(--ink-soft); }
+  .tag-keep { background: transparent; color: var(--moss); border: 1px solid var(--moss); }
+
+  .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 48px 0 24px; }
+  @media (max-width: 760px) { .principles { grid-template-columns: 1fr; } }
+  .principle { border-left: 3px solid var(--cinnabar); padding: 4px 0 4px 16px; }
+  .principle .p-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 15px; color: var(--ink); }
+  .principle .p-body { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+
+  footer.colophon { margin: 64px 0 56px; padding-top: 22px; border-top: 1px solid var(--rule); text-align: center; }
+  footer.colophon span { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 11px; letter-spacing: 2px; color: var(--ink-soft); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  :focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="theme-toggle" role="group" aria-label="主题切换">
+      <button type="button" data-set="light" aria-pressed="false">浅色</button>
+      <button type="button" data-set="dark" aria-pressed="false">暗色</button>
+      <button type="button" data-set="system" aria-pressed="true">跟随系统</button>
+    </div>
+  </div>
+
+  <header class="masthead">
+    <div class="kicker">Study Buddy · UI 重设计</div>
+    <h1 class="thesis">从一份<span class="accent">纸感刊物</span>，<br>重做成一个<span class="accent">学习工具</span>。</h1>
+    <p class="lede">底部只留 3 个 Tab —— 今日 / 知识 / 设置。今日是学习中枢：问 AI、计划、专注、日报一页打尽。知识是沉淀与背诵：拍题存下的知识点，这里能看、能搜、能背。学过的不再沉在数据库里。</p>
+    <div class="ornament">❦</div>
+  </header>
+
+  <!-- 闭环 -->
+  <div class="loop" aria-label="学习闭环">
+    <div class="loop-step"><span class="num">①</span><span><span class="lbl">问 AI</span> <span class="sub">· 输入</span><span class="tabchip">今日</span></span></div>
+    <span class="loop-arrow">→</span>
+    <div class="loop-step"><span class="num">②</span><span><span class="lbl">知识</span> <span class="sub">· 沉淀·背诵</span><span class="tabchip">知识</span></span></div>
+    <span class="loop-arrow">→</span>
+    <div class="loop-step"><span class="num">③</span><span><span class="lbl">计划</span> <span class="sub">· 目标</span><span class="tabchip">今日</span></span></div>
+    <span class="loop-arrow">→</span>
+    <div class="loop-step"><span class="num">④</span><span><span class="lbl">专注</span> <span class="sub">· 执行</span><span class="tabchip">今日</span></span></div>
+    <span class="loop-arrow">→</span>
+    <div class="loop-step"><span class="num">⑤</span><span><span class="lbl">日报</span> <span class="sub">· 复盘</span><span class="tabchip">今日</span></span></div>
+  </div>
+  <p class="loop-note">问 AI（最高频）置顶于今日页，拍照/相册/直接聊三入口并列，一屏内零滚动触达。知识背诵独立成 Tab。计划、专注、日报这些执行与复盘环节收在今日页内。系统功能进设置。</p>
+
+  <!-- 三个手机框 -->
+  <div class="phones">
+
+    <!-- 今日 -->
+    <div class="phone-cell">
+      <div class="phone-tag">今日 · 学习中枢</div>
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+          <div class="screen-body scroll">
+            <div class="greet">8月12日 星期三<span class="big">早上好</span></div>
+
+            <!-- 问 AI 置顶 -->
+            <span class="section-label">问 AI</span>
+            <div class="ask-row" style="margin-bottom:12px;">
+              <div class="ask-entry primary"><span class="ae-ic">📷</span><span class="ae-t">拍照</span></div>
+              <div class="ask-entry"><span class="ae-ic">🖼</span><span class="ae-t">相册</span></div>
+              <div class="ask-entry"><span class="ae-ic">💬</span><span class="ae-t">直接聊</span></div>
+            </div>
+
+            <!-- 今日计划 -->
+            <span class="section-label">今日计划</span>
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">英语四级冲刺</div>
+              <div class="card-sub">考试 8/23 · 剩 11 天 · 目标 520+</div>
+              <div class="progress-track"><div class="progress-fill" style="width:43%"></div></div>
+              <div class="progress-meta"><span>3 / 7 节点</span><span>下一节点 8/20</span></div>
+            </div>
+
+            <!-- 今日专注 -->
+            <span class="section-label">今日专注</span>
+            <div class="card">
+              <div class="card-title">42 分钟 · 2 次</div>
+              <div class="mini-btn-row">
+                <div class="mini-btn primary">▶ 开始专注</div>
+                <div class="mini-btn ghost">学习日报</div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><span class="ic">◉</span>今日</div>
+            <div class="tab"><span class="ic">📚</span>知识</div>
+            <div class="tab"><span class="ic">⚙</span>设置</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 知识 -->
+    <div class="phone-cell">
+      <div class="phone-tag">知识 · 浏览 + 背诵</div>
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+          <div class="screen-body scroll">
+            <div class="greet"><span class="big" style="font-size:15px;">知识</span></div>
+            <div class="search-box"><span class="ic">🔍</span><span class="ph">搜索知识点</span></div>
+            <div class="tree-label">学科 · 英语四级</div>
+            <div class="topic-row"><span class="t-title"><span class="indent">└</span>虚拟语气</span><span class="mastery m-learn">学习中</span></div>
+            <div class="topic-row"><span class="t-title"><span class="indent">└</span>定语从句</span><span class="mastery m-ok">已掌握</span></div>
+            <div class="topic-row"><span class="t-title"><span class="indent">└</span>非谓语动词</span><span class="mastery m-weak">薄弱</span></div>
+            <div class="topic-row"><span class="t-title"><span class="indent">└</span>倒装句</span><span class="mastery m-weak">薄弱</span></div>
+            <div class="topic-row"><span class="t-title"><span class="indent">└</span>主谓一致</span><span class="mastery m-learn">学习中</span></div>
+            <div class="recite-bar">▶ 开始背诵 · <span class="cnt">5 个待复习</span></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><span class="ic">◉</span>今日</div>
+            <div class="tab active"><span class="ic">📚</span>知识</div>
+            <div class="tab"><span class="ic">⚙</span>设置</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="phone-cell">
+      <div class="phone-tag">设置 · 系统归拢</div>
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+          <div class="screen-body">
+            <div class="greet"><span class="big" style="font-size:16px;">设置</span></div>
+            <div class="card" style="padding:4px 12px;">
+              <div class="setting-row"><span class="left"><span class="ic">⏸</span>悬浮窗权限</span><span class="right"><span class="badge-ok">已开启</span> ›</span></div>
+              <div class="setting-row"><span class="left"><span class="ic">🔄</span>版本更新</span><span class="right"><span>0.1.0</span> ›</span></div>
+              <div class="setting-row"><span class="left"><span class="ic">ℹ</span>关于</span><span class="right">›</span></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><span class="ic">◉</span>今日</div>
+            <div class="tab"><span class="ic">📚</span>知识</div>
+            <div class="tab active"><span class="ic">⚙</span>设置</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 背诵机制详解 -->
+  <div class="recite-explain">
+    <div class="re-title">背诵怎么工作 — 抽认卡翻面</div>
+    <div class="re-body">每个知识点天然是一张卡：<strong>正面是 question（背诵引子）</strong>，<strong>背面是 summary（答案本体）</strong>。背诵模式按掌握度筛选（薄弱、学习中的优先），先看正面回忆，点翻面看答案，再自评标记掌握度——背会的标「已掌握」，不会的留「薄弱」继续轮。标记写入 MasteryLog，形成复习闭环。数据全部来自 engine 已有的 Topic / MasteryStatus，无需建表。</div>
+    <div class="flashcard">
+      <div class="fc">
+        <div class="fc-label">正面 · 引子</div>
+        <div class="fc-q">什么是虚拟语气？</div>
+      </div>
+      <div class="fc-arrow">→</div>
+      <div class="fc">
+        <div class="fc-label">背面 · 答案</div>
+        <div class="fc-a">表示假设、愿望等非真实情况，谓语用过去式/should do…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设计要点 -->
+  <div class="principles">
+    <div class="principle">
+      <div class="p-title">学过的看得见</div>
+      <div class="p-body">拍题问 AI 时 AI 在背后存知识点；知识 Tab 让它们可浏览、可搜索、可背诵，不再沉在数据库里看不到、背不了。</div>
+    </div>
+    <div class="principle">
+      <div class="p-title">高频零滚动触达</div>
+      <div class="p-body">问 AI 置顶今日页，拍照/相册/直接聊三入口并列，打开 App 第一屏就能动作，不用滑、不用进二级页。</div>
+    </div>
+    <div class="principle">
+      <div class="p-title">底部只留三块</div>
+      <div class="p-body">今日（学什么）/ 知识（沉淀背诵）/ 设置（系统）。导航极简，每个 Tab 职责单一、不再信息过载。</div>
+    </div>
+  </div>
+
+  <!-- 改动范围 -->
+  <section class="scope">
+    <h2>技术改动范围</h2>
+    <p class="h-sub">不新增任何数据表——知识点、掌握度、分类树、计划、专注、日报 engine 全部就绪。拍题问答历史明确不做。悬浮窗截图回流（app.dart 生命周期）不受影响。</p>
+    <div class="scope-table-wrap">
+      <table class="scope-table">
+        <thead>
+          <tr><th style="width:36%">文件</th><th style="width:13%">类型</th><th>改动</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="file">router.dart</td>
+            <td><span class="tag tag-edit">重构</span></td>
+            <td class="change">改 StatefulShellRoute.indexedStack 3 Tab：今日/知识/设置；plan/:id、daily-report 保留为堆叠路由</td>
+          </tr>
+          <tr>
+            <td class="file">home_page.dart → today_tab</td>
+            <td><span class="tag tag-edit">重构</span></td>
+            <td class="change">纸感刊头长滚动结构拆除，重构为「今日」Tab：问 AI（拍照/相册/直接聊）+ 今日计划 + 今日专注（开始专注 + 日报）</td>
+          </tr>
+          <tr>
+            <td class="file">features/knowledge/</td>
+            <td><span class="tag tag-new">新增</span></td>
+            <td class="change">知识 Tab：分类树浏览 + 搜索（TopicRepository.search）+ 知识点详情；背诵子页：按 MasteryStatus 筛选的抽认卡翻面，翻面后调 set_mastery</td>
+          </tr>
+          <tr>
+            <td class="file">features/profile/settings_tab.dart</td>
+            <td><span class="tag tag-new">新增</span></td>
+            <td class="change">设置 Tab：悬浮窗权限 / 版本更新 / 关于，收敛为设置行</td>
+          </tr>
+          <tr>
+            <td class="file">focus_page.dart</td>
+            <td><span class="tag tag-edit">改造</span></td>
+            <td class="change">由独立 Tab 改为今日页"开始专注"push 的全屏计时页；修掉 Colors.deepPurple 接入主题</td>
+          </tr>
+          <tr>
+            <td class="file">external_qbank/ai_panel_sheet.dart</td>
+            <td><span class="tag tag-keep">复用</span></td>
+            <td class="change">今日页"直接聊"和拍照后均弹此面板（showAiPanel），不新建聊天页；面板内部逻辑不动</td>
+          </tr>
+          <tr>
+            <td class="file">app.dart</td>
+            <td><span class="tag tag-keep">不动</span></td>
+            <td class="change">生命周期（悬浮球 show/hide、截图回流 _checkPending）完全保留，仅随 router 调整接线</td>
+          </tr>
+          <tr>
+            <td class="file">core/theme/*</td>
+            <td><span class="tag tag-keep">不动</span></td>
+            <td class="change">纸感主题不改；补 NavigationBar 主题 token，视觉进一步取舍留作后续任务</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <span>— Study Buddy · 学习闭环 · 今日 / 知识 / 设置 —</span>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll('.theme-toggle button');
+    function apply(set){
+      buttons.forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.set === set ? 'true' : 'false'); });
+      if (set === 'system') { root.removeAttribute('data-theme'); } else { root.setAttribute('data-theme', set); }
+      try { localStorage.setItem('sb-ui-theme', set); } catch(e){}
+    }
+    var saved = 'system';
+    try { saved = localStorage.getItem('sb-ui-theme') || 'system'; } catch(e){}
+    apply(saved);
+    buttons.forEach(function(b){ b.addEventListener('click', function(){ apply(b.dataset.set); }); });
+  })();
+</script>

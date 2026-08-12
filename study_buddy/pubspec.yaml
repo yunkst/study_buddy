@@ -37,6 +37,7 @@ dependencies:
   flutter_riverpod: ^3.3.2
   go_router: ^14.6.0
   path: ^1.9.0
+  sqflite: ^2.4.2
   sqflite_common: ^2.5.4
   sqflite_common_ffi: ^2.3.4
   path_provider: ^2.1.5
@@ -44,6 +45,9 @@ dependencies:
   dio: ^5.4.0
   package_info_plus: ^8.0.0
   permission_handler: ^11.0.0
+  # 拍题问 AI 入口：相机拍照 + 相册选图
+  # 1.2.3+ 要求 Dart 3.10，本地 Dart 3.9.2，锁定 1.2.2
+  image_picker: ">=1.2.2 <1.2.3"
   device_info_plus: ^11.0.0
   shared_preferences: ^2.2.2
   study_engine:

@@ -8,6 +8,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/database_provider.dart';
+import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/plan_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/dashed_border.dart';
@@ -46,6 +47,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) setState(() => _overlayGranted = granted);
     if (granted) {
       await ref.read(screenshotProvider).showOverlay();
+      // 冷启动 home 初始化晚于 bootstrap，但仍在前台：hideOverlay 保证球不显示在 App 上。
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        await ref.read(screenshotProvider).hideOverlay();
+      }
     }
   }
 
@@ -94,6 +99,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                           ref.invalidate(planListProvider);
                         },
                       ),
+                      _AskAiArticle(
+                        onPick: () => _pickImageAndAskAi(context),
+                      ),
                       _FocusArticle(
                         onFocus: () => context.go('/focus'),
                         onDailyReport: () => context.go('/daily-report'),
@@ -111,6 +119,50 @@ class _HomePageState extends ConsumerState<HomePage> {
         ],
       ),
     );
+  }
+
+  /// 首页「拍题问 AI」入口：Sheet 选拍照/相册 → pickImageForAi → showAiPanel。
+  ///
+  /// 拍照/相册 Activity 期间需抑制 paused→showOverlay，避免悬浮球在相机界面闪现。
+  /// suppressOverlayOnPauseProvider 在 finally 中复位（即使取消/失败）。
+  Future<void> _pickImageAndAskAi(BuildContext context) async {
+    final fromCamera = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('拍照'),
+              onTap: () => Navigator.of(sheetCtx).pop(true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_outlined),
+              title: const Text('从相册选择'),
+              onTap: () => Navigator.of(sheetCtx).pop(false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (fromCamera == null) return;
+    // 相机/相册 Activity 让 App 进 paused：抑制 lifecycle 的 showOverlay。
+    // 作用域仅限 pickImageForAi（相机/相册 Activity 期间）——取图返回后立即复位，
+    // 面板会话期间不能保持抑制，否则用户按 Home 进后台时 paused→showOverlay 被跳过，
+    // 悬浮球无法恢复（I-1）。
+    ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
+    CapturedScreenshot? screenshot;
+    try {
+      screenshot = await pickImageForAi(fromCamera: fromCamera);
+      if (screenshot == null) return;
+    } finally {
+      // 无论取消/失败/成功，都复位抑制标志，避免泄漏导致后续进后台不显示悬浮球。
+      ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
+    }
+    if (!context.mounted) return;
+    await showAiPanel(context, screenshot: screenshot);
   }
 
   Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
@@ -760,6 +812,39 @@ class _PlanRow extends StatelessWidget {
             Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant, size: 20),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 拍题问 AI 文章块：与悬浮窗权限解耦，常驻显示。
+/// 主页第一视觉输入：拍照/相册 → AI 多模态分析题目。
+/// 主副按钮均走底部 Sheet（选拍照/相册），保证两条路径 UI 一致。
+class _AskAiArticle extends StatelessWidget {
+  const _AskAiArticle({required this.onPick});
+
+  final Future<void> Function() onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Article(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ArticleLabel(text: '拍题问 AI'),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text('拍题问 AI'),
+            onPressed: () => onPick(),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            icon: const Icon(Icons.collections_outlined),
+            label: const Text('从相册选择题目'),
+            onPressed: () => onPick(),
+          ),
+        ],
       ),
     );
   }

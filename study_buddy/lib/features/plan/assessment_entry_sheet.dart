@@ -47,6 +47,7 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
       _error = null;
     });
     final repo = await ref.read(planRepositoryAsyncProvider.future);
+    if (!mounted) return;
     try {
       await repo.addAssessment(Assessment(
         planId: widget.planId,

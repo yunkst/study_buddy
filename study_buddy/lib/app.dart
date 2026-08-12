@@ -5,6 +5,7 @@ import 'core/services/logger_service.dart';
 import 'core/services/llm_logger/llm_logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/focus_session_provider.dart';
+import 'features/external_qbank/ai_panel_sheet.dart';
 import 'router.dart';
 import 'main.dart';
 
@@ -33,22 +34,47 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 从设置返回 / 被截图拉回前台 → 重新检查待处理截图
     if (state == AppLifecycleState.resumed) {
-      _checkPending();
-    }
-    // 应用进入后台/失焦 → 主动 flush 日志，避免未持久化丢失
-    if (state == AppLifecycleState.paused) {
+      // 截图回流场景：launchMainApp 拉回前台 → _checkPending 消费 pending → 不隐藏悬浮球。
+      // 非截图回流：App 回前台 → 隐藏悬浮球。
+      _handleResumed();
+    } else if (state == AppLifecycleState.paused) {
+      // 进后台：恢复悬浮球（轻量 ACTION_SHOW_OVERLAY，保留 FGS 通知）。
+      // 相机/相册 Activity 期间由 pickImage 置 suppressOverlayOnPauseProvider=true 抑制。
+      if (!ref.read(suppressOverlayOnPauseProvider)) {
+        ref.read(screenshotProvider).showOverlay();
+      }
+      // 应用进入后台/失焦 → 主动 flush 日志，避免未持久化丢失
       LoggerService.instance.flush();
     }
   }
 
-  Future<void> _checkPending() async {
+  Future<void> _handleResumed() async {
+    final consumed = await _checkPending();
+    if (!consumed) {
+      // 非截图回流：App 回前台，隐藏悬浮球（轻量 ACTION_HIDE_OVERLAY，保留 FGS 通知）。
+      ref.read(screenshotProvider).hideOverlay();
+    }
+    // 截图回流：面板已弹，悬浮球保持截图前的隐藏态（triggerScreenshot 已 hideOverlay）。
+  }
+
+  /// 取并消费待处理截图。
+  /// - 返回 true：有 pending 已消费（截图回流场景），调用方不应再 hideOverlay。
+  /// - 返回 false：无 pending（普通回前台），调用方应 hideOverlay。
+  Future<bool> _checkPending() async {
     final sp = ref.read(screenshotProvider);
     final pending = await sp.takePendingScreenshot();
-    if (pending != null && mounted) {
+    if (pending == null) return false;
+    // 截图回流：直接弹 AI 面板（不再写静态字段等 home 读取——home 的 initState 只在冷启动跑一次，
+    // 热回流时 resumed 不重跑 initState，静态 pending 会被永久搁置 → 无动作）。
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx != null && ctx.mounted) {
+      await showAiPanel(ctx, screenshot: pending);
+    } else {
+      // 兜底：context 不可用（极早期 resumed）→ 落静态字段，待 home 首帧消费
       PendingScreenshotStore.pending = pending;
     }
+    return true;
   }
 
   @override
