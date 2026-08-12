@@ -44,10 +44,16 @@ class TopicDetailPage extends ConsumerStatefulWidget {
 }
 
 class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
-  /// 版本号：编辑保存后自增，触发 `_detailFuture` 重建以刷新内容。
-  int _revision = 0;
+  /// 详情数据 future。每次构造后由 initState 首次赋值；编辑保存成功后于 setState
+  /// 内重新赋值以触发 FutureBuilder 重查（不能 `late final`：旧值已 done，
+  /// 重建 build 不会重新发查询，页面会一直显示旧 summary）。
+  late Future<_TopicDetail> _detailFuture;
 
-  late final Future<_TopicDetail> _detailFuture = _loadDetail();
+  @override
+  void initState() {
+    super.initState();
+    _detailFuture = _loadDetail();
+  }
 
   Future<_TopicDetail> _loadDetail() async {
     final db = await ref.read(databaseProvider.future);
@@ -68,7 +74,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
   }
 
   /// 编辑答案：简单 AlertDialog + TextFormField（预填 summary）→ updateSummary →
-  /// 成功递增 revision 重建，失败 SnackBar 提示不崩。
+  /// 成功重新赋值 `_detailFuture` 触发 FutureBuilder 重查，失败 SnackBar 提示不崩。
   Future<void> _editSummary(String currentSummary) async {
     final controller = TextEditingController(text: currentSummary);
     final newSummary = await showDialog<String>(
@@ -100,7 +106,9 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
     try {
       await TopicRepository(db).updateSummary(widget.topicId, newSummary);
       if (!mounted) return;
-      setState(() => _revision++);
+      setState(() {
+        _detailFuture = _loadDetail();
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
