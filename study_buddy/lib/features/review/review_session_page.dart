@@ -2,8 +2,8 @@
 //
 // 队列取 reviewQueueProvider（今日到期 ≤ kDailyReviewCap(20) 张），进度推进
 // 走 reviewSessionProvider。进入本页时抑制悬浮球（suppressOverlayOnPause=true），
-// 离开复位——与 today_page 拍题的 set 范式一致；dispose 顺序上复位逻辑用
-// try/finally 兜底，避免 dispose 中途抛错导致标志残留。
+// 离开复位——与 today_page 拍题的 set 范式一致；dispose 对 initState 持有的
+// notifier 直接复位，不经 ref（Riverpod 3 的 dispose 内 ref.read 是字面 throw）。
 library;
 
 import 'package:flutter/material.dart';
@@ -26,33 +26,22 @@ class ReviewSessionPage extends ConsumerStatefulWidget {
 }
 
 class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
-  bool _initialized = false;
+  /// 抑制悬浮球标志的 notifier。initState 持引用，dispose 对其复位——
+  /// 不在 dispose 内 `ref.read`（Riverpod 3 的字面 throw，release 亦崩）。
+  SuppressOverlayNotifier? _overlayNotifier;
   bool _flipped = false;
 
   @override
   void initState() {
     super.initState();
-    if (!_initialized) {
-      _initialized = true;
-      // 复习期隐藏悬浮球：与 today_page 拍题抑制同一标志，
-      // 避免复习时 App 进 paused 悬浮球在系统界面闪现。
-      ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
-    }
+    _overlayNotifier = ref.read(suppressOverlayOnPauseProvider.notifier);
+    _overlayNotifier?.set(true);
   }
 
   @override
   void dispose() {
-    _restoreOverlay();
+    _overlayNotifier?.set(false);
     super.dispose();
-  }
-
-  /// 离开复习页复位悬浮球标志。try/finally 防 dispose 顺序异常导致残留。
-  void _restoreOverlay() {
-    try {
-      ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
-    } finally {
-      _initialized = false;
-    }
   }
 
   @override

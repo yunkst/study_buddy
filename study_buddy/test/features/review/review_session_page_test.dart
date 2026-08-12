@@ -173,13 +173,6 @@ void main() {
 
     // 清掉 sqflite txnSynchronized 遗留的一次性 lock-warning Timer。
     await tester.pump(const Duration(seconds: 11));
-
-    // ReviewSessionPage.dispose 里 _restoreOverlay 用 ref.read 会触发 Riverpod
-    // 「Using ref when a widget is about to or has been unmounted」断言（Task 6.2
-    // 既有缺陷，lib 不允许改）。手动先卸载树把异常在测试体内抛出，再用
-    // takeException 吞掉，避免 testWidgets 收尾 finalize 时把它判为失败。
-    await tester.pumpWidget(const SizedBox.shrink());
-    tester.takeException();
   });
 
   testWidgets('新卡额度耗尽：评分被拒 + SnackBar + 不推进', (tester) async {
@@ -267,12 +260,5 @@ void main() {
     // 待 SnackBar 显示时间(4s)触发自动隐藏并跑完退出动画，避免 finalize 时报
     // 「animation is still running」。
     await tester.pumpAndSettle();
-
-    // ReviewSessionPage.dispose 里 _restoreOverlay 用 ref.read 会触发 Riverpod
-    // 「Using ref when a widget is about to or has been unmounted」断言（Task 6.2
-    // 既有缺陷，lib 不允许改）。手动先卸载树把异常在测试体内抛出，再 takeException
-    // 吞掉，避免 testWidgets 收尾 finalize 时把它判为失败。
-    await tester.pumpWidget(const SizedBox.shrink());
-    tester.takeException();
   });
 }
