@@ -80,7 +80,8 @@ class OverlayService : Service() {
     }
 
     private fun showFloatBall() {
-        val size = (56 * resources.displayMetrics.density).toInt()
+        val density = resources.displayMetrics.density
+        val size = (56 * density).toInt()
         params = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -93,7 +94,12 @@ class OverlayService : Service() {
         }
 
         val iv = ImageView(this).apply {
-            setBackgroundColor(Color.parseColor("#6750A4"))
+            // 朱砂红底(= App 主色 primary #B8472D),呼应纸感学术主题
+            setBackgroundColor(Color.parseColor("#B8472D"))
+            setImageResource(R.drawable.ic_overlay_camera)
+            // 图标内缩 14dp,留出呼吸空间(图标 ~28dp on 56dp 球)
+            val pad = (14 * density).toInt()
+            setPadding(pad, pad, pad, pad)
             // 圆形背景
             clipToOutline = true
             outlineProvider = object : android.view.ViewOutlineProvider() {
