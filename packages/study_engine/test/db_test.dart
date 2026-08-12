@@ -79,8 +79,8 @@ void main() {
     });
     tearDown(() async => await sdb.close());
 
-    test('建库后版本为 5', () async {
-      expect(await sdb.db.getVersion(), 5);
+    test('建库后版本为 6', () async {
+      expect(await sdb.db.getVersion(), 6);
     });
 
     test('focus_session 表存在且列结构正确', () async {
@@ -142,6 +142,53 @@ void main() {
       // 新表可用
       await db.insert('focus_session', {'started_at': 0});
       expect((await db.query('focus_session')), hasLength(1));
+      await db.close();
+    });
+  });
+
+  group('v6 topic_schedule + mastery_log 清空', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('v5→v6 迁移：topic_schedule 表 7 列齐全 + 旧 mastery_log 历史被清空', () async {
+      // 手动建 v5 库，再升级到 v6（对齐 v5 组的迁移测试写法）
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: 5,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) => migrateDatabase(d, 0, 5),
+          ));
+      // 建 category + topic 满足 mastery_log 外键
+      await db.insert('category', {'name': '数学', 'sort_order': 0, 'created_at': 0});
+      final catId = (await db.query('category', limit: 1)).first['id'];
+      await db.insert('topic', {
+        'category_id': catId, 'question': 'q', 'title': '迁移前知识点',
+        'summary': 's', 'created_at': 0, 'updated_at': 0,
+      });
+      final topicId = (await db.query('topic', limit: 1)).first['id'];
+      // 写一条旧 mastery_log（老轨迹历史）
+      await db.insert('mastery_log', {
+        'topic_id': topicId, 'status': 'mastered', 'reason': 'old-trajectory', 'changed_at': 0,
+      });
+      expect(await db.query('mastery_log'), hasLength(1),
+          reason: '前置：迁移前应有一条旧 log');
+
+      // 升级 v5 → v6
+      await migrateDatabase(db, 5, 6);
+
+      // (a) topic_schedule 表 7 列齐全
+      final rows = await db.rawQuery('PRAGMA table_info(topic_schedule)');
+      final cols = {for (final r in rows) r['name'] as String};
+      expect(
+        cols,
+        containsAll(['topic_id', 'stability', 'difficulty', 'reps', 'lapses',
+            'last_reviewed_at', 'due_at']),
+        reason: 'topic_schedule 应含 7 列,实际=$cols',
+      );
+
+      // (b) 旧 mastery_log 历史被清空（表保留，后续继续写新轨迹）
+      expect(await db.query('mastery_log'), isEmpty,
+          reason: 'v6 迁移应清空 mastery_log 历史');
+
       await db.close();
     });
   });

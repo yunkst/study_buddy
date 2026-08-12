@@ -4,7 +4,7 @@ import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 5;
+const int kCurrentDbVersion = 6;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -41,6 +41,9 @@ Future<void> migrateDatabase(
           break;
         case 5:
           _v5(batch);
+          break;
+        case 6:
+          _v6(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -327,4 +330,29 @@ void _v5(Batch batch) {
     )
   ''');
   batch.execute('CREATE INDEX idx_fst_session ON focus_session_topic(session_id)');
+}
+
+/// v6：知识点 FSRS 间隔重复调度。新增 topic_schedule（每知识点一行 FSRS 状态），
+/// 并清空老 mastery_log 历史（表保留，后续继续写新轨迹）。
+///
+/// - topic_schedule：topic_id 即主键且外键指向 topic(id) ON DELETE CASCADE，
+///   随知识点删除自动清理调度状态。
+/// - idx_topic_schedule_due：按 due_at 索引，加速「到期复习」查询。
+/// - DELETE FROM mastery_log：用户确认清空老掌握度轨迹历史；旧 status 语义
+///   与新 FSRS 模型不兼容，保留空表给后续新写。
+void _v6(Batch batch) {
+  batch.execute('''
+    CREATE TABLE topic_schedule (
+      topic_id INTEGER PRIMARY KEY,
+      stability REAL NOT NULL,
+      difficulty REAL NOT NULL,
+      reps INTEGER NOT NULL,
+      lapses INTEGER NOT NULL,
+      last_reviewed_at INTEGER,
+      due_at INTEGER,
+      FOREIGN KEY (topic_id) REFERENCES topic(id) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_topic_schedule_due ON topic_schedule(due_at)');
+  batch.execute('DELETE FROM mastery_log');
 }
