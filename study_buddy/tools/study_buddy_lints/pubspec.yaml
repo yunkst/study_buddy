@@ -1,0 +1,14 @@
+name: study_buddy_lints
+description: Study Buddy 自定义 lint 规则 — 主题约束(禁硬编码 Color/Colors./fontFamily)+ 日志约束(禁业务 debugPrint)。
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  # custom_lint_builder 0.7.x 的 custom_lint_visitor 要求 analyzer <7.7.0(无 7.7 档)。
+  # 故规则包锁 7.6.0;custom_lint 独立进程与主 analyzer 7.7.1 的小版本差由 custom_lint 兼容。
+  analyzer: ^7.6.0
+  custom_lint: ^0.7.0
+  custom_lint_builder: ^0.7.0

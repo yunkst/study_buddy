@@ -6,12 +6,14 @@ on:
     paths:
       - 'study_buddy/**'
       - 'packages/study_engine/**'
+      - 'tools/study_buddy_lints/**'
       - '.github/workflows/flutter-ci.yml'
   pull_request:
     branches: [main, master]
     paths:
       - 'study_buddy/**'
       - 'packages/study_engine/**'
+      - 'tools/study_buddy_lints/**'
       - '.github/workflows/flutter-ci.yml'
 
 jobs:
@@ -75,6 +77,12 @@ jobs:
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
+
+      - name: Theme/Log lint (custom_lint)
+        # 主题约束 + 日志约束:禁硬编码 Color/Colors./fontFamily + 业务 debugPrint。
+        # 规则定义 tools/study_buddy_lints/。存量 53 warning 不阻断(exit 0),
+        # 存量清零后可加 --fatal-warnings 收紧。
+        run: dart run custom_lint
 
       - name: Run tests with coverage
         run: |
