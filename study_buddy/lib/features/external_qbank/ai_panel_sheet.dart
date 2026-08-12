@@ -18,6 +18,8 @@ import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/paper_extension.dart';
+import '../../core/widgets/markdown_latex.dart';
+import 'saved_topic_capsule.dart';
 
 /// 弹出底部抽屉：消息列表 + 连续输入框 + 可选附图。
 ///
@@ -143,8 +145,6 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     final mediaQuery = MediaQuery.of(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    // AI 回复行样式：bodyLarge 基础上加 1.95 行高，保留衬线感。
-    final aiBody = theme.textTheme.bodyLarge?.copyWith(height: 1.95);
     // 纸感扩展兜底：未装配 PaperColors 的上下文（如 widget 测试裸 MaterialApp）
     // 退回亮色日光纸，避免 null 崩溃。
     final paper = theme.extension<PaperColors>() ?? PaperColors.light;
@@ -180,13 +180,12 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                 controller: _scrollCtrl,
                 children: [
                   ...state.messages
-                      .map((m) => _buildMessage(m, theme, aiBody, state.messages)),
+                      .map((m) => _buildMessage(m, theme, state.messages)),
                   // 流式文本（当前轮 LLM 正在输出）
                   if (state.streamingText.isNotEmpty)
                     _AiNote(
                       text: state.streamingText,
                       toolEvents: state.toolEvents,
-                      aiBody: aiBody,
                       colorScheme: colorScheme,
                       theme: theme,
                     ),
@@ -280,7 +279,7 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
   /// [allMessages] 为跨轮持久的全量消息列表,用于在 assistant 消息分支
   /// 提取 save_review 卡片所需 review_id(从同轮 tool 消息 content 解析)。
   Widget _buildMessage(
-      ChatMessage msg, ThemeData theme, TextStyle? aiBody, List<ChatMessage> allMessages) {
+      ChatMessage msg, ThemeData theme, List<ChatMessage> allMessages) {
     if (msg.role == 'user') {
       final text = _extractText(msg);
       return Padding(
@@ -303,7 +302,6 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
             _AiNote(
               text: text,
               toolEvents: const [],
-              aiBody: aiBody,
               colorScheme: theme.colorScheme,
               theme: theme,
             ),
@@ -314,13 +312,35 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     }
     if (msg.role == 'tool') {
       final content = _extractText(msg);
-      return _ToolTraceLine(
-        line: '← $content',
-        colorScheme: theme.colorScheme,
-        theme: theme,
+      final name = _toolCallName(msg.toolCallId, allMessages);
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: buildToolResultWidget(
+          name: name,
+          result: content,
+          line: '← $content',
+          colorScheme: theme.colorScheme,
+          theme: theme,
+        ),
       );
     }
     return const SizedBox.shrink();
+  }
+
+  /// 在 assistant 消息的 toolCalls 中按 toolCallId 反查 tool name（供 tool 消息分支决策渲染）。
+  ///
+  /// 与 [_reviewCardsFromToolCalls] 同模式:tool 消息本身不带 name,需回溯 assistant
+  /// 的 toolCalls 列表。未匹配返回空串（→ 回退普通轨迹行）。
+  String _toolCallName(String? toolCallId, List<ChatMessage> allMessages) {
+    if (toolCallId == null) return '';
+    for (final m in allMessages) {
+      final tcs = m.toolCalls;
+      if (tcs == null) continue;
+      for (final tc in tcs) {
+        if (tc.id == toolCallId) return tc.name;
+      }
+    }
+    return '';
   }
 
   /// 从 assistant 消息的 toolCalls 提取 save_review 调用,渲染对应卡片列表。
@@ -508,21 +528,19 @@ class _UserBubble extends StatelessWidget {
 // 私有 widget：AI 回复（ai-note）
 // ─────────────────────────────────────────────────────────────
 
-/// AI 回复容器：surfaceContainerLow 底 + bodyLarge height1.95 + 知识点行解析。
+/// AI 回复容器：surfaceContainerLow 底 + Markdown/LaTeX 渲染。
 ///
 /// [toolEvents] 为当前轮流式工具轨迹（仅流式气泡传入；历史 assistant 消息传空）。
 class _AiNote extends StatelessWidget {
   const _AiNote({
     required this.text,
     required this.toolEvents,
-    required this.aiBody,
     required this.colorScheme,
     required this.theme,
   });
 
   final String text;
   final List<ToolEvent> toolEvents;
-  final TextStyle? aiBody;
   final ColorScheme colorScheme;
   final ThemeData theme;
 
@@ -538,53 +556,51 @@ class _AiNote extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 工具轨迹（当前轮流式期显示）
-          ...toolEvents.map((e) => _ToolTraceLine(
+          ...toolEvents.map((e) => buildToolResultWidget(
+                name: e.name,
+                result: e.result,
                 line: '${e.name}: ${e.result}',
                 colorScheme: colorScheme,
                 theme: theme,
               )),
           if (text.isNotEmpty) ...[
             if (toolEvents.isNotEmpty) const SizedBox(height: 6),
-            SelectableText.rich(
-              _buildAiTextSpan(text, aiBody, colorScheme),
-            ),
+            MarkdownLatex(data: text, selectable: true),
           ],
         ],
       ),
     );
   }
+}
 
-  /// AI 回复解析：以 `※` / `-` / `·` 开头的行加朱砂 ※ 前缀，其余原样输出。
-  /// 仅展示层处理，不动 text 字符串内容。
-  TextSpan _buildAiTextSpan(
-    String text,
-    TextStyle? aiBody,
-    ColorScheme colorScheme,
-  ) {
-    final lines = text.split('\n');
-    final children = <InlineSpan>[];
-    for (final line in lines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.startsWith('※') ||
-          trimmed.startsWith('-') ||
-          trimmed.startsWith('·')) {
-        children.add(WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Text(
-              '※',
-              style: TextStyle(color: colorScheme.primary, fontSize: 14),
-            ),
-          ),
-        ));
-        children.add(TextSpan(text: '$trimmed\n', style: aiBody));
-      } else {
-        children.add(TextSpan(text: '$line\n', style: aiBody));
+// ─────────────────────────────────────────────────────────────
+// 私有函数：工具结果渲染（save_topic 卡片 / 普通轨迹行）
+// ─────────────────────────────────────────────────────────────
+
+/// 工具结果渲染：当工具为 `save_topic` 且 [result] 是合法 `{id, is_new, msg}` JSON 时，
+/// 渲染可点击的 [SavedTopicCapsule]；否则（非 save_topic 或 JSON 解析失败）回退普通
+/// [ToolTraceLine]（[line] 为展示文案），保证解析失败不崩。
+Widget buildToolResultWidget({
+  required String name,
+  required String result,
+  required String line,
+  required ColorScheme colorScheme,
+  required ThemeData theme,
+}) {
+  if (name == 'save_topic') {
+    try {
+      final decoded = jsonDecode(result);
+      if (decoded is Map && decoded['id'] is int) {
+        return SavedTopicCapsule(
+          id: decoded['id'] as int,
+          isNew: decoded['is_new'] as bool? ?? false,
+        );
       }
+    } catch (_) {
+      // 非合法 JSON，回退普通工具轨迹行
     }
-    return TextSpan(children: children);
   }
+  return _ToolTraceLine(line: line, colorScheme: colorScheme, theme: theme);
 }
 
 // ─────────────────────────────────────────────────────────────
