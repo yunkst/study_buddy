@@ -56,7 +56,10 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   /// 相机/相册 Activity 让 App 进 paused：通过 suppressOverlayOnPauseProvider
   /// set(true) 抑制 lifecycle 的 showOverlay，避免悬浮球在系统界面闪现。
   /// finally 中复位（即使取消/失败），避免泄漏导致后续进后台不显示悬浮球（I-1）。
-  Future<void> _pickImageAndAskAi(BuildContext context, {required bool fromCamera}) async {
+  Future<void> _pickImageAndAskAi(
+    BuildContext context, {
+    required bool fromCamera,
+  }) async {
     ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
     CapturedScreenshot? screenshot;
     try {
@@ -130,7 +133,10 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(0, 24, 0, 6),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: rule ?? theme.colorScheme.outlineVariant, width: 2),
+          bottom: BorderSide(
+            color: rule ?? theme.colorScheme.outlineVariant,
+            width: 2,
+          ),
         ),
       ),
       child: Text(
@@ -175,11 +181,7 @@ class _AskAiSection extends StatelessWidget {
           onTap: onGallery,
         ),
         const SizedBox(height: 8),
-        _AskBtn(
-          icon: Icons.chat_bubble_outline,
-          label: '直接聊',
-          onTap: onChat,
-        ),
+        _AskBtn(icon: Icons.chat_bubble_outline, label: '直接聊', onTap: onChat),
       ],
     );
   }
@@ -187,11 +189,7 @@ class _AskAiSection extends StatelessWidget {
 
 /// Ask-AI 主按钮：纸感 FilledButton.tonal，下沿细分隔线。
 class _AskBtn extends StatelessWidget {
-  const _AskBtn({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _AskBtn({required this.icon, required this.label, required this.onTap});
 
   final IconData icon;
   final String label;
@@ -215,7 +213,10 @@ class _AskBtn extends StatelessWidget {
 
 /// 今日计划摘要行：取第一个计划的名称 + 考试日期，点按进详情；空态引导去创建。
 class _PlanSummaryRow extends StatelessWidget {
-  const _PlanSummaryRow({required this.plansAsync, required this.onEmptyCreate});
+  const _PlanSummaryRow({
+    required this.plansAsync,
+    required this.onEmptyCreate,
+  });
 
   final AsyncValue<List<Plan>> plansAsync;
   final Future<void> Function() onEmptyCreate;
@@ -227,7 +228,11 @@ class _PlanSummaryRow extends StatelessWidget {
       loading: () => const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(
-          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
         ),
       ),
       error: (e, _) => Padding(
@@ -241,7 +246,7 @@ class _PlanSummaryRow extends StatelessWidget {
         if (plans.isEmpty) {
           return _NavRow(
             icon: Icons.add_circle_outline,
-            title: '还没有计划，去创建',
+            title: '还没有学习计划，去创建',
             onTap: () => onEmptyCreate(),
           );
         }
@@ -268,10 +273,8 @@ class _DueReviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return dueAsync.when(
-      loading: () => const _NavRow(
-        icon: Icons.hourglass_empty,
-        title: '今日待复习 …',
-      ),
+      loading: () =>
+          const _NavRow(icon: Icons.hourglass_empty, title: '今日待复习 …'),
       error: (e, _) => _NavRow(
         icon: Icons.error_outline,
         title: '待复习数量读取失败',
@@ -315,7 +318,10 @@ class _NavRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: rule ?? theme.colorScheme.outlineVariant, width: 0.6),
+            bottom: BorderSide(
+              color: rule ?? theme.colorScheme.outlineVariant,
+              width: 0.6,
+            ),
           ),
         ),
         child: Row(
@@ -346,7 +352,11 @@ class _NavRow extends StatelessWidget {
               ),
             ),
             if (chevron)
-              Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant, size: 20),
+              Icon(
+                Icons.chevron_right,
+                color: theme.colorScheme.onSurfaceVariant,
+                size: 20,
+              ),
           ],
         ),
       ),

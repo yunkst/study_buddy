@@ -79,7 +79,11 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
   }
 
   /// 当前卡：进度条 + 翻卡 + 四档评分。
-  Widget _buildCard(BuildContext context, List<TopicSchedule> queue, int index) {
+  Widget _buildCard(
+    BuildContext context,
+    List<TopicSchedule> queue,
+    int index,
+  ) {
     final schedule = queue[index];
     final topicAsync = ref.watch(reviewTopicProvider(schedule.topicId));
     final total = queue.length;
@@ -134,7 +138,7 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
                 data: (topic) {
                   if (topic == null) {
                     return _TopicErrorView(
-                      message: '该知识点已被删除，已跳过',
+                      message: '该知识点已被删除',
                       onSkip: () => _skipInvalid(total),
                     );
                   }
@@ -168,7 +172,8 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
       Rating.easy => kGrowthEasy,
       Rating.forgot => 1.0, // 上面已分流，此处仅保类型完备
     };
-    final days = (schedule.stability * growth * (10 - schedule.difficulty) / 9).round();
+    final days = (schedule.stability * growth * (10 - schedule.difficulty) / 9)
+        .round();
     return '约 ${days.clamp(1, 1 << 30)} 天';
   }
 
@@ -182,9 +187,9 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
     );
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('今日新卡额度已用完，明天再来')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('今日新卡额度已用完，明天再来')));
       return;
     }
     // 评分成功：翻回正面 + 推进下一张（越界即 done）。
@@ -195,7 +200,9 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
   /// 跳过非法卡（topic 缺失 / 加载失败）：提示 + 推进。
   void _skipInvalid(int total) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已跳过无效卡')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已跳过无效卡')));
     setState(() => _flipped = false);
     ref.read(reviewSessionProvider.notifier).next(total);
   }
@@ -265,7 +272,11 @@ class _CardView extends StatelessWidget {
 
 /// 四档评分行：忘了 / 困难 / 良好 / 简单，各带预估下次间隔小字。
 class _RatingRow extends StatelessWidget {
-  const _RatingRow({required this.accent, required this.onRate, required this.predict});
+  const _RatingRow({
+    required this.accent,
+    required this.onRate,
+    required this.predict,
+  });
 
   final Color accent;
   final ValueChanged<Rating> onRate;
@@ -296,14 +307,19 @@ class _RatingRow extends StatelessWidget {
                       minimumSize: const Size.fromHeight(40),
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                     ),
-                    child: Text(_labels[r]!, style: const TextStyle(fontFamily: 'NotoSerifSC')),
+                    child: Text(
+                      _labels[r]!,
+                      style: const TextStyle(fontFamily: 'NotoSerifSC'),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     predict(r),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -332,7 +348,10 @@ class _CenteredMessage extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton.tonal(
             onPressed: onBack,
-            child: const Text('返回', style: TextStyle(fontFamily: 'NotoSerifSC')),
+            child: const Text(
+              '返回',
+              style: TextStyle(fontFamily: 'NotoSerifSC'),
+            ),
           ),
         ],
       ),
@@ -376,11 +395,18 @@ class _TopicErrorView extends StatelessWidget {
     return Column(
       children: [
         const SizedBox(height: 24),
-        Text(message, style: theme.textTheme.bodyMedium, textAlign: TextAlign.center),
+        Text(
+          message,
+          style: theme.textTheme.bodyMedium,
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 12),
         FilledButton.tonal(
           onPressed: onSkip,
-          child: const Text('跳过此卡', style: TextStyle(fontFamily: 'NotoSerifSC')),
+          child: const Text(
+            '跳过此卡',
+            style: TextStyle(fontFamily: 'NotoSerifSC'),
+          ),
         ),
       ],
     );

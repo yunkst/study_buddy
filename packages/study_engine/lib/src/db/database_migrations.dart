@@ -3,7 +3,6 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-/// 当前数据库版本号。每加一张表/字段 +1。
 const int kCurrentDbVersion = 6;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
