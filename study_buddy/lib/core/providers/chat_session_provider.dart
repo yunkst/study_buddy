@@ -27,9 +27,12 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
   AgentSessionHandle? _handle;
   /// 当前持久化会话 id（null=尚未建会话）。新建/续聊时填充。
   int? _sessionId;
-  /// 知识点教学入口的 topic id（详情页【为什么？】入口），send 时透传给 agent。
-  /// null=普通学习伴侣会话。clear() 时重置。
-  int? _teachingTopicId;
+  /// 教学 topic（详情页【为什么？】入口），`startTeaching` 设置、`clear` 重置。
+  /// null=普通学习伴侣会话。send 时透传给 agent。
+  int? _topicId;
+  /// 当前 startTeaching 的首个文字 token 信号：首个 TextDeltaEvent 到达即 complete，
+  /// 纯工具轮/整轮结束/错误作为兜底放行（避免 startTeaching 永挂）。
+  Completer<void>? _firstToken;
   /// hydrate 幂等标志：冷启动只加载一次最近会话；「新对话」clear 后不重载。
   bool _hydrated = false;
   /// 首次 send 触发后台建会话的信号（用于在 session 就绪后 flush 待持久化队列）。
@@ -78,7 +81,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
     try {
       final db = await _ref.read(databaseProvider.future);
       final repo = ChatRepository(db);
-      final id = await repo.createSession('study_plan', _truncateTitle(firstText));
+      final id = await repo.createSession('study_plan', _truncateTitle(firstText), topicId: _topicId);
       _sessionId = id;
       if (mounted) state = state.copyWith(sessionId: id);
     } catch (e, st) {
@@ -161,7 +164,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       final handle = await session.run(
         msgs,
         chatSessionId: _sessionId,
-        topicId: _teachingTopicId,
+        topicId: _topicId,
       );
       _handle = handle;
       // 存 user 消息（剥离图片）。chat_session_id 已注入 ctx，
@@ -175,6 +178,9 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       _sub = stream.listen(
         _onEvent,
         onError: (Object e, StackTrace _) {
+          if (_firstToken != null && !_firstToken!.isCompleted) {
+            _firstToken!.completeError('$e');
+          }
           _onError('$e');
           _handle = null;
           if (!done.isCompleted) done.complete();
@@ -190,6 +196,9 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       await done.future;
     } catch (e) {
       // 构造期抛错：回滚 user 消息。agent_loop 尚未启动，异常仅此可观测，须记录。
+      if (_firstToken != null && !_firstToken!.isCompleted) {
+        _firstToken!.completeError('$e');
+      }
       LoggerService.instance.e('AI 会话启动失败: $e',
           category: LogCategory.ai, tags: const ['chat-session-start']);
       _handle = null;
@@ -207,6 +216,15 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
 
   void _onEvent(AgentEvent event) {
     if (!mounted) return;
+    // startTeaching 的首个文字 token 放行；纯工具轮/整轮结束/错误作为兜底放行，
+    // 避免 startTeaching 永挂。
+    if (_firstToken != null && !_firstToken!.isCompleted) {
+      if (event is TextDeltaEvent || event is AgentDoneEvent) {
+        _firstToken!.complete();
+      } else if (event is AgentErrorEvent) {
+        _firstToken!.completeError(event.message);
+      }
+    }
     // 状态变更交给纯函数（事件处理单一事实来源）；副作用（持久化）在此单独做。
     state = chatSessionReducer(state, event);
     if (event is AgentRoundEndEvent) {
@@ -259,19 +277,54 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
     _done = null;
     _sessionId = null;
     _sessionReady = null;
-    _teachingTopicId = null;
+    _topicId = null;
+    if (_firstToken != null && !_firstToken!.isCompleted) {
+      _firstToken!.completeError(StateError('会话已重置'));
+    }
+    _firstToken = null;
     _pendingPersist.clear();
     state = ChatSessionState.initial;
   }
 
-  /// 启动「知识点教学模式」（详情页【为什么？】入口）：清空旧会话 → 记录教学 topic →
-  /// 立即发开场消息，触发 AI 从该知识点诞生的场景/解决的问题出发开场引导。
-  /// 开场不 await（流式输出经事件流回填，busy 由 send 内部管理）；「新对话」按钮复用
-  /// clear() 即退出教学模式回到普通会话。
-  void startTopicTeaching(int topicId) {
+  /// 启动「知识点教学模式」（详情页【为什么？】入口）。
+  ///
+  /// 返回的 Future 在「可展示」时 resolve：已有历史教学会话则直接恢复（零 LLM 调用）；
+  /// 无历史则新建教学会话 + 发开场消息，等首个文字 token（TextDeltaEvent）到达即 resolve
+  /// （不等整轮结束）。失败时抛出（构造期抛错 / AgentErrorEvent / 会话被 clear 重置）。
+  Future<void> startTeaching(int topicId) async {
     clear();
-    _teachingTopicId = topicId;
-    unawaited(send(_teachingOpeningPrompt));
+    _topicId = topicId;
+    // 1) 先尝试恢复该 topic 的历史教学会话（有则直接展示，不请求 LLM）
+    if (await _tryRestoreTeaching(topicId)) return;
+    // 2) 无历史：新建教学会话 + 发开场消息，等首个文字 token
+    final firstToken = Completer<void>();
+    _firstToken = firstToken;
+    // unawaited 后由 _onEvent 完成 _firstToken；.catchError 兜底防未处理异常
+    // （_firstToken 的 completeError 由 _onEvent 的 AgentErrorEvent / send 构造期 catch 完成）。
+    unawaited(send(_teachingOpeningPrompt).catchError((Object _) {}));
+    await firstToken.future;
+  }
+
+  /// 尝试恢复该知识点已持久化的教学会话。命中且有消息 → 载入 state 返回 true。
+  /// 无会话 / 无消息 / 读库失败 → 返回 false（调用方走开场路径）。
+  Future<bool> _tryRestoreTeaching(int topicId) async {
+    try {
+      final db = await _ref.read(databaseProvider.future);
+      final repo = ChatRepository(db);
+      final session = await repo.findTeachingSession(topicId);
+      if (session == null) return false;
+      final id = session.id;
+      if (id == null) return false;
+      final msgs = await repo.loadMessages(id);
+      if (msgs.isEmpty) return false;
+      _sessionId = session.id;
+      state = ChatSessionState(messages: msgs, sessionId: session.id);
+      return true;
+    } catch (e, st) {
+      LoggerService.instance.w('教学会话恢复失败: $e',
+          category: LogCategory.ai, stackTrace: st.toString());
+      return false;
+    }
   }
 
   /// 教学开场指令（详情页【为什么？】入口）：作为首条 user 消息触发 AI 自动开场。
@@ -295,6 +348,13 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
 }
 
 final currentChatProvider =
+    StateNotifierProvider<ChatSessionNotifier, ChatSessionState>((ref) {
+  return ChatSessionNotifier(ref);
+});
+
+/// 知识点教学会话（详情页【为什么？】入口）：独立于主线的专属会话，
+/// 与 currentChatProvider 完全隔离，互不覆盖。topicId 由 startTeaching 动态设置。
+final topicTeachingProvider =
     StateNotifierProvider<ChatSessionNotifier, ChatSessionState>((ref) {
   return ChatSessionNotifier(ref);
 });
