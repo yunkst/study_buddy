@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/app_update_provider.dart';
+import '../../core/providers/daily_review_limit_provider.dart';
 import '../../core/providers/llm_config_provider.dart';
 import '../../core/providers/theme_mode_provider.dart';
 import '../../core/theme/paper_extension.dart';
@@ -45,6 +46,7 @@ class SettingsPage extends ConsumerWidget {
             const SizedBox(height: 8),
             const _LlmConfigRow(),
             const _PromptRow(),
+            const _DailyReviewLimitRow(),
             const _VersionRow(),
             const _PreviewChannelRow(),
             const _AboutRow(),
@@ -576,6 +578,108 @@ class _PreviewChannelRow extends ConsumerWidget {
     if (confirmed == true) {
       await notifier.set(true);
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 系统分组：每日复习上限
+// ─────────────────────────────────────────────────────────────
+
+/// 每日复习上限行：右侧显示当前值，点按弹底部 Sheet 步进调整。
+class _DailyReviewLimitRow extends ConsumerWidget {
+  const _DailyReviewLimitRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final v = ref.watch(dailyReviewLimitProvider).value ??
+        DailyReviewLimitNotifier.defaultValue;
+    return _NavRow(
+      icon: Icons.style_outlined,
+      label: '每日复习上限',
+      value: '$v 张',
+      onTap: () => showDailyReviewLimitSheet(context, ref),
+    );
+  }
+}
+
+/// 每日复习上限选择底部 Sheet：居中大数字 + −/+ 步进按钮。
+Future<void> showDailyReviewLimitSheet(BuildContext context, WidgetRef ref) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetCtx) {
+      final theme = Theme.of(sheetCtx);
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 24, right: 24, top: 4, bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '每日复习上限',
+                  style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+                ),
+              ),
+            ),
+            // 步进器：每次 +1 / −1，clamp 由 notifier 兜底。
+            Consumer(
+              builder: (context, ref, _) {
+                final v = ref.watch(dailyReviewLimitProvider).value ??
+                    DailyReviewLimitNotifier.defaultValue;
+                return _NumberStepperRow(
+                  value: v,
+                  onChanged: (next) =>
+                      ref.read(dailyReviewLimitProvider.notifier).set(next),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+/// 步进行：居中大数字 + 左右步进按钮（− / +），点按即写并即时刷新。
+class _NumberStepperRow extends StatelessWidget {
+  const _NumberStepperRow({required this.value, required this.onChanged});
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Row(
+        children: [
+          IconButton.filledTonal(
+            icon: const Icon(Icons.remove),
+            onPressed: () => onChanged(value - 1),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Center(
+              child: Text(
+                '$value 张',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          IconButton.filledTonal(
+            icon: const Icon(Icons.add),
+            onPressed: () => onChanged(value + 1),
+          ),
+        ],
+      ),
+    );
   }
 }
 

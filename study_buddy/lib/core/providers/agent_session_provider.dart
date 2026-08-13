@@ -9,6 +9,7 @@ import '../services/logger_service.dart';
 import '../services/prompt_resolver_db.dart';
 import 'database_provider.dart';
 import 'focus_session_provider.dart';
+import 'topic_schedule_provider.dart';
 
 /// APP 层 agent 调用入口：构造 StudyPlanScenario + AgentLoop 并返回事件流。
 ///
@@ -93,9 +94,13 @@ class AgentSession {
       onTopicTouched: (topicId) async {
         // 仅专注会话进行中才关联；非专注期 no-op
         final sessionId = _ref.read(focusSessionProvider).sessionId;
-        if (sessionId == null) return;
-        final focusRepo = FocusSessionRepository(db);
-        await focusRepo.linkTopic(sessionId, topicId);
+        if (sessionId != null) {
+          final focusRepo = FocusSessionRepository(db);
+          await focusRepo.linkTopic(sessionId, topicId);
+        }
+        // 新知识点已入 FSRS 队列（_saveTopic 建默认 schedule 行），立即刷新
+        // 今日待复习数。reviewQueueProvider 是 autoDispose，下次进入复习页自动重查。
+        _ref.invalidate(dueNowCountProvider);
       },
     );
     final loop = AgentLoop(

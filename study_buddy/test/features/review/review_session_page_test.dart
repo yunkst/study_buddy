@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
@@ -39,6 +40,7 @@ Future<int> _seedCategory(StudyDatabase sdb) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(sqfliteFfiInit);
+  setUp(() => SharedPreferences.setMockInitialValues({})); // dailyReviewLimitProvider 走 mock，默认 20
 
   late StudyDatabase sdb;
 
@@ -141,7 +143,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 完成视图。
-    expect(find.text('今日复习 1 张已完成'), findsOneWidget);
+    expect(find.text('今日已复习 1 张'), findsOneWidget);
 
     // 清掉 sqflite txnSynchronized 遗留的一次性 lock-warning Timer。
     await tester.pump(const Duration(seconds: 11));
@@ -224,7 +226,7 @@ void main() {
     // SnackBar 提示 + 不推进（仍停在 第 1 / 6 张，完成视图未出现）。
     expect(find.text('今日新卡额度已用完，明天再来'), findsOneWidget);
     expect(find.text('第 1 / 6 张'), findsOneWidget);
-    expect(find.text('今日复习 6 张已完成'), findsNothing);
+    expect(find.text('今日已复习 6 张'), findsNothing);
 
     // 清掉 sqflite txnSynchronized 遗留的一次性 lock-warning Timer。
     await tester.pump(const Duration(seconds: 11));
@@ -232,5 +234,85 @@ void main() {
     // 待 SnackBar 显示时间(4s)触发自动隐藏并跑完退出动画，避免 finalize 时报
     // 「animation is still running」。
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('再来一组：评完一组后出现按钮，点按进入下一组首张', (tester) async {
+    // 复习上限设 2（通过 SharedPreferences mock 注入）；seed 3 张 due 复习卡
+    // （reps=1 避免触发新卡额度）。评完第 1 组（2 张）→ 完成态「再来一组」→
+    // 点按 → setIndex=2，第 2 组取第 3 张（进度 第 1 / 1 张，累计 已复习 2 张）。
+    SharedPreferences.setMockInitialValues({'daily_review_limit': 2});
+    await tester.runAsync(() async {
+      final now = DateTime.now();
+      final catId = await _seedCategory(sdb);
+      for (var i = 0; i < 3; i++) {
+        final tid = await sdb.db.insert(
+          'topic',
+          Topic(
+            categoryId: catId,
+            question: '复习卡 $i',
+            title: '复习卡 $i',
+            summary: '答案为：复习卡 $i',
+            createdAt: now,
+            updatedAt: now,
+          ).toMap(),
+        );
+        await sdb.db.insert(
+          'topic_schedule',
+          TopicSchedule(
+            topicId: tid,
+            stability: 1.0,
+            difficulty: 5.0,
+            reps: 1, // 复习卡，不走新卡额度
+            lapses: 0,
+            lastReviewedAt: now.subtract(const Duration(days: 10)),
+            dueAt: now.subtract(const Duration(days: 1)),
+          ).toMap(),
+        );
+      }
+    });
+
+    final container = buildContainer();
+    addTearDown(container.dispose);
+
+    await pumpReviewPage(tester, container);
+
+    // 第 1 组：2 张。进度 第 1 / 2 张。
+    expect(find.text('第 1 / 2 张'), findsOneWidget);
+
+    // 评第 1 张。评完后要加载第 2 张（reviewTopicProvider family 新查询），
+    // 故用「翻面 settle + 评分后两轮 runAsync+pump」等 DB 查询（见 pumpReviewPage 注释）。
+    await tester.tap(find.text('点击翻面看答案'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('良好'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(); // next 推进 → 卡体开始 watch 下一张 reviewTopicProvider
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 评第 2 张 → 完成态（无新卡加载，pumpAndSettle 可用）。
+    await tester.tap(find.text('点击翻面看答案'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('良好'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+
+    // 完成视图：今日已复习 2 张 + 再来一组按钮。
+    expect(find.text('今日已复习 2 张'), findsOneWidget);
+    expect(find.text('再来一组'), findsOneWidget);
+
+    // 点「再来一组」→ 第 2 组取第 3 张（skip(2).take(2) = 1 张），需加载该卡。
+    await tester.tap(find.text('再来一组'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump(); // nextSet → 卡体开始 watch 第 3 张 reviewTopicProvider
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // 新组首张：进度 第 1 / 1 张，累计提示「今日已复习 2 张」。
+    expect(find.text('今日已复习 2 张'), findsOneWidget);
+    expect(find.text('第 1 / 1 张'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 11));
   });
 }
