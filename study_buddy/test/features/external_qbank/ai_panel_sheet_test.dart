@@ -209,6 +209,9 @@ void main() {
 
     // 按钮变为 busy：输入框禁用 + 发送按钮呈沙漏（无文字，改断言图标）
     expect(find.byIcon(Icons.hourglass_top), findsOneWidget);
+    // busy 且暂无流式文本/挂起提问：「AI 正在思考…」指示器出现，
+    // 三点动画 + 文案，消除「卡住」错觉（此前此刻无任何运行反馈）。
+    expect(find.text('AI 正在思考…'), findsOneWidget);
 
     // 放行事件流：本轮完成,恢复可用。
     // StreamController 事件派发是真实异步，需 runAsync 才能推进；
@@ -224,6 +227,8 @@ void main() {
 
     // 结束后不再 busy（沙漏消失）
     expect(find.byIcon(Icons.hourglass_top), findsNothing);
+    // 思考指示器也随之消失（已完成，不再是 busy/空 streaming 状态）
+    expect(find.text('AI 正在思考…'), findsNothing);
   });
 
   testWidgets('追问轮:tap 加图按钮弹 Sheet,选相册后预览出现', (tester) async {
