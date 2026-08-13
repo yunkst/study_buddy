@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/providers/screenshot_provider.dart';
+import 'core/providers/chat_session_provider.dart';
+import 'core/providers/share_intent_provider.dart';
 import 'core/providers/theme_mode_provider.dart';
 import 'core/services/logger_service.dart';
 import 'core/services/llm_logger/llm_logger.dart';
@@ -18,6 +21,9 @@ class StudyBuddyApp extends ConsumerStatefulWidget {
 }
 
 class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindingObserver {
+  /// 接收 EventChannel(`study_buddy/share`) 分享字节流；dispose 时取消避免泄漏。
+  StreamSubscription<dynamic>? _shareSub;
+
   @override
   void initState() {
     super.initState();
@@ -28,7 +34,11 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
       await LoggerService.instance.init();
       await LlmLogger.instance.initialize();
       LoggerService.instance.i('应用启动', category: LogCategory.general, tags: const ['app-start']);
-      if (mounted) bootstrapOverlay(ref, context);
+      // 启动分享接收订阅：Native 冷/热路径统一汇入 EventChannel stream，
+      // 收到 bytes → shareIntentProvider，resumed 时由 _promptShareIfAny 弹 AI 面板。
+      _shareSub = bootstrapShareIntent(
+        notifier: ref.read(shareIntentProvider.notifier),
+      );
       // 恢复或清理上次未结束的专注会话
       ref.read(focusSessionProvider.notifier).recoverOrphan();
     });
@@ -37,44 +47,32 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 截图回流场景：launchMainApp 拉回前台 → _checkPending 消费 pending → 不隐藏悬浮球。
-      // 非截图回流：App 回前台 → 隐藏悬浮球。
-      _handleResumed();
+      // 应用回前台：检查分享图片（外部 App 在 App 已在前台时继续分享触发）。
+      _promptShareIfAny();
     } else if (state == AppLifecycleState.paused) {
-      // 进后台：恢复悬浮球（轻量 ACTION_SHOW_OVERLAY，保留 FGS 通知）。
-      // 相机/相册 Activity 期间由 pickImage 置 suppressOverlayOnPauseProvider=true 抑制。
-      if (!ref.read(suppressOverlayOnPauseProvider)) {
-        ref.read(screenshotProvider).showOverlay();
-      }
       // 应用进入后台/失焦 → 主动 flush 日志，避免未持久化丢失
       LoggerService.instance.flush();
+    } else if (state == AppLifecycleState.detached) {
+      // App 引擎即将销毁 → 清空内存会话。
+      // detached 在 Android/iOS 不会在系统强杀时触发（强杀时进程直接死亡，
+      // 下次冷启动 ProviderScope 重建本就是空白），故这不是 100% 可靠的清空点；
+      // 但凡能触发，都能避免「临时 detach 后又 attach」期间复用陈旧消息。
+      ref.read(currentChatProvider.notifier).clear();
     }
   }
 
-  Future<void> _handleResumed() async {
-    final consumed = await _checkPending();
-    if (!consumed) {
-      // 非截图回流：App 回前台，隐藏悬浮球（轻量 ACTION_HIDE_OVERLAY，保留 FGS 通知）。
-      ref.read(screenshotProvider).hideOverlay();
-    }
-    // 截图回流：面板已弹，悬浮球保持截图前的隐藏态（triggerScreenshot 已 hideOverlay）。
-  }
-
-  /// 取并消费待处理截图。
-  /// - 返回 true：有 pending 已消费（截图回流场景），调用方不应再 hideOverlay。
-  /// - 返回 false：无 pending（普通回前台），调用方应 hideOverlay。
-  Future<bool> _checkPending() async {
-    final sp = ref.read(screenshotProvider);
-    final pending = await sp.takePendingScreenshot();
-    if (pending == null) return false;
-    // 截图回流：直接弹 AI 面板（不再写静态字段等 home 读取——home 的 initState 只在冷启动跑一次，
-    // 热回流时 resumed 不重跑 initState，静态 pending 会被永久搁置 → 无动作）。
+  /// 取并消费 shareIntentProvider 的图片。
+  /// - 返回 true：有消费（弹 AI 面板）。
+  /// - 返回 false：无待处理（普通回前台）。
+  Future<bool> _promptShareIfAny() async {
+    final shot = ref.read(shareIntentProvider.notifier).consume();
+    if (shot == null) return false;
     final ctx = rootNavigatorKey.currentContext;
     if (ctx != null && ctx.mounted) {
-      await showAiPanel(ctx, screenshot: pending);
+      await showAiPanel(ctx, screenshot: shot);
     } else {
-      // 兜底：context 不可用（极早期 resumed）→ 落静态字段，待 home 首帧消费
-      PendingScreenshotStore.pending = pending;
+      // 兜底：context 不可用（极早期 resumed）→ 落静态字段，待 TodayPage 首帧消费
+      PendingScreenshotStore.pending = shot;
     }
     return true;
   }
@@ -82,6 +80,7 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _shareSub?.cancel();
     super.dispose();
   }
 

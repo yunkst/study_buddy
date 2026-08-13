@@ -1,68 +1,66 @@
-// 纸感学术 AI 面板：消息列表多轮对话（拍立得截图 + 用户气泡 + 工具轨迹 + AI 回复）。
+// 纸感学术 AI 对话页（全屏）：消息列表多轮对话（拍立得截图 + 用户气泡 + 工具轨迹 + AI 回复）。
 //
-// 视觉参照 `design-preview/02-paper.html` 的 `.polaroid` / `.note-user` /
-// `.saved-mark` / `.ai-note` / `.input-line` / `.btn-quill`。
-// 主题 token 用法与 home_page / permission_guide_page 一致。
+// 由路由 `/ai` 承载（顶层 GoRoute，root navigator 承载 → 全屏盖住底部导航）。
+// 进入方式：今日页「问 AI」入口 / 知识点详情页「问 AI 深度交流」/ 分享冷启动带图。
 //
 // 多轮架构（spec §3）：状态在 currentChatProvider，本文件只做渲染 + 输入。
-// 截图纯内存，随会话释放；抽屉关闭后经 ProviderScope.containerOf 清空。
+// 截图纯内存，随会话释放；会话跨进入/返回保留（全局 StateNotifierProvider，页面 dispose
+// 不触发 clear），由「新对话」按钮（AppBar）或 App 退出（app.dart didChangeAppLifecycleState
+// detached）清空。
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/image_pick_provider.dart';
-import '../../core/providers/screenshot_provider.dart';
+import '../../core/providers/captured_image.dart';
 import '../../core/theme/paper_extension.dart';
+import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/markdown_latex.dart';
 import 'saved_topic_capsule.dart';
 
-/// 弹出底部抽屉：消息列表 + 连续输入框 + 可选附图。
+/// 推入全屏 AI 对话页（`/ai`）。
 ///
-/// [screenshot] 可空：来自 [CapturedScreenshot] 的截图（拍题入口），纯内存持有，
-/// 会话结束即释放；为 null 时表示纯文字聊天入口（TodayPage「直接聊」），
-/// 不预填拍立得预览，首轮仅发文字。抽屉关闭后通过 [ProviderScope.containerOf]
-/// 取容器清空会话（纯内存），避免在 widget dispose 阶段修改 provider state
-/// （Riverpod 3.x 禁止）。
+/// [screenshot] 可空：来自 [CapturedScreenshot] 的截图（拍题入口 / 分享冷启动），
+/// 纯内存持有，会话结束即释放；为 null 时表示纯文字入口。
+///
+/// 签名保持与历史 `showModalBottomSheet` 版本一致，使各调用方（app.dart 分享冷启动、
+/// 今日页 _consumePendingScreenshot、知识点详情页深度交流）零改动。返回的 Future 在
+/// 对话页 pop 时完成。
 Future<void> showAiPanel(
   BuildContext context, {
   CapturedScreenshot? screenshot,
 }) async {
-  // 在 await 前捕获容器：抽屉关闭后清空会话（纯内存），不依赖 context.mounted。
-  final container = ProviderScope.containerOf(context, listen: false);
-  await showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    isDismissible: true,
-    enableDrag: true,
-    builder: (_) => _AiPanelSheet(initialScreenshot: screenshot),
-  );
-  // 抽屉关闭后清空会话（纯内存）。
-  container.read(currentChatProvider.notifier).clear();
+  await context.push('/ai', extra: screenshot);
 }
 
-class _AiPanelSheet extends ConsumerStatefulWidget {
-  const _AiPanelSheet({this.initialScreenshot});
+/// 全屏 AI 对话页。由路由 `/ai` 注入可选的 [initialScreenshot]（拍题 / 分享冷启动）。
+class AiChatPage extends ConsumerStatefulWidget {
+  const AiChatPage({super.key, this.initialScreenshot});
+
   final CapturedScreenshot? initialScreenshot;
 
   @override
-  ConsumerState<_AiPanelSheet> createState() => _AiPanelSheetState();
+  ConsumerState<AiChatPage> createState() => _AiChatPageState();
 }
 
-class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
+class _AiChatPageState extends ConsumerState<AiChatPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  CapturedScreenshot? _pendingImage; // 追问轮待附加的图
+  final FocusNode _inputFocus = FocusNode();
+  CapturedScreenshot? _pendingImage; // 待附图（首轮入口或追问轮追加）
   bool _firstSent = false;
 
   @override
   void initState() {
     super.initState();
-    // 首轮：用入口截图作为首条消息的图。但不自动发送——等用户点"开始分析"。
+    // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
     _pendingImage = widget.initialScreenshot;
     // 监听会话状态变化：仅在有新消息/流式增量时滚动到底部。
     ref.listenManual(currentChatProvider, (prev, next) {
@@ -73,19 +71,20 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     });
   }
 
+  @override
+  void dispose() {
+    _inputCtrl.dispose();
+    _scrollCtrl.dispose();
+    _inputFocus.dispose();
+    super.dispose();
+  }
+
   void _scheduleScrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _inputCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _send() async {
@@ -99,10 +98,21 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     await ref.read(currentChatProvider.notifier).send(text, image: image);
   }
 
-  /// 追问轮加图：Sheet 选拍照/相册 → pickImageForAi → setState 更新 _pendingImage。
+  /// 选图 → /crop 框选 → 设为待附图（首轮入口与追问轮加图共用）。
   ///
-  /// 拍照/相册 Activity 期间需抑制 paused→showOverlay，避免悬浮球在相机界面闪现。
-  /// suppressOverlayOnPauseProvider 在 finally 中复位（即使取消/失败）。
+  /// 取消拍照/裁剪（返回 null）则不追加图。
+  Future<void> _attachCroppedImage({required bool fromCamera}) async {
+    final screenshot = await pickImageForAi(fromCamera: fromCamera);
+    if (screenshot == null || !mounted) return;
+    final cropped = await context.push<CapturedScreenshot>(
+      '/crop',
+      extra: screenshot.pngBytes,
+    );
+    if (cropped == null || !mounted) return;
+    setState(() => _pendingImage = cropped);
+  }
+
+  /// 追问轮加图：Sheet 选拍照/相册 → 复用 _attachCroppedImage。
   Future<void> _pickImageForFollowUp(BuildContext context) async {
     final fromCamera = await showModalBottomSheet<bool>(
       context: context,
@@ -125,55 +135,57 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
         ),
       ),
     );
-    if (fromCamera == null) return; // Sheet 滑掉/点外区
-    // 相机/相册 Activity 让 App 进 paused：抑制 lifecycle 的 showOverlay
-    ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
-    try {
-      final screenshot = await pickImageForAi(fromCamera: fromCamera);
-      if (screenshot == null) return; // 用户取消或失败
-      if (!mounted) return;
-      setState(() => _pendingImage = screenshot);
-    } finally {
-      // 无论取消/失败/成功，都复位抑制标志，避免泄漏导致后续进后台不显示悬浮球。
-      ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
-    }
+    if (fromCamera == null || !mounted) return; // Sheet 滑掉/点外区
+    await _attachCroppedImage(fromCamera: fromCamera);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(currentChatProvider);
-    final mediaQuery = MediaQuery.of(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     // 纸感扩展兜底：未装配 PaperColors 的上下文（如 widget 测试裸 MaterialApp）
     // 退回亮色日光纸，避免 null 崩溃。
     final paper = theme.extension<PaperColors>() ?? PaperColors.light;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 12,
-        bottom: mediaQuery.viewInsets.bottom + 16,
+    // 派生空态：历史为空 + 当前没有待附图（ishistory）→ 显示空态引导。
+    final hasHistory = state.messages.isNotEmpty;
+    final showEmptyState = !hasHistory && _pendingImage == null;
+
+    return PaperScaffold(
+      appBar: AppBar(
+        title: const Text('问 AI'),
+        actions: [
+          IconButton(
+            tooltip: '新对话',
+            icon: const Icon(Icons.refresh, size: 20),
+            // 禁用：空会话清空无意义；运行中清会丢当前流式输出。
+            onPressed: state.busy || state.messages.isEmpty
+                ? null
+                : () {
+                    ref.read(currentChatProvider.notifier).clear();
+                    _inputCtrl.clear();
+                    setState(() {
+                      _pendingImage = null;
+                      _firstSent = false;
+                    });
+                    if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
+                  },
+          ),
+        ],
       ),
-      child: SizedBox(
-        height: mediaQuery.size.height * 0.7,
+      body: SafeArea(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 顶部抓把手：outline 主题色（硬编码 grey 已替换）。
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: colorScheme.outline,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+            // 空态引导：首次进入对话页（无历史 + 无待附图）
+            if (showEmptyState)
+              _EmptyState(
+                paper: paper,
+                onCamera: () => _attachCroppedImage(fromCamera: true),
+                onGallery: () => _attachCroppedImage(fromCamera: false),
+                onInput: () => _inputFocus.requestFocus(),
               ),
-            ),
             // 消息列表
             Expanded(
               child: ListView(
@@ -233,7 +245,7 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                 ],
               ),
             ],
-            // 输入行：btn-quill（羽毛笔 icon）
+            // 输入行：加图按钮 + TextField + 发送/开始分析按钮。
             const SizedBox(height: 8),
             Row(
               children: [
@@ -246,9 +258,11 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                 Expanded(
                   child: TextField(
                     controller: _inputCtrl,
+                    focusNode: _inputFocus,
                     enabled: !state.busy,
                     decoration: InputDecoration(
-                      hintText: _firstSent ? '追问...' : '补充说明（可选）',
+                      // 派生：历史非空 → 追问；首轮 → 补充说明（可选）。
+                      hintText: hasHistory ? '追问...' : '补充说明（可选）',
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -264,7 +278,7 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
                   ),
                   label: Text(state.busy
                       ? '分析中...'
-                      : (_firstSent ? '发送' : '开始分析')),
+                      : (hasHistory ? '发送' : '开始分析')),
                 ),
               ],
             ),
@@ -282,10 +296,12 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
       ChatMessage msg, ThemeData theme, List<ChatMessage> allMessages) {
     if (msg.role == 'user') {
       final text = _extractText(msg);
+      final images = _extractImages(msg);
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: _UserBubble(
           query: text.isEmpty ? '（附图分析）' : text,
+          images: images,
           colorScheme: theme.colorScheme,
           theme: theme,
         ),
@@ -380,6 +396,41 @@ class _AiPanelSheetState extends ConsumerState<_AiPanelSheet> {
     }
     return '';
   }
+
+  /// 从 ChatMessage.content 抽取所有图片（vision message）→ 同步解码出字节列表。
+  ///
+  /// 解码失败的图跳过（视为损坏），让 UI 仅渲染能显示的图，避免一坏全坏。
+  /// 同一消息可附多图（OpenAI 兼容多 content_part），按出现顺序排列。
+  List<Uint8List> _extractImages(ChatMessage msg) {
+    final c = msg.content;
+    if (c is! List<ContentPart>) return const [];
+    final out = <Uint8List>[];
+    for (final p in c) {
+      if (p is! ImageUrlPart) continue;
+      final bytes = _decodeDataUri(p.url);
+      if (bytes != null) out.add(bytes);
+    }
+    return out;
+  }
+
+  /// 解码 `data:image/<mime>;base64,<payload>` → Uint8List。
+  ///
+  /// 不接受非 data: URI（http URL 不在用户消息场景里——本面板截图走 base64 内联），
+  /// 不接受 payload 缺失/空/base64 解码失败——均返回 null，由调用方决定是否跳过。
+  Uint8List? _decodeDataUri(String uri) {
+    const prefix = 'data:';
+    if (!uri.startsWith(prefix)) return null;
+    final comma = uri.indexOf(',');
+    if (comma < 0 || comma == uri.length - 1) return null;
+    final meta = uri.substring(prefix.length, comma);
+    if (!meta.contains(';base64')) return null;
+    final payload = uri.substring(comma + 1);
+    try {
+      return base64Decode(payload);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -468,15 +519,20 @@ class _Polaroid extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────
 
 /// 用户气泡：朱砂「问」字圆形章 + 提问文本（primaryContainer 底 +
-/// 朱砂左边框 3px + 斜体 bodyMedium）。
+/// 朱砂左边框 3px + 斜体 bodyMedium）+ 可选内联图片（多图横排，最大高 180px）。
+///
+/// [images] 为消息携带的图片字节列表（来自 vision content parts），
+/// 与文字一起作为对话内容内联展示，不再被忽略。
 class _UserBubble extends StatelessWidget {
   const _UserBubble({
     required this.query,
     required this.colorScheme,
     required this.theme,
+    this.images = const [],
   });
 
   final String query;
+  final List<Uint8List> images;
   final ColorScheme colorScheme;
   final ThemeData theme;
 
@@ -511,15 +567,70 @@ class _UserBubble extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              query,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontStyle: FontStyle.italic,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  query,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                if (images.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _AttachedImageGrid(images: images, theme: theme),
+                ],
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 内联图片网格：多图横排（最多 3 列），单图最大高 180、宽按比例，
+/// 圆角 8、暖色细边，与气泡文字协调而不喧宾夺主。
+class _AttachedImageGrid extends StatelessWidget {
+  const _AttachedImageGrid({required this.images, required this.theme});
+  final List<Uint8List> images;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = theme.colorScheme;
+    final tiles = <Widget>[];
+    for (final bytes in images) {
+      tiles.add(ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: colorScheme.outlineVariant, width: 0.5),
+          ),
+          child: Image.memory(
+            bytes,
+            height: 180,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Container(
+              height: 60,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                '图片已损坏',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+    }
+    // 用 Wrap 实现横排+换行（多图时自动堆叠）。间距 6。
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: tiles,
     );
   }
 }
@@ -680,6 +791,108 @@ class _ErrorPanel extends StatelessWidget {
         style: theme.textTheme.bodySmall?.copyWith(
           color: colorScheme.onErrorContainer,
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：空态引导（首次进入对话页）
+// ─────────────────────────────────────────────────────────────
+
+/// 空态引导：消息列表为空且无待附图时显示。
+/// 三个入口均为对话页内可发起的入口：拍照 / 从相册选择 / 直接输入文字。
+/// 用户从今日页进入对话页后，可在此选择「先拍照问一道题」或「直接打字」。
+///
+/// 视觉：朱砂✦ 大字 + 提示句 + 三行 FilledButton.tonal（与今日页保持一致）。
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.paper,
+    required this.onCamera,
+    required this.onGallery,
+    required this.onInput,
+  });
+
+  final PaperColors paper;
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+  final VoidCallback onInput;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Center(
+            child: Text(
+              '✦',
+              style: TextStyle(
+                fontSize: 36,
+                color: cs.primary,
+                height: 1.0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '问 AI',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontWeight: FontWeight.w700,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '拍照问一道题，或直接输入你的疑问',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.tonalIcon(
+            onPressed: onCamera,
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text(
+              '拍照',
+              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: onGallery,
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text(
+              '从相册选择',
+              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: onInput,
+            icon: const Icon(Icons.edit_note),
+            label: const Text(
+              '直接输入文字',
+              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
-import 'core/providers/screenshot_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,35 +10,12 @@ void main() async {
   runApp(ProviderScope(child: StudyBuddyApp(showOnboarding: !onboardingDone)));
 }
 
-/// App 启动初始化：检查权限 → 唤起悬浮球 → 取待处理截图。
+/// 待处理图片 holder：分享冷启动降级用。
 ///
-/// 由 StudyBuddyApp 的 initState 触发（见 app.dart 改造，Task 7 Step 4）。
-/// 冷启动降级：若 PendingScreenshotHolder 有待处理截图，开 AI 面板。
-Future<void> bootstrapOverlay(WidgetRef ref, BuildContext context) async {
-  final sp = ref.read(screenshotProvider);
-  final granted = await sp.checkOverlayPermission();
-  if (!granted) {
-    // 未授权：不唤起悬浮球，首页会引导
-    return;
-  }
-  await sp.showOverlay();
-  // 冷启动：App 在前台，悬浮球应隐藏（轻量 hide 保留 FGS）。
-  // 用户切后台 → paused → showOverlay 恢复；回前台 → resumed → _handleResumed hideOverlay。
-  // didChangeAppLifecycleState 不为冷启动发 resumed 事件，故此处手动补一次 hide。
-  if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-    await sp.hideOverlay();
-  }
-  // 取待处理截图（冷启动降级）
-  final pending = await sp.takePendingScreenshot();
-  if (pending != null && context.mounted) {
-    // 延迟到 TodayPage build 完，用其 context 弹面板
-    // （实际由 TodayPage 在 initState 消费，见 today_page.dart _consumePendingScreenshot）
-    // 此处仅触发：存入一个临时 holder
-    PendingScreenshotStore.pending = pending;
-  }
-}
-
-/// 临时存储启动期取到的待处理截图，供 TodayPage 取用。
+/// App 被杀后从「分享菜单」打开会传 ACTION_SEND intent，原生 MainActivity 通过
+/// EventChannel(`study_buddy/share`) 在 Flutter 启动期推送 bytes。若 resume 时
+/// rootNavigatorKey 上下文未就绪，[pending] 作为兜底静态字段，由 TodayPage 首帧
+/// 消费弹出 AI 面板——避免在 Flutter 上下文未就绪时弹 sheet 失败。
 class PendingScreenshotStore {
   static dynamic pending; // CapturedScreenshot?
 }

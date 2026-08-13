@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:study_engine/study_engine.dart';
 
 import 'agent_session_provider.dart';
-import 'screenshot_provider.dart';
+import 'captured_image.dart';
 
 /// 工具调用轨迹条目（UI 渲染用）。
 class ToolEvent {
@@ -145,8 +145,12 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
           toolEvents: [...state.toolEvents, const ToolEvent('·', '上下文已压缩')],
         );
       case RetryEvent(:final attempt):
+        // LLM 调用失败重试：本轮已部分累积的 streamingText 会被丢弃并由 LLM 重新生成，
+        // 故先清空，避免新旧增量拼接出乱码；同时给用户一个「正在重连」的可见提示。
         state = state.copyWith(
-          toolEvents: [...state.toolEvents, ToolEvent('·', '重试第 $attempt 次')],
+          streamingText: '',
+          error: null,
+          toolEvents: [...state.toolEvents, ToolEvent('·', '网络抖动，重试第 $attempt 次…')],
         );
       case AgentRoundEndEvent(:final newMessages):
         // 逐轮回填合法消息序列（assistant + tool 消息）

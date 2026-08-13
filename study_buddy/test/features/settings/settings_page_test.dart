@@ -43,41 +43,47 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('SettingsPage 渲染诊断版块与两个入口', (tester) async {
-    // PaperColors extension 由 AppTheme 注册,SettingsPage 依赖 ruleSoft 分隔线。
-    // SettingsPage 现依赖 llmConfigProvider(进而依赖 databaseProvider),
-    // 故测试需用 ProviderScope + inMemory database override,否则 build 抛缺失。
+  testWidgets('设置页渲染外观/系统/诊断三个分组', (tester) async {
     await pumpSettings(tester);
-    // Task 8.2 在 LLM 配置与诊断之间插入了「系统」分组,诊断版块被推至首屏下方,
-    // ListView 懒构建不渲染屏外子项 → 先上滚 300px 再断言。
-    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    // 外观是首屏第一分组，直接可见。
+    expect(find.text('外观'), findsOneWidget);
+    expect(find.text('主题模式'), findsOneWidget);
+    // 系统/诊断在 ListView 下方（懒构建），上滚后可看到。
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
     await tester.pumpAndSettle();
+    expect(find.text('系统'), findsOneWidget);
     expect(find.text('诊断'), findsOneWidget);
+  });
+
+  testWidgets('设置页渲染系统分组三个入口(LLM配置/版本更新/关于)', (tester) async {
+    await pumpSettings(tester);
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(find.text('LLM 配置'), findsOneWidget);
+    expect(find.text('版本更新'), findsOneWidget);
+    expect(find.text('关于'), findsOneWidget);
+  });
+
+  testWidgets('设置页渲染诊断分组两个入口', (tester) async {
+    await pumpSettings(tester);
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
     expect(find.text('应用日志'), findsOneWidget);
     expect(find.text('LLM 调用日志'), findsOneWidget);
   });
 
-  testWidgets('LLM 配置板块渲染四字段与保存按钮', (tester) async {
+  testWidgets('点击 LLM 配置弹出底部表单四字段与保存按钮', (tester) async {
     await pumpSettings(tester);
-    expect(find.text('LLM 配置'), findsOneWidget);
+    // LLM 配置入口行：未配置时不铺表单，首屏无四字段。
+    expect(find.text('名称'), findsNothing);
+    expect(find.text('保存'), findsNothing);
+    await tester.tap(find.text('LLM 配置'));
+    await tester.pumpAndSettle();
+    // 底部表单弹出：四字段 + 保存 + 标题。
     expect(find.text('名称'), findsWidgets);
     expect(find.text('API 地址'), findsWidgets);
     expect(find.text('API Key'), findsWidgets);
     expect(find.text('模型'), findsWidgets);
     expect(find.text('保存'), findsOneWidget);
-  });
-
-  testWidgets('SettingsPage 渲染系统分组三个入口', (tester) async {
-    await pumpSettings(tester);
-    // 系统分组(悬浮窗权限 / 版本更新 / 关于)位于 LLM 配置与诊断之间,
-    // 紧随异步加载的 _LlmConfigSection 之后。LLM 配置占位较高,系统分组
-    // 部分行可能落在 600px 测试视口下沿的懒构建区,先上滚 300px 再断言
-    // (与诊断用例同一手法,确保目标行已构建并可见)。
-    await tester.drag(find.byType(ListView), const Offset(0, -300));
-    await tester.pumpAndSettle();
-    expect(find.text('系统'), findsOneWidget);
-    expect(find.text('悬浮窗权限'), findsOneWidget);
-    expect(find.text('版本更新'), findsOneWidget);
-    expect(find.text('关于'), findsOneWidget);
   });
 }

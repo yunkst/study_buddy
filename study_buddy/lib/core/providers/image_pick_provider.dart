@@ -2,11 +2,11 @@ import 'dart:convert';
 
 import 'package:image_picker/image_picker.dart';
 
-import 'screenshot_provider.dart'; // CapturedScreenshot
+import 'captured_image.dart'; // CapturedScreenshot
 
 /// 拍题问 AI 的选图 helper。
 ///
-/// 与 [ScreenshotProvider.takePendingScreenshot] 不同：本 helper 处理 image_picker
+/// 与悬浮球截图的来源不同：本 helper 处理 image_picker
 /// 返回的 XFile（相机 JPEG / 相册 JPEG 或 PNG），MIME 必须按实际格式拼 data URI，
 /// 否则 LLM 侧 ImageUrlPart 解析可能失败。用户取消/失败均返回 null。
 Future<CapturedScreenshot?> pickImageForAi({

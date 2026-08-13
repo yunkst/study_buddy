@@ -13,21 +13,17 @@
 // - seed 用 sdb.db.insert + Category/Topic/TopicSchedule.toMap 直插；topic_schedule
 //   通过 topic_id 外键关联，故必须先建 category→topic→topic_schedule，topic 表
 //   必须有对应行（ReviewTopicProvider 按 schedule.topicId 查 Topic）。
-// - ReviewSessionPage.initState 写 suppressOverlayOnPauseProvider（纯 Notifier，
-//   不触 MethodChannel）；页面 onBack/context.go('/today') 需要 router 提供 /today 路由。
-//   防御性 mock `study_buddy/overlay` channel（范式同 today_page_test，无害防崩）。
+// - ReviewSessionPage 不触原生 channel；页面 onBack/context.go('/today') 需要 router 提供 /today 路由。
 // - AppTheme.light 提供 PaperColors 扩展（_RatingRow/_CardView 依赖 accent/stampRed）。
 // - sqflite 查询真实异步：先 pumpWidget 启动 FutureProvider，runAsync real zone 等 DB
 //   查询，再回 fake zone pump。结束时 pump(11s) 清掉 txnSynchronized 遗留的一次性
 //   lock-warning Timer，避免 teardown「Timer still pending」。
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
-import 'package:study_buddy/core/providers/screenshot_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/features/review/review_session_page.dart';
 import 'package:study_engine/study_engine.dart';
@@ -38,18 +34,6 @@ Future<int> _seedCategory(StudyDatabase sdb) async {
     'category',
     Category(name: '数学', createdAt: DateTime.now()).toMap(),
   );
-}
-
-/// 抑制悬浮球标志的 no-op 实现：ReviewSessionPage 在 initState 里
-/// `ref.read(suppressOverlayOnPauseProvider.notifier).set(true)`，而 Riverpod 禁止在
-/// build 阶段改 provider 状态（测试对首帧初始路由会命中此断言，抛出
-/// 「Tried to modify a provider while the widget tree was building」；真实 App 因页面
-/// 在导航后帧里挂载不命中）。副测试用 no-op 覆盖，跳过写 provider，避免触碰该断言。
-class _NoopSuppressOverlayNotifier extends SuppressOverlayNotifier {
-  @override
-  void set(bool value) {
-    // 纯 no-op：本页测试不需要真实抑制标志。
-  }
 }
 
 void main() {
@@ -63,25 +47,13 @@ void main() {
   });
   tearDown(() async => await sdb.close());
 
-  const overlayChannel = MethodChannel('study_buddy/overlay');
-
-  /// 装配 ProviderContainer：db override + suppressOverlay no-op override。
-  /// suppressOverlay 必须用 set() 不写状态的子类替代，避免 ReviewSessionPage 的
-  /// initState 在测试首帧 build 期写 provider 触发 Riverpod 断言崩溃（见类注释）。
+  /// 装配 ProviderContainer：db override。
   ProviderContainer buildContainer() => ProviderContainer(overrides: [
         databaseProvider.overrideWith((ref) async => sdb),
-        suppressOverlayOnPauseProvider
-            .overrideWith(() => _NoopSuppressOverlayNotifier()),
       ]);
 
-  /// 装配复习页：mock overlay + in-memory db + AppTheme.light + GoRouter。
+  /// 装配复习页：in-memory db + AppTheme.light + GoRouter。
   Future<void> pumpReviewPage(WidgetTester tester, ProviderContainer container) async {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(overlayChannel, (MethodCall call) async => null);
-    addTearDown(() => TestDefaultBinaryMessengerBinding
-        .instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(overlayChannel, null));
-
     final router = GoRouter(
       initialLocation: '/review',
       routes: [

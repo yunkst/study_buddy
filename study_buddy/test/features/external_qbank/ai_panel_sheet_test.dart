@@ -6,12 +6,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 // image_picker_platform_interface 是 image_picker 的传递依赖：
 // 我们直接 import 它来 mock ImagePickerPlatform.instance（无需在 pubspec 中声明）。
 // ignore: depend_on_referenced_packages
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
-import 'package:study_buddy/core/providers/screenshot_provider.dart';
+import 'package:study_buddy/core/providers/captured_image.dart';
+import 'package:study_buddy/core/providers/chat_session_provider.dart';
+import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/core/widgets/markdown_latex.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
 import 'package:study_engine/study_engine.dart';
@@ -48,6 +51,28 @@ class _ControllableAgentSession extends AgentSession {
   }
 }
 
+/// 假 /crop 裁剪页：点击「确认裁剪」即 pop 一个 CapturedScreenshot。
+/// 真实裁剪页（ImageCropPage）依赖 ui 解码，测试里用这个假的替代，
+/// 让 `context.push('/crop', extra: ...)` 能返回结果。
+class _FakeCropPage extends StatelessWidget {
+  const _FakeCropPage({required this.sourceBytes});
+  final Uint8List sourceBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: FilledButton(
+          onPressed: () => context.pop(
+            CapturedScreenshot(sourceBytes, 'data:image/png;base64,ZmFrZQ=='),
+          ),
+          child: const Text('确认裁剪'),
+        ),
+      ),
+    );
+  }
+}
+
 Uint8List _pngBytes() => Uint8List.fromList(base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC'));
 
@@ -81,6 +106,55 @@ class _FakeImagePickerPlatform extends ImagePickerPlatform {
   }
 }
 
+/// 装配 helper：注入 GoRouter（包含 /、/ai、/crop）与 AppTheme.light，避免裸 MaterialApp
+/// 下 `context.push('/ai')` / `context.push('/crop')` 触发 GoRouter 断言崩溃。
+///
+/// tap `open` → pumpAndSettle → 跳到 /ai 全屏对话页（rect 上屏可见）。
+Future<void> pumpPanel(
+  WidgetTester tester, {
+  required ProviderContainer container,
+  CapturedScreenshot? screenshot,
+}) async {
+  final router = GoRouter(
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, __) => Scaffold(
+          body: Builder(builder: (ctx) => Center(
+                child: ElevatedButton(
+                  onPressed: () => showAiPanel(ctx, screenshot: screenshot),
+                  child: const Text('open'),
+                ),
+              )),
+        ),
+      ),
+      GoRoute(
+        path: '/ai',
+        builder: (_, state) => AiChatPage(
+          initialScreenshot: state.extra is CapturedScreenshot
+              ? state.extra as CapturedScreenshot
+              : null,
+        ),
+      ),
+      // 用 _FakeCropPage 而非真实 ImageCropPage：避免 ui 解码拖慢/污染测试。
+      GoRoute(
+        path: '/crop',
+        builder: (_, state) =>
+            _FakeCropPage(sourceBytes: state.extra as Uint8List),
+      ),
+    ],
+  );
+  await tester.pumpWidget(UncontrolledProviderScope(
+    container: container,
+    child: MaterialApp.router(
+      routerConfig: router,
+      theme: AppTheme.light,
+    ),
+  ));
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('首轮:截图预览可见,发送后显示 user 与 assistant 气泡', (tester) async {
     final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
@@ -89,18 +163,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
 
     // 首轮截图预览可见
     expect(find.byType(Image), findsWidgets);
@@ -120,18 +183,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
 
     // 输入框存在
     expect(find.byType(TextField), findsOneWidget);
@@ -150,18 +202,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
 
     await tester.tap(find.text('开始分析'));
     await tester.pump(); // 不等完成
@@ -198,23 +239,13 @@ void main() {
     ImagePickerPlatform.instance = fake;
     addTearDown(() => ImagePickerPlatform.instance = original);
 
-    // 2. 面板启动
+    // 2. 面板启动（装配 GoRouter：_pickImageForFollowUp 会 context.push('/crop')）
     final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
     final container = ProviderContainer(overrides: [
       agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
     ]);
     addTearDown(container.dispose);
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
 
     // 3. 先点「开始分析」让 _firstSent=true（追问轮加图才生效；实际首轮加图也可，
     //    但测追问轮更贴近真实使用场景）
@@ -227,7 +258,12 @@ void main() {
     await tester.tap(find.text('从相册选择'));
     await tester.pumpAndSettle();
 
-    // 5. _pendingImage 预览出现：Image widget + 移除按钮(close icon)
+    // 5. pickImageForAi 成功 → context.push('/crop') 打开假裁剪页 → 点「确认裁剪」返回结果。
+    expect(find.text('确认裁剪'), findsOneWidget);
+    await tester.tap(find.text('确认裁剪'));
+    await tester.pumpAndSettle();
+
+    // 6. _pendingImage 预览出现：Image widget + 移除按钮(close icon)
     expect(find.byType(Image), findsWidgets);
     expect(find.byIcon(Icons.close), findsOneWidget);
   });
@@ -245,17 +281,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
     await tester.tap(find.text('开始分析'));
     await tester.pump();
 
@@ -285,5 +311,34 @@ void main() {
     expect(find.textContaining('save_topic:'), findsNothing);
     // (3) AI 文本经 MarkdownLatex 渲染（selectable）。
     expect(find.byType(MarkdownLatex), findsWidgets);
+  });
+
+  testWidgets('「新对话」按钮:点击后 messages 清空、页面仍在、输入框还在',
+      (tester) async {
+    // 纯文字入口（无 screenshot），保证 _FakeAgentSession 一次走完
+    // TextDelta + AgentDoneEvent 完整契约，messages 累计 2 条（user+assistant）。
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpPanel(tester, container: container);
+
+    // 纯文字入口必须先输入内容，否则 send('', null) 在 chat_session_provider 直接 return，
+    // messages 不会累计（空输入不发送是本产品的既定语义）。
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+
+    // 已有 user + assistant 两条消息
+    expect(container.read(currentChatProvider).messages, hasLength(2));
+
+    // 点「新对话」(AppBar IconButton, tooltip '新对话')
+    await tester.tap(find.byTooltip('新对话'));
+    await tester.pumpAndSettle();
+
+    // messages 已清，对话页仍在（输入框在）
+    expect(container.read(currentChatProvider).messages, isEmpty);
+    expect(find.byType(TextField), findsOneWidget);
   });
 }

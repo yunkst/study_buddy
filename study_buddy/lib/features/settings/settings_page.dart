@@ -1,3 +1,16 @@
+// 设置 Tab：分组设置行布局。
+//
+// 结构（纸感学术主题）：
+//   ▏外观：主题模式（亮/暗/跟随系统）
+//   ▏系统：LLM 配置（收敛为入口行，点按弹底部表单）、版本更新、关于
+//   ▏诊断：应用日志、LLM 调用日志
+//
+// 对齐设计稿 ui-redesign-preview.html 的 .setting-row 视觉：左 icon + 文案，
+// 右「当前值 + chevron」；分组小标题用朱砂斜体下划线（_SectionLabel）。
+// LLM 配置不再首屏铺表单，收敛为一行入口，点按弹 showModalBottomSheet 表单，
+// 与主题模式选择的底部 Sheet 交互一致（showThemeModeSheet）。
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,10 +24,7 @@ import '../../core/theme/paper_scaffold.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
 
-/// 设置页:诊断版块含「应用日志」「LLM 调用日志」两个入口 + LLM 配置板块。
-///
-/// 纸感主题:PaperScaffold 包裹,PaperColors extension 分隔线 + NotoSerifSC 字体,
-/// 列表项极简 InkWell + ruleSoft 细分隔线,不用 Material Card。
+/// 设置页：分组设置行（外观 / 系统 / 诊断）。
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -26,15 +36,13 @@ class SettingsPage extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
-            _LlmConfigSection(),
-            const SizedBox(height: 32),
             const _SectionLabel(text: '外观'),
             const SizedBox(height: 8),
             const _ThemeModeRow(),
             const SizedBox(height: 32),
             const _SectionLabel(text: '系统'),
             const SizedBox(height: 8),
-            const _OverlayPermissionRow(),
+            const _LlmConfigRow(),
             const _VersionRow(),
             const _AboutRow(),
             const SizedBox(height: 32),
@@ -58,8 +66,7 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-/// 版块小标题:朱砂斜体下划线小标题(NotoSerifSC italic 13)。
-/// 与首页 _ArticleLabel 风格一致,但语义独立(此处是设置页分组)。
+/// 版块小标题：朱砂斜体下划线小标题（NotoSerifSC italic 13）。
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.text});
   final String text;
@@ -86,13 +93,21 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// 极简导航行:左图标 + 标题 + 右 chevron,下沿 ruleSoft 细分隔线。
-/// 与首页 _PlanRow 风格一致,避免 Material Card 破坏纸感。
+/// 设置行：左 icon + 标题，右「可选当前值 + chevron」。
+/// 对齐设计稿 .setting-row；下沿 ruleSoft 细分隔线。
 class _NavRow extends StatelessWidget {
-  const _NavRow({required this.icon, required this.label, required this.onTap});
+  const _NavRow({
+    required this.icon,
+    required this.label,
+    this.value,
+    required this.onTap,
+  });
+
   final IconData icon;
   final String label;
+  final String? value;
   final VoidCallback onTap;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -118,6 +133,15 @@ class _NavRow extends StatelessWidget {
                 style: theme.textTheme.titleSmall?.copyWith(fontFamily: 'NotoSerifSC'),
               ),
             ),
+            if (value != null) ...[
+              Text(
+                value!,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             Icon(
               Icons.chevron_right,
               size: 20,
@@ -130,80 +154,50 @@ class _NavRow extends StatelessWidget {
   }
 }
 
-/// 系统分组:悬浮窗权限 / 版本更新 / 关于。
-///
-/// 三个入口复用 _NavRow 极简导航行样式,ConsumerWidget 以便访问 ref
-/// (版本更新需要 ref.read 更新服务触发检查)。
-class _OverlayPermissionRow extends ConsumerWidget {
-  const _OverlayPermissionRow();
+// ─────────────────────────────────────────────────────────────
+// LLM 配置入口行 + 底部表单 Sheet
+// ─────────────────────────────────────────────────────────────
+
+/// LLM 配置入口行：右侧显示「已配置 / 未配置」状态，点按弹底部表单。
+class _LlmConfigRow extends ConsumerWidget {
+  const _LlmConfigRow();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final asyncCfg = ref.watch(llmConfigProvider);
+    final configured = asyncCfg.maybeWhen(
+      data: (cfg) => cfg != null && cfg.apiUrl.trim().isNotEmpty,
+      orElse: () => false,
+    );
     return _NavRow(
-      icon: Icons.remove_red_eye_outlined,
-      label: '悬浮窗权限',
-      onTap: () => context.go('/permission-guide'),
+      icon: Icons.settings_ethernet_outlined,
+      label: 'LLM 配置',
+      value: configured ? '已配置' : '未配置',
+      onTap: () => showLlmConfigSheet(context, ref),
     );
   }
 }
 
-class _VersionRow extends ConsumerWidget {
-  const _VersionRow();
+/// LLM 配置底部表单：名称 / API 地址 / API Key / 模型 + 保存。
+/// 与 showThemeModeSheet 同款 showModalBottomSheet 交互。
+Future<void> showLlmConfigSheet(BuildContext context, WidgetRef ref) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => _LlmConfigSheetBody(),
+  );
+}
+
+class _LlmConfigSheetBody extends ConsumerStatefulWidget {
+  const _LlmConfigSheetBody();
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return _NavRow(
-      icon: Icons.system_update_alt_outlined,
-      label: '版本更新',
-      onTap: () => _checkForUpdate(context, ref),
-    );
-  }
-
-  /// 触发更新检查:forceCheck 忽略 1 小时频率限制,结果以 SnackBar 反馈。
-  /// 与首页一致,先读预览通道开关,再按通道查 GitHub(避免 preview 版本被跳过)。
-  Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final service = ref.read(appUpdateServiceProvider);
-    final preview = await AppUpdateService.isPreviewChannelEnabled();
-    final result = await service.checkForUpdateDetailed(
-      forceCheck: true,
-      includePrerelease: preview,
-    );
-    if (!context.mounted) return;
-    switch (result) {
-      case AppUpdateAvailable(:final version):
-        messenger.showSnackBar(
-          SnackBar(content: Text('发现新版本 v${version.version}')),
-        );
-      case AppUpdateUpToDate():
-        messenger.showSnackBar(const SnackBar(content: Text('已是最新版本')));
-      case AppUpdateCheckFailed(:final reason):
-        messenger.showSnackBar(SnackBar(content: Text('检查失败:$reason')));
-    }
-  }
+  ConsumerState<_LlmConfigSheetBody> createState() =>
+      _LlmConfigSheetBodyState();
 }
 
-class _AboutRow extends ConsumerWidget {
-  const _AboutRow();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return _NavRow(
-      icon: Icons.info_outline,
-      label: '关于',
-      onTap: () => showAboutDialog(
-        context: context,
-        applicationName: 'Study Buddy',
-        applicationVersion: '0.1.0-preview.3',
-        applicationLegalese: '© Study Buddy',
-      ),
-    );
-  }
-}
-
-class _LlmConfigSection extends ConsumerStatefulWidget {
-  @override
-  ConsumerState<_LlmConfigSection> createState() => _LlmConfigSectionState();
-}
-
-class _LlmConfigSectionState extends ConsumerState<_LlmConfigSection> {
+class _LlmConfigSheetBodyState extends ConsumerState<_LlmConfigSheetBody> {
   late final TextEditingController _name;
   late final TextEditingController _url;
   late final TextEditingController _key;
@@ -244,6 +238,7 @@ class _LlmConfigSectionState extends ConsumerState<_LlmConfigSection> {
           ));
       await ref.read(llmConfigProvider.notifier).refresh();
       if (mounted) {
+        Navigator.of(context).pop(); // 保存成功收起 Sheet
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('LLM 配置已保存')),
         );
@@ -262,63 +257,84 @@ class _LlmConfigSectionState extends ConsumerState<_LlmConfigSection> {
   @override
   Widget build(BuildContext context) {
     final asyncCfg = ref.watch(llmConfigProvider);
-    return asyncCfg.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.only(top: 16),
-        child: Center(
-            child: SizedBox(
-                width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+    final theme = Theme.of(context);
+    return Padding(
+      // isScrollControlled 下垫键盘高度，避免输入被遮挡。
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 8,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      error: (e, _) => Padding(
-        padding: const EdgeInsets.only(top: 16),
-        child: Text('加载配置失败:$e'),
-      ),
-      data: (cfg) {
-        _ensureControllers(cfg);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SectionLabel(text: 'LLM 配置'),
-            const SizedBox(height: 8),
-            _Field(label: '名称', controller: _name, hint: '如:我的模型'),
-            _Field(
-              label: 'API 地址',
-              controller: _url,
-              hint: 'https://api.example.com/v1',
-              keyboard: TextInputType.url,
-            ),
-            _Field(
-              label: 'API Key',
-              controller: _key,
-              hint: 'sk-...',
-              obscure: true,
-            ),
-            _Field(
-              label: '模型',
-              controller: _model,
-              hint: '如:gpt-4o',
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.save_outlined, size: 18),
-                label: const Text('保存'),
+      child: asyncCfg.when(
+        loading: () => const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: CircularProgressIndicator(),
+          ),
+        ),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text('加载配置失败:$e'),
+          ),
+        ),
+        data: (cfg) {
+          _ensureControllers(cfg);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'LLM 配置',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontFamily: 'NotoSerifSC',
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
-        );
-      },
+              const SizedBox(height: 16),
+              _Field(label: '名称', controller: _name, hint: '如:我的模型'),
+              _Field(
+                label: 'API 地址',
+                controller: _url,
+                hint: 'https://api.example.com/v1',
+                keyboard: TextInputType.url,
+              ),
+              _Field(
+                label: 'API Key',
+                controller: _key,
+                hint: 'sk-...',
+                obscure: true,
+              ),
+              _Field(
+                label: '模型',
+                controller: _model,
+                hint: '如:gpt-4o',
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('保存'),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
 
+/// 底部表单字段：标签 + 下划线 TextField。
 class _Field extends StatelessWidget {
   const _Field({
     required this.label,
@@ -341,11 +357,14 @@ class _Field extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: theme.textTheme.labelSmall?.copyWith(
-                  fontFamily: 'NotoSerifSC',
-                  fontSize: 12,
-                  color: theme.colorScheme.onSurfaceVariant)),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontFamily: 'NotoSerifSC',
+              fontSize: 12,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 4),
           TextField(
             controller: controller,
@@ -355,11 +374,14 @@ class _Field extends StatelessWidget {
             decoration: InputDecoration(
               isDense: true,
               hintText: hint,
-              hintStyle: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+              hintStyle: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
               enabledBorder: UnderlineInputBorder(
                 borderSide: BorderSide(
-                    color: theme.extension<PaperColors>()!.ruleSoft, width: 0.6),
+                  color: theme.extension<PaperColors>()!.ruleSoft,
+                  width: 0.6,
+                ),
               ),
               focusedBorder: UnderlineInputBorder(
                 borderSide: BorderSide(color: theme.colorScheme.primary, width: 1),
@@ -372,54 +394,83 @@ class _Field extends StatelessWidget {
   }
 }
 
-/// 主题模式行:展示当前模式,点击弹出底部 Sheet 切换。
-/// 沿用 _NavRow 的 InkWell + ruleSoft 底线样式,右侧额外显示当前值。
+// ─────────────────────────────────────────────────────────────
+// 系统分组：版本更新 / 关于
+// ─────────────────────────────────────────────────────────────
+
+/// 版本更新行：右侧显示当前版本号，点按触发检查。
+class _VersionRow extends ConsumerWidget {
+  const _VersionRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.system_update_alt_outlined,
+      label: '版本更新',
+      value: '0.1.0-preview.6',
+      onTap: () => _checkForUpdate(context, ref),
+    );
+  }
+
+  /// 触发更新检查：forceCheck 忽略 1 小时频率限制，结果以 SnackBar 反馈。
+  /// 与首页一致，先读预览通道开关，再按通道查 GitHub（避免 preview 版本被跳过）。
+  Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final service = ref.read(appUpdateServiceProvider);
+    final preview = await AppUpdateService.isPreviewChannelEnabled();
+    final result = await service.checkForUpdateDetailed(
+      forceCheck: true,
+      includePrerelease: preview,
+    );
+    if (!context.mounted) return;
+    switch (result) {
+      case AppUpdateAvailable(:final version):
+        messenger.showSnackBar(
+          SnackBar(content: Text('发现新版本 v${version.version}')),
+        );
+      case AppUpdateUpToDate():
+        messenger.showSnackBar(const SnackBar(content: Text('已是最新版本')));
+      case AppUpdateCheckFailed(:final reason):
+        messenger.showSnackBar(SnackBar(content: Text('检查失败:$reason')));
+    }
+  }
+}
+
+/// 关于行：弹系统关于对话框。
+class _AboutRow extends ConsumerWidget {
+  const _AboutRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.info_outline,
+      label: '关于',
+      onTap: () => showAboutDialog(
+        context: context,
+        applicationName: 'Study Buddy',
+        applicationVersion: '0.1.0-preview.6',
+        applicationLegalese: '© Study Buddy',
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 外观分组：主题模式
+// ─────────────────────────────────────────────────────────────
+
+/// 主题模式行：展示当前模式，点击弹出底部 Sheet 切换。
 class _ThemeModeRow extends ConsumerWidget {
   const _ThemeModeRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final mode = ref.watch(themeModeProvider).value ?? ThemeMode.system;
-    return InkWell(
+    return _NavRow(
+      icon: Icons.brightness_6_outlined,
+      label: '主题模式',
+      value: _modeLabel(mode),
       onTap: () => showThemeModeSheet(context, ref),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: theme.extension<PaperColors>()!.ruleSoft,
-              width: 0.6,
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.brightness_6_outlined,
-                size: 20, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '主题模式',
-                style: theme.textTheme.titleSmall
-                    ?.copyWith(fontFamily: 'NotoSerifSC'),
-              ),
-            ),
-            Text(
-              _modeLabel(mode),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.chevron_right,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -431,15 +482,14 @@ class _ThemeModeRow extends ConsumerWidget {
 }
 
 /// 主题模式选择底部 Sheet。
-/// 三行(跟随系统/浅色/深色),选中项右侧朱砂红勾选。
+/// 三行（跟随系统/浅色/深色），选中项右侧朱砂红勾选。
 Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     builder: (sheetCtx) {
       final theme = Theme.of(sheetCtx);
-      final current =
-          ref.watch(themeModeProvider).value ?? ThemeMode.system;
+      final current = ref.watch(themeModeProvider).value ?? ThemeMode.system;
       final options = const <(ThemeMode, IconData, String)>[
         (ThemeMode.system, Icons.brightness_auto_outlined, '跟随系统'),
         (ThemeMode.light, Icons.light_mode_outlined, '浅色'),
@@ -450,14 +500,12 @@ Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: const EdgeInsets.only(
-                  left: 24, right: 24, top: 4, bottom: 8),
+              padding: const EdgeInsets.only(left: 24, right: 24, top: 4, bottom: 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   '主题模式',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontFamily: 'NotoSerifSC'),
+                  style: theme.textTheme.titleSmall?.copyWith(fontFamily: 'NotoSerifSC'),
                 ),
               ),
             ),
@@ -469,8 +517,7 @@ Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
                 },
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                   decoration: BoxDecoration(
                     border: Border(
                       bottom: BorderSide(
@@ -481,19 +528,16 @@ Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
                   ),
                   child: Row(
                     children: [
-                      Icon(icon,
-                          size: 20, color: theme.colorScheme.onSurfaceVariant),
+                      Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           label,
-                          style: theme.textTheme.bodyLarge
-                              ?.copyWith(fontFamily: 'NotoSansSC'),
+                          style: theme.textTheme.bodyLarge?.copyWith(fontFamily: 'NotoSansSC'),
                         ),
                       ),
                       if (mode == current)
-                        Icon(Icons.check,
-                            size: 20, color: theme.colorScheme.primary),
+                        Icon(Icons.check, size: 20, color: theme.colorScheme.primary),
                     ],
                   ),
                 ),

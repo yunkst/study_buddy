@@ -1,9 +1,7 @@
-// 今日 Tab：Ask-AI 三入口 + 今日计划摘要 + 今日专注 + 今日复习。
+// 今日 Tab：学习闭环（问 AI · 计划 · 专注 · 复习）入口。
 //
 // 取代原 home_page 成为 App 首屏（3 Tab 壳的第一个 branch）。继承 home_page
-// 的两个关键行为：冷启动待处理截图消费（PendingScreenshotStore）与拍题时
-// suppressOverlayOnPause 抑制（避免相机 Activity 期间悬浮球闪现）。悬浮窗权限
-// 与 overlay 暖机逻辑已迁移到 Settings（Task 8.2）/ app.dart，此处仅保留截图消费。
+// 的关键行为：冷启动分享图片消费（PendingScreenshotStore）。
 library;
 
 import 'package:flutter/material.dart';
@@ -11,9 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
-import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/plan_provider.dart';
-import '../../core/providers/screenshot_provider.dart';
 import '../../core/providers/topic_schedule_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
@@ -21,11 +17,10 @@ import '../../features/external_qbank/ai_panel_sheet.dart';
 import '../../features/plan/plan_chat_sheet.dart';
 import '../../main.dart' show PendingScreenshotStore;
 
-/// 今日 Tab 根页：学习闭环（问 · 计划 · 专注 · 复习）入口。
+/// 今日 Tab 根页：学习闭环（问 AI · 计划 · 专注 · 复习）入口。
 ///
-/// 冷启动时若原生持有待处理截图（悬浮球截完图 App 被杀），在 [initState]
-/// 消费并弹出 AI 面板——这是 [PendingScreenshotStore.pending] 的唯一消费者，
-/// 让热路径（悬浮球回前台）与冷路径（被杀后重开）回流一致。
+/// 冷启动时若 [PendingScreenshotStore.pending] 有分享冷启动降级写入的图片，
+/// 在 [initState] 消费并跳转到 AI 对话页（`/ai`）——这是该 holder 的唯一消费者。
 class TodayPage extends ConsumerStatefulWidget {
   const TodayPage({super.key});
 
@@ -40,7 +35,9 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     _consumePendingScreenshot();
   }
 
-  /// 冷启动降级：弹出待处理截图的 AI 面板。
+  /// 分享冷启动降级：从相册/浏览器分享图片唤起 App → 跳 AI 对话页并预填截图。
+  ///
+  /// 调用 showAiPanel（签名保持，等价于 context.push('/ai', extra: ...)）。
   Future<void> _consumePendingScreenshot() async {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pending = PendingScreenshotStore.pending;
@@ -50,30 +47,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       }
     });
   }
-
-  /// 拍照/相册 → pickImageForAi → showAiPanel。
-  ///
-  /// 相机/相册 Activity 让 App 进 paused：通过 suppressOverlayOnPauseProvider
-  /// set(true) 抑制 lifecycle 的 showOverlay，避免悬浮球在系统界面闪现。
-  /// finally 中复位（即使取消/失败），避免泄漏导致后续进后台不显示悬浮球（I-1）。
-  Future<void> _pickImageAndAskAi(
-    BuildContext context, {
-    required bool fromCamera,
-  }) async {
-    ref.read(suppressOverlayOnPauseProvider.notifier).set(true);
-    CapturedScreenshot? screenshot;
-    try {
-      screenshot = await pickImageForAi(fromCamera: fromCamera);
-      if (screenshot == null) return;
-    } finally {
-      ref.read(suppressOverlayOnPauseProvider.notifier).set(false);
-    }
-    if (!context.mounted) return;
-    await showAiPanel(context, screenshot: screenshot);
-  }
-
-  /// 直接聊：无截图，纯文字多轮对话。
-  void _directChat() => showAiPanel(context);
 
   @override
   Widget build(BuildContext context) {
@@ -85,10 +58,11 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           children: [
-            _AskAiSection(
-              onCamera: () => _pickImageAndAskAi(context, fromCamera: true),
-              onGallery: () => _pickImageAndAskAi(context, fromCamera: false),
-              onChat: _directChat,
+            _NavRow(
+              icon: Icons.smart_toy_outlined,
+              title: '问 AI',
+              subtitle: '拍照 · 相册 · 直接聊',
+              onTap: () => context.push('/ai'),
             ),
             const _SectionLabel('今日计划'),
             _PlanSummaryRow(
@@ -151,65 +125,9 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// Ask-AI 三入口：拍照 / 从相册选择 / 直接聊。
-class _AskAiSection extends StatelessWidget {
-  const _AskAiSection({
-    required this.onCamera,
-    required this.onGallery,
-    required this.onChat,
-  });
-
-  final VoidCallback onCamera;
-  final VoidCallback onGallery;
-  final VoidCallback onChat;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 8),
-        _AskBtn(
-          icon: Icons.photo_camera_outlined,
-          label: '拍照',
-          onTap: onCamera,
-        ),
-        const SizedBox(height: 8),
-        _AskBtn(
-          icon: Icons.photo_library_outlined,
-          label: '从相册选择',
-          onTap: onGallery,
-        ),
-        const SizedBox(height: 8),
-        _AskBtn(icon: Icons.chat_bubble_outline, label: '直接聊', onTap: onChat),
-      ],
-    );
-  }
-}
-
-/// Ask-AI 主按钮：纸感 FilledButton.tonal，下沿细分隔线。
-class _AskBtn extends StatelessWidget {
-  const _AskBtn({required this.icon, required this.label, required this.onTap});
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 52,
-      child: FilledButton.tonalIcon(
-        icon: Icon(icon),
-        label: Text(
-          label,
-          style: const TextStyle(fontFamily: 'NotoSerifSC', fontSize: 15),
-        ),
-        onPressed: onTap,
-      ),
-    );
-  }
-}
+// 注：旧的 _AskAiSection / _AskBtn / _pickImageAndAskAi / _directChat 已删除。
+// 入口合并为单个 _NavRow「问 AI」→ context.push('/ai')，进入全屏对话页后
+// 由 _EmptyState 提供拍照/相册/直接输入三个入口。
 
 /// 今日计划摘要行：取第一个计划的名称 + 考试日期，点按进详情；空态引导去创建。
 class _PlanSummaryRow extends StatelessWidget {

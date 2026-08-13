@@ -1,9 +1,7 @@
 // 复习会话：翻面卡 + 四档 FSRS 评分。
 //
 // 队列取 reviewQueueProvider（今日到期 ≤ kDailyReviewCap(20) 张），进度推进
-// 走 reviewSessionProvider。进入本页时抑制悬浮球（suppressOverlayOnPause=true），
-// 离开复位——与 today_page 拍题的 set 范式一致；dispose 对 initState 持有的
-// notifier 直接复位，不经 ref（Riverpod 3 的 dispose 内 ref.read 是字面 throw）。
+// 走 reviewSessionProvider。
 library;
 
 import 'package:flutter/material.dart';
@@ -11,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
-import '../../core/providers/screenshot_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/markdown_latex.dart';
@@ -26,23 +23,7 @@ class ReviewSessionPage extends ConsumerStatefulWidget {
 }
 
 class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
-  /// 抑制悬浮球标志的 notifier。initState 持引用，dispose 对其复位——
-  /// 不在 dispose 内 `ref.read`（Riverpod 3 的字面 throw，release 亦崩）。
-  SuppressOverlayNotifier? _overlayNotifier;
   bool _flipped = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _overlayNotifier = ref.read(suppressOverlayOnPauseProvider.notifier);
-    _overlayNotifier?.set(true);
-  }
-
-  @override
-  void dispose() {
-    _overlayNotifier?.set(false);
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {

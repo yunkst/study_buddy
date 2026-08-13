@@ -1,7 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/providers/captured_image.dart';
 import 'core/theme/paper_scaffold.dart';
+import 'features/crop/image_crop_page.dart';
+import 'features/external_qbank/ai_panel_sheet.dart';
 import 'features/focus/daily_report_page.dart';
 import 'features/focus/focus_page.dart';
 import 'features/knowledge/knowledge_page.dart';
@@ -10,14 +15,13 @@ import 'features/logs/app_log_viewer_page.dart';
 import 'features/logs/llm_log_detail_page.dart';
 import 'features/logs/llm_log_viewer_page.dart';
 import 'features/onboarding/onboarding_page.dart';
-import 'features/overlay/permission_guide_page.dart';
 import 'features/plan/plan_detail_page.dart';
 import 'features/review/review_session_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/today/today_page.dart';
 
-/// 全局 NavigatorState key：截图回流时（App 从后台 resumed）需要在无 widget 上下文处
-/// 弹出 AI 面板，挂此 key 供 app.dart 取用。
+/// 全局 NavigatorState key：分享冷启动降级时（App 被杀后从分享菜单唤起）需要在无
+/// widget 上下文处弹 AI 面板，挂此 key 供 share_intent_provider / app.dart 取用。
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// 首启引导是否仍待显示。main() 预取 prefs 初始化，OnboardingPage._finish 翻转。
@@ -77,10 +81,6 @@ GoRouter buildRouter({bool showOnboarding = false}) {
         ],
       ),
       GoRoute(
-        path: '/permission-guide',
-        builder: (context, state) => const PermissionGuidePage(),
-      ),
-      GoRoute(
         path: '/plan/:id',
         builder: (context, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
@@ -119,6 +119,31 @@ GoRouter buildRouter({bool showOnboarding = false}) {
       GoRoute(
         path: '/review',
         builder: (context, state) => const ReviewSessionPage(),
+      ),
+      // 全屏 AI 对话页：顶层 GoRoute（root navigator 承载 → 全屏盖住底部导航）。
+      // state.extra 透传 CapturedScreenshot?（按引用传递，不序列化）：
+      // 非空 = 拍题/分享冷启动预填截图；null = 纯文字入口（直接聊 / 知识点深度交流）。
+      GoRoute(
+        path: '/ai',
+        builder: (context, state) => AiChatPage(
+          initialScreenshot:
+              state.extra is CapturedScreenshot ? state.extra as CapturedScreenshot : null,
+        ),
+      ),
+      // 拍题裁剪页：state.extra 透传 Uint8List（按引用传递，不序列化），
+      // 非 Uint8List（deeplink/误传）回 /today，避免红屏。
+      GoRoute(
+        path: '/crop',
+        builder: (context, state) {
+          final bytes = state.extra;
+          if (bytes is! Uint8List) {
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => context.go('/today'),
+            );
+            return const SizedBox.shrink();
+          }
+          return ImageCropPage(sourceBytes: bytes);
+        },
       ),
       GoRoute(
         path: '/logs/app',

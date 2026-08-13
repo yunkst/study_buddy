@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
+import 'package:study_buddy/core/providers/captured_image.dart';
 import 'package:study_buddy/core/providers/chat_session_provider.dart';
-import 'package:study_buddy/core/providers/screenshot_provider.dart';
+import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -24,6 +26,44 @@ class _ControllableAgentSession extends AgentSession {
 Uint8List _pngBytes() => Uint8List.fromList(base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC'));
 
+/// 装配 helper：注入 GoRouter（包含 /、/ai、/crop）+ AppTheme.light。
+/// 与 ai_panel_sheet_test.pumpPanel 同构（这里不需要 crop，但保留 /ai 点 open → 推对话页）。
+Future<void> pumpPanel(
+  WidgetTester tester, {
+  required ProviderContainer container,
+  CapturedScreenshot? screenshot,
+}) async {
+  final router = GoRouter(
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, __) => Scaffold(
+          body: Builder(builder: (ctx) => Center(
+                child: ElevatedButton(
+                  onPressed: () => showAiPanel(ctx, screenshot: screenshot),
+                  child: const Text('open'),
+                ),
+              )),
+        ),
+      ),
+      GoRoute(
+        path: '/ai',
+        builder: (_, state) => AiChatPage(
+          initialScreenshot: state.extra is CapturedScreenshot
+              ? state.extra as CapturedScreenshot
+              : null,
+        ),
+      ),
+    ],
+  );
+  await tester.pumpWidget(UncontrolledProviderScope(
+    container: container,
+    child: MaterialApp.router(routerConfig: router, theme: AppTheme.light),
+  ));
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('save_review 工具完成后,对话流出现批改卡片', (tester) async {
     final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
@@ -34,17 +74,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: MaterialApp(home: Scaffold(body: Builder(builder: (ctx) {
-        return ElevatedButton(
-          onPressed: () => showAiPanel(ctx, screenshot: screenshot),
-          child: const Text('open'),
-        );
-      }))),
-    ));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpPanel(tester, container: container, screenshot: screenshot);
     await tester.tap(find.text('开始分析'));
     await tester.pump();
 

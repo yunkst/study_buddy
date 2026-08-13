@@ -31,6 +31,7 @@ class ToolProgressEvent extends AgentEvent {
 class CompactionEvent extends AgentEvent {}
 
 class RetryEvent extends AgentEvent {
+  /// 第几次重试（从 1 起）。
   final int attempt;
   RetryEvent(this.attempt);
 }

@@ -10,7 +10,7 @@
 //   `await sdb.db.insert(...)`，sqflite_ffi 的 isolate 结果无法回到 fake-async zone，
 //   会永久挂起。
 // - seed 直接用 sdb.db.insert + Category/Topic 的 toMap，避开 repos。
-// - KnowledgePage 不触 overlay channel，无需 mock `study_buddy/overlay`。
+// - KnowledgePage 不触分享接收 channel,无需 mock `study_buddy/overlay`。
 // - AppTheme.light 提供 PaperColors 扩展（_MasteryChip/_TopicRow 依赖 ruleSoft）。
 // - _MasteryChip 为本文件私有组件，只能经显示文本「未学」断言，无法 import 内部。
 import 'package:flutter/material.dart';

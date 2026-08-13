@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:math';
+
 import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -136,6 +140,125 @@ void main() {
     expect(captured!.first.content, 'sys-prompt');
     expect(captured!.last.role, 'user');
   });
+
+  // ============ LLM 调用失败重试机制测试 ============
+
+  test('LLM 首次失败后重试成功：含 RetryEvent 且最终 Done', () async {
+    final llm = _FailingThenOkLlm(
+      // 第 1 次抛 SocketException（模拟远程临时中断），第 2 次正常返回文本。
+      failTimes: 1,
+      okChunks: const [LlmStreamChunk(textDelta: '恢复成功')],
+    );
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+
+    final retries = events.whereType<RetryEvent>().toList();
+    expect(retries, hasLength(1), reason: '应只触发 1 次重试');
+    expect(retries.single.attempt, 1);
+    // 重试后 LLM 重新生成，最终文本应等于第 2 次的完整内容
+    expect(events.whereType<TextDeltaEvent>().single.delta, '恢复成功');
+    expect(events.last, isA<AgentDoneEvent>());
+    expect((events.last as AgentDoneEvent).finalText, '恢复成功');
+  });
+
+  test('网络中断与 HTTP 5xx 都会触发重试（所有错误都重试）', () async {
+    // 连续抛不同类型的异常，验证都被重试，最终成功。
+    final llm = _FailingThenOkLlm(
+      failTimes: 3,
+      okChunks: const [LlmStreamChunk(textDelta: 'ok')],
+      errors: [
+        const SocketException('connection reset'),
+        LlmHttpException(503, 'upstream down'),
+        TimeoutException('LLM 504'),
+      ],
+    );
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 5, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+    final retries = events.whereType<RetryEvent>().toList();
+    expect(retries, hasLength(3));
+    expect(retries.map((e) => e.attempt), [1, 2, 3]);
+    expect(events.last, isA<AgentDoneEvent>());
+  });
+
+  test('重试耗尽后以 AgentErrorEvent 结束，且不破坏对话', () async {
+    // 永远抛异常，maxAttempts=2 → 尝试 2 次后放弃。
+    final llm = _AlwaysFailLlm(const SocketException('down'));
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 2, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+    final retries = events.whereType<RetryEvent>().toList();
+    expect(retries, hasLength(1), reason: 'maxAttempts=2：仅第 1 次失败后重试 1 次');
+    expect(events.last, isA<AgentErrorEvent>());
+    expect((events.last as AgentErrorEvent).message, contains('down'));
+  });
+
+  test('重试前清空已部分下发的流式文本（避免新旧拼接）', () async {
+    // 第 1 次调用：吐半个字「半」后流中断抛错；第 2 次成功返回「完整回答」。
+    // 已发出的 TextDeltaEvent 无法撤回，但 AgentLoop 会丢弃缓冲并 yield RetryEvent，
+    // 交由 UI 层（chat_session_provider）在收到 RetryEvent 时清空 streamingText。
+    // 此处验证：最终 finalText 是完整重生成的结果（而非「半」+「完整回答」拼接）。
+    final llm = _PartialThenOkLlm();
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+    expect(events.whereType<RetryEvent>(), hasLength(1));
+    // finalText 不包含旧的中途文本——重试丢弃了缓冲
+    expect((events.last as AgentDoneEvent).finalText, '完整回答',
+        reason: '重试应丢弃缓冲里的「半」字，finalText 只含重新生成的完整回答');
+  });
+
+  test('RetryConfig.maxAttempts=1 表示不重试：单次失败即 AgentErrorEvent', () async {
+    final llm = _AlwaysFailLlm(const SocketException('down'));
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: RetryConfig.none,
+      random: _FixedRandom(),
+    );
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+    expect(events.whereType<RetryEvent>(), isEmpty);
+    expect(events.last, isA<AgentErrorEvent>());
+  });
+
+  test('成功路径不产生 RetryEvent（回归）', () async {
+    final llm = _FakeLlm([
+      const [LlmStreamChunk(textDelta: 'done')],
+    ]);
+    final loop = AgentLoop(llm: llm, scenario: _FakeScenario());
+    final events = await loop
+        .run([const ChatMessage(role: 'system', content: 'sys')])
+        .toList();
+    expect(events.whereType<RetryEvent>(), isEmpty);
+    expect(events.last, isA<AgentDoneEvent>());
+  });
 }
 
 /// 记录是否被调用的 scenario。
@@ -189,4 +312,98 @@ class _RecordingLogger implements LoggerSink {
       List<String> tags = const []}) {
     calls.add((level, message, traceId));
   }
+}
+
+/// 前 [failTimes] 次调用抛异常，后续返回 [okChunks]。
+/// [errors] 提供每次抛的具体异常（默认 SocketException）。
+class _FailingThenOkLlm extends LlmProvider {
+  _FailingThenOkLlm({
+    required this.failTimes,
+    required this.okChunks,
+    this.errors,
+  }) : super(config: LlmConfig(
+            name: '',
+            apiUrl: '',
+            apiKey: '',
+            model: '',
+            createdAt: DateTime(2026)));
+  final int failTimes;
+  final List<LlmStreamChunk> okChunks;
+  final List<Object>? errors;
+  int _callCount = 0;
+
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+    String? traceId,
+  }) async* {
+    final idx = _callCount++;
+    if (idx < failTimes) {
+      final err = errors != null && idx < errors!.length
+          ? errors![idx]
+          : const SocketException('down');
+      throw err;
+    }
+    for (final c in okChunks) {
+      yield c;
+    }
+  }
+}
+
+/// 每次调用都抛 [error]。
+class _AlwaysFailLlm extends LlmProvider {
+  _AlwaysFailLlm(this.error) : super(config: LlmConfig(
+            name: '',
+            apiUrl: '',
+            apiKey: '',
+            model: '',
+            createdAt: DateTime(2026)));
+  final Object error;
+
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+    String? traceId,
+  }) async* {
+    throw error;
+  }
+}
+
+/// 第 1 次调用：吐「半」后流中断（用 sync* 中途 throw 模拟）；
+/// 第 2 次调用：正常吐「完整回答」。验证重试时已部分累积的文本被丢弃。
+class _PartialThenOkLlm extends LlmProvider {
+  _PartialThenOkLlm() : super(config: LlmConfig(
+            name: '',
+            apiUrl: '',
+            apiKey: '',
+            model: '',
+            createdAt: DateTime(2026)));
+  int _callCount = 0;
+
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+    String? traceId,
+  }) async* {
+    _callCount++;
+    if (_callCount == 1) {
+      yield const LlmStreamChunk(textDelta: '半');
+      throw const SocketException('drop after first chunk');
+    }
+    yield const LlmStreamChunk(textDelta: '完整回答');
+  }
+}
+
+/// 确定性 Random：nextInt 恒返回 0，nextDouble 恒返回 0。
+/// 用于让退避抖动可预测，便于断言测试时即时完成。
+class _FixedRandom implements Random {
+  @override
+  bool nextBool() => false;
+  @override
+  double nextDouble() => 0.0;
+  @override
+  int nextInt(int max) => 0;
 }

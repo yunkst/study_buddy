@@ -89,9 +89,9 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 // 不能 const(整个 children list 也去 const)。
                 children: [
                   _OnboardingStep(
-                    ordinal: '一', icon: Icons.screenshot_monitor,
-                    title: '截图悬浮球',
-                    body: '任意界面点悬浮球，框选题目，AI 拆知识点。',
+                    ordinal: '一', icon: Icons.share_outlined,
+                    title: '分享图片问 AI',
+                    body: '相册或浏览器分享图片到本 App，框选题目，AI 拆知识点。',
                   ),
                   _OnboardingStep(
                     ordinal: '二', icon: Icons.camera_alt_outlined,

@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/chat_session_provider.dart';
-import 'package:study_buddy/core/providers/screenshot_provider.dart';
+import 'package:study_buddy/core/providers/captured_image.dart';
 import 'package:study_engine/study_engine.dart';
 
 /// 假 AgentSession：用预制事件流驱动，记录收到的 messages。
@@ -247,6 +249,41 @@ void main() {
     await sendFuture.timeout(const Duration(seconds: 1));
     expect(container.read(currentChatProvider).messages, isEmpty);
   });
+
+  testWidgets('App detached 触发当前会话清空', (tester) async {
+    // 单元环境没有 app.dart 的 observer，用一个最小 probe 复现 detached 接线契约：
+    // didChangeAppLifecycleState(detached) → currentChatProvider.notifier.clear()。
+    final events = <AgentEvent>[
+      TextDeltaEvent('答'),
+      AgentDoneEvent('答'),
+    ];
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref, events)),
+    ]);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        home: _DetachedClearProbe(
+          onDetached: () =>
+              container.read(currentChatProvider.notifier).clear(),
+        ),
+      ),
+    ));
+
+    // 先 send 一轮让 messages 非空
+    await container.read(currentChatProvider.notifier).send('问', image: _screenshot());
+    await tester.pump();
+    expect(container.read(currentChatProvider).messages, isNotEmpty);
+
+    // 模拟系统分发 detached 事件 → probe 调 clear
+    final binding = tester.binding;
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+    await tester.pump();
+
+    expect(container.read(currentChatProvider).messages, isEmpty);
+  });
 }
 
 class _ThrowingAgentSession extends AgentSession {
@@ -267,4 +304,37 @@ class _HangingAgentSession extends AgentSession {
     // 不 emit、不 close —— 流保持打开，模拟 agent 正在跑
     return ctrl.stream;
   }
+}
+
+/// 最小 WidgetsBindingObserver：detached 触发 onDetached 回调。
+///
+/// 复现 `app.dart` 的 detached 接线契约（detached → clear），不依赖整个 App 树。
+class _DetachedClearProbe extends StatefulWidget {
+  const _DetachedClearProbe({required this.onDetached});
+  final VoidCallback onDetached;
+  @override
+  State<_DetachedClearProbe> createState() => _DetachedClearProbeState();
+}
+
+class _DetachedClearProbeState extends State<_DetachedClearProbe>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) widget.onDetached();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
