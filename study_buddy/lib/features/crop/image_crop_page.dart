@@ -5,6 +5,8 @@
 //   得到 `imageDisplayRect`（局部坐标系），全程无依赖 post-frame 取 RenderBox；
 // - 维护裁剪框 `_cropRect`（初始 = 整张图边界 = imageDisplayRect），
 //   支持 8 手柄（4 角 + 4 边中点）与框内平移；
+// - 解码后异步跑主体识别（[detectSubject]），识别到则把裁剪框预填为题目区，
+//   识别失败/低置信回落中心默认框（[fallbackCenterRect]）；
 // - 底部「取消 / 确认裁剪」，确认时调 crop_service 像素裁剪并 `pop<CapturedScreenshot>`。
 //
 // 裁剪页只 `Navigator.pop` 结果，不在这里调 showAiPanel —— 避免裁剪页 dispose 后
@@ -15,24 +17,49 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 
 import '../../core/providers/captured_image.dart';
 import '../../core/theme/crop_frame_painter.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
+import 'auto_subject_detection.dart';
 import 'crop_service.dart';
 
 /// 全屏裁剪页。[sourceBytes] 为待裁剪的原图字节（拍照 / 相册 JPEG/PNG）。
 ///
 /// 确认后将 `Navigator.pop<CapturedScreenshot>(cropped)`；用户取消则 `pop(null)`。
+///
+/// [detectSubject] 为可注入的主体识别函数（返回原图像素空间的 Rect，null 表示
+/// 检测不到）。生产默认走 [defaultDetectSubject]（降采样 + isolate）；测试可注入
+/// fake 以绕过真实像素分析，获得确定性结果。
 class ImageCropPage extends StatefulWidget {
-  const ImageCropPage({super.key, required this.sourceBytes});
+  const ImageCropPage({
+    super.key,
+    required this.sourceBytes,
+    this.detectSubject,
+  });
 
   final Uint8List sourceBytes;
 
+  /// 主体识别入口（可注入）。输入为解码后的 [ui.Image]，输出原图像素空间 Rect。
+  /// [defaultDetectSubject] 会在 isolate 里跑；fake 直接返回固定值/ null。
+  final Future<Rect?> Function(ui.Image source)? detectSubject;
+
   @override
   State<ImageCropPage> createState() => _ImageCropPageState();
+}
+
+/// 默认主体识别实现：降采样 + isolate 跑 [detectSubjectRectInIsolate]。
+///
+/// 返回原图像素空间 Rect（null = 低置信度）。
+Future<Rect?> defaultDetectSubject(ui.Image source) async {
+  final small = await downsampleToRgba(source: source, maxSide: 320);
+  return compute(
+    detectSubjectRectInIsolate,
+    DetectSubjectInput(small.rgba, small.width, small.height),
+  );
 }
 
 /// 手势命中模式：无 / 平移 / 8 个手柄方向。
@@ -53,6 +80,9 @@ class _ImageCropPageState extends State<ImageCropPage> {
   ui.Image? _decoded; // 异步解码产物，dispose 释放
   bool _decoding = true; // 初始加载动画
   bool _loadFailed = false; // 解码失败标记
+  bool _userTouched = false; // 用户在主体识别完成前已手动拖动 → 跳过自动覆盖
+  bool _autoDone = false; // 主体识别是否已完成（区别于"结果为 null"）
+  Rect? _autoPixelRect; // 识别结果（原图像素空间），_autoDone=true 后有效
   Size _imagePixelSize = Size.zero;
   Rect _imageDisplayRect = Rect.zero; // 图片 contain 后居中显示矩形
   Rect _cropRect = Rect.zero; // 当前裁剪框（⊆ _imageDisplayRect）
@@ -64,6 +94,9 @@ class _ImageCropPageState extends State<ImageCropPage> {
 
   /// 裁剪框最小边长（逻辑 px）。
   static const double _minSide = 48;
+
+  /// 兜底中心框占显示区比例（宽/高各占该比例，居中）。
+  static const double _fallbackFactor = 0.7;
 
   @override
   void initState() {
@@ -84,6 +117,9 @@ class _ImageCropPageState extends State<ImageCropPage> {
         _decoding = false;
         _loadFailed = false;
       });
+      // 首帧已可渲染（_computeContainRect 会用整图初始化 _cropRect）。
+      // 异步触发主体识别，不阻塞 UI；结果回填裁剪框或回落中心默认框。
+      _kickAutoDetect(img);
     } on Exception {
       if (mounted) {
         setState(() {
@@ -92,6 +128,90 @@ class _ImageCropPageState extends State<ImageCropPage> {
         });
       }
     }
+  }
+
+  /// 后台触发主体识别并回填裁剪框。fire-and-forget，不阻塞首帧。
+  ///
+  /// 若用户在这期间已手动拖动（[_userTouched]），尊重用户、不覆盖其裁剪框；
+  /// 识别失败 / 返回 null / 抛异常 → 走 [_fallbackCenterRect] 兜底。
+  ///
+  /// 时序解耦：识别可能早于 LayoutBuilder 首帧（[_imageDisplayRect] 未就绪）
+  /// 完成。此时不立即 apply（否则会算出 Rect.zero 被覆盖），而是把结果暂存
+  /// [_autoPixelRect]，留到 [_computeContainRect] 就绪后由 [_tryApplyAutoRect] 应用。
+  Future<void> _kickAutoDetect(ui.Image img) async {
+    Rect? result;
+    try {
+      final detect = widget.detectSubject ?? defaultDetectSubject;
+      result = await detect(img); // 原图像素空间 Rect，可能 null
+    } on Exception {
+      // 识别异常：按"检测不到"处理（null → 中心默认框兜底），不崩。
+      result = null;
+    }
+    if (!mounted) return;
+    _autoDone = true;
+    _autoPixelRect = result;
+    if (_imageDisplayRect.isEmpty) {
+      // 显示区未就绪（识别早于 LayoutBuilder 首帧）→ 由 _computeContainRect 收尾。
+      return;
+    }
+    // 非 build 期：直接赋值后 setState 触发重绘。
+    _tryApplyAutoRect();
+    setState(() {});
+  }
+
+  /// 把识别结果映射回裁剪框（同步改字段，不调 setState）。
+  ///
+  /// 只在两处调用：
+  /// - [_kickAutoDetect]（非 build 期）：调用后由它 setState 触发重绘；
+  /// - [_computeContainRect]（build 期）：本次 build 尚未构造 CustomPaint，
+  ///   直接改 `_cropRect` 即可被 painter 读到，无需 setState。
+  ///
+  /// [_autoDone] 未完成 / [_userTouched]（用户已操作）/ [_imageDisplayRect] 未就绪
+  /// 任一成立则不覆盖。
+  void _tryApplyAutoRect() {
+    if (!_autoDone) return; // 识别尚未完成
+    if (_userTouched) return; // 用户已操作，放弃自动覆盖
+    if (_imageDisplayRect.isEmpty) return; // 显示区未就绪
+    _cropRect = _resolveAutoCropRect(_autoPixelRect);
+  }
+
+  /// 把原图像素空间的识别结果映射到「显示坐标」并约束。
+  ///
+  /// [pixelRect] 为原图像素 Rect（detect 输出）；null 或空 → 中心默认框。
+  /// 公式（原图尺寸在分子/分母约掉）：显示 = pixelRect × (display/small)
+  /// 只在显示层换算，避免引入大图浮点误差；再加 4% padding 并 clamp 到
+  /// [_imageDisplayRect] + [_minSide]。
+  Rect _resolveAutoCropRect(Rect? pixelRect) {
+    if (_imageDisplayRect.isEmpty || pixelRect == null || pixelRect.isEmpty) {
+      return _fallbackCenterRect();
+    }
+    final sx = _imageDisplayRect.width / _imagePixelSize.width;
+    final sy = _imageDisplayRect.height / _imagePixelSize.height;
+    final displayRect = Rect.fromLTWH(
+      pixelRect.left * sx + _imageDisplayRect.left,
+      pixelRect.top * sy + _imageDisplayRect.top,
+      pixelRect.width * sx,
+      pixelRect.height * sy,
+    );
+    final pad = math.min(displayRect.width, displayRect.height) * 0.04;
+    final padded = displayRect.inflate(pad);
+    return clampRect(rect: padded, bounds: _imageDisplayRect, minSide: _minSide);
+  }
+
+  /// 兜底中心默认框：图像正中、宽高各占显示区 [_fallbackFactor] 的居中矩形。
+  Rect _fallbackCenterRect() {
+    if (_imageDisplayRect.isEmpty) return Rect.zero;
+    final w = _imageDisplayRect.width * _fallbackFactor;
+    final h = _imageDisplayRect.height * _fallbackFactor;
+    return clampRect(
+      rect: Rect.fromCenter(
+        center: _imageDisplayRect.center,
+        width: w,
+        height: h,
+      ),
+      bounds: _imageDisplayRect,
+      minSide: _minSide,
+    );
   }
 
   @override
@@ -106,6 +226,7 @@ class _ImageCropPageState extends State<ImageCropPage> {
 
   void _onPanStart(DragStartDetails details) {
     if (_busy || _imageDisplayRect.isEmpty) return;
+    _userTouched = true; // 用户开始操作 → 未完成的自动识别不再覆盖其裁剪框
     _dragMode = _hitMode(details.localPosition);
   }
 
@@ -366,6 +487,10 @@ class _ImageCropPageState extends State<ImageCropPage> {
     final needsInit = _cropRect.isEmpty || _imageDisplayRect.isEmpty;
     _imageDisplayRect = rect;
     if (needsInit) _cropRect = rect;
+    // 显示区刚就绪：若主体识别已提前完成，把结果映射回裁剪框。
+    // （识别早于首帧的竞态由这里收尾——needsInit 刚把 _cropRect 设成整图，
+    //  若 auto 结果非空则覆盖成题目区/中心框。）
+    _tryApplyAutoRect();
   }
 }
 

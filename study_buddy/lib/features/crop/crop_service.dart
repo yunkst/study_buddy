@@ -1,16 +1,18 @@
-// 拍题图片裁剪：纯函数服务层（解码 + 坐标映射 + 像素重编码）。
+// 拍题图片裁剪：纯函数服务层（解码 + 坐标映射 + 像素重编码 + 降采样）。
 //
 // 与 UI 解耦：本文件不持有 widget 状态，只提供可单测的纯函数。
 // widget 层（image_crop_page.dart）负责手势与显示坐标，确认时调
-// [mapDisplayRectToPixelRect] + [cropToPng] 得到裁剪后的 [CapturedScreenshot]。
+// [mapDisplayRectToPixelRect] + [cropToPng] 得到裁剪后的 [CapturedScreenshot]；
+// 首帧渲染后异步调 [downsampleToRgba] 得到小图 RGBA，喂给 isolate 跑主体识别。
 //
 // 不引入新 pub 依赖：全程走 `dart:ui`（instantiateImageCodec / PictureRecorder
-// / Canvas.drawImageRect / toImage / toByteData(png)）。image_picker 输出的
+// / Canvas.drawImageRect / toImage / toByteData(png|rawStraightRgba)）。image_picker 输出的
 // JPEG / PNG / WebP 源，经 decodeSourceImage 后统一为 ui.Image，再重编码为 PNG，
 // 对齐 [CapturedScreenshot.pngBytes] 的命名与 LLM 视觉数据 URI 约定。
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -130,4 +132,54 @@ Future<CapturedScreenshot> cropToPng({
   final pngBytes = byteData!.buffer.asUint8List();
   final b64 = base64Encode(pngBytes);
   return CapturedScreenshot(pngBytes, 'data:image/png;base64,$b64');
+}
+
+/// 降采样后的 RGBA 直通字节（isolate 可发送，供主体识别）。
+///
+/// [rgba] 为 `rawStraightRgba` 格式（长度为 width*height*4），[width]/[height]
+/// 是按原图比例取整后的实际尺寸（长边 ≤ [maxSide]）。
+class DownsampledPixels {
+  final Uint8List rgba;
+  final int width;
+  final int height;
+
+  const DownsampledPixels(this.rgba, this.width, this.height);
+}
+
+/// 把 [source] 整图等比降采样到长边 ≤ [maxSide]，输出 RGBA 直通字节。
+///
+/// 复用 [cropToPng] 的 `PictureRecorder + drawImageRect` 思路：把整图画到一个
+/// maxSide×(按比例) 的小 canvas，`toImage` → `toByteData(rawStraightRgba)`。
+/// 临时产生的 ui.Image / PictureRecorder 在函数内 dispose。
+///
+/// 典型用法：`maxSide: 320`（约 0.4MB RGBA），供 `compute()` 跑主体识别，
+/// 避免把整幅大图字节送进 isolate、也避免 UI isolate 内做重像素处理。
+Future<DownsampledPixels> downsampleToRgba({
+  required ui.Image source,
+  int maxSide = 320,
+}) async {
+  final scale = math.min(
+    math.min(maxSide / source.width, maxSide / source.height),
+    1.0, // 不放大原图：小图维持原尺寸，避免无谓放大浪费
+  );
+  final w = math.max(1, (source.width * scale).round());
+  final h = math.max(1, (source.height * scale).round());
+
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawImageRect(
+    source,
+    Rect.fromLTWH(0, 0, source.width.toDouble(), source.height.toDouble()),
+    Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+    // 降采样用 low 更快、对墨迹判定足够。
+    ui.Paint()..filterQuality = ui.FilterQuality.low,
+  );
+  final picture = recorder.endRecording();
+  final small = await picture.toImage(w, h);
+  final bd = await small.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+
+  small.dispose();
+  picture.dispose();
+
+  return DownsampledPixels(bd!.buffer.asUint8List(), w, h);
 }
