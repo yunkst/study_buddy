@@ -117,7 +117,10 @@ class TopicScheduleRepository {
       difficulty: newD,
       reps: reps,
       lapses: lapses,
-      lastReviewedAt: at,
+      // 新建行（existing == null）lastReviewedAt 置 null：该知识点从未经 FSRS
+      // 评分 UI 首评，不应被 firstGradeCountToday 计入「今日已首评」而烧掉新卡额度；
+      // 已有行仍写 at（本次 set_mastery 即一次真实触点）。
+      lastReviewedAt: existing == null ? null : at,
       dueAt: at.add(Duration(days: intervalDays)),
     );
     await upsert(next);

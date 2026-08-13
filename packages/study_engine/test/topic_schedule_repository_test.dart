@@ -216,7 +216,7 @@ void main() {
     expect(out.dueAt, isNotNull);
   });
 
-  test('applyMasteryOverride unknown → S=0.4 且建行；firstGradeCountToday 跨天计数',
+  test('applyMasteryOverride unknown → S=0.4 且建行；新建行 lastReviewedAt=null 不计入今日首评',
       () async {
     final todayTopic = await seedTopic(title: 'today');
     final yesterdayTopic = await seedTopic(title: 'yesterday');
@@ -234,7 +234,8 @@ void main() {
       lastReviewedAt: yesterday,
       dueAt: now,
     ));
-    // unknown 修正今日 topic（此前无行 → 建行）
+    // unknown 修正今日 topic（此前无行 → 建行）。新建行 lastReviewedAt 为 null：
+    // 该知识点未经 FSRS 评分 UI 首评，不应被 firstGradeCountToday 烧掉新卡额度。
     final out = await repo.applyMasteryOverride(
       topicId: todayTopic,
       status: MasteryStatus.unknown,
@@ -242,15 +243,16 @@ void main() {
     );
     expect(out.topicId, todayTopic);
     expect(out.stability, 0.4);
-    expect(out.lastReviewedAt, now);
+    expect(out.lastReviewedAt, isNull);
     expect(out.dueAt, isNotNull);
     // 行已建：find 得到
     expect(await repo.findByTopic(todayTopic), isNotNull);
 
-    // firstGradeCountToday：仅 todayTopic 满足 last_reviewed_at >= 今日零点 且 reps==0
-    // （yesterdayTopic 的 last_reviewed_at < 今日零点，不计；todayTopic 的 reps==0 计入）
+    // firstGradeCountToday：仅 last_reviewed_at >= 今日零点 且 reps==0 计入。
+    // yesterdayTopic 的 last < 今日零点，不计；todayTopic 为新建行 lastReviewedAt=null，
+    // 也不计 → 0。
     final count = await repo.firstGradeCountToday(now);
-    expect(count, 1);
+    expect(count, 0);
     // 显式验证今日零点边界
     expect(todayMidnight.millisecondsSinceEpoch, lessThan(now.millisecondsSinceEpoch));
   });

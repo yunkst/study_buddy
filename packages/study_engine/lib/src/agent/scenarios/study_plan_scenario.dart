@@ -242,9 +242,37 @@ class StudyPlanScenario implements AgentScenario {
     });
   }
 
+  /// 确保 topic 有 FSRS 调度行：无行则建默认行并立即可复习。
+  ///
+  /// 默认行 S=0、D=5、reps=0、lapses=0、lastReviewedAt=null、dueAt=now。
+  /// `dueAt <= now` ⇒ 立刻进 dueNow() 队列，今日待复习数随之 +1。
+  /// [force]=true 时无条件建行（fresh insert 必然无行）；false 时已有行则尊重
+  /// 历史 FSRS 状态不动。异常静默吞掉（topic 本身已落库，调度行可由后续
+  /// set_mastery 兜底，不让调度失败破坏 save_topic 的成功语义）。
+  Future<void> _ensureDefaultSchedule(int topicId, {required bool force}) async {
+    try {
+      if (!force) {
+        final existing = await schedules.findByTopic(topicId);
+        if (existing != null) return;
+      }
+      await schedules.upsert(TopicSchedule(
+        topicId: topicId,
+        stability: 0,
+        difficulty: 5.0,
+        reps: 0,
+        lapses: 0,
+        lastReviewedAt: null,
+        dueAt: DateTime.now(),
+      ));
+    } catch (_) {
+      // 静默：见方法 doc。不 rethrow。
+    }
+  }
+
   Future<String> _saveTopic(String path, String title, String question, String summary) async {
     final existing = await topics.findByTitle(title);
     if (existing != null) {
+      await _ensureDefaultSchedule(existing.id!, force: false);
       await onTopicTouched?.call(existing.id!);
       return jsonEncode(SaveTopicResult(
         id: existing.id!,
@@ -272,15 +300,20 @@ class StudyPlanScenario implements AgentScenario {
       // 非 UNIQUE 异常继续抛出。
       if (e.toString().contains('UNIQUE constraint failed')) {
         final existing = await topics.findByTitle(title);
-        await onTopicTouched?.call(existing!.id!);
+        // UNIQUE 冲突理论上必能查到已存在的同 title 记录；防御性判空后转「已存在」。
+        if (existing == null) rethrow;
+        final id = existing.id!;
+        await _ensureDefaultSchedule(id, force: false);
+        await onTopicTouched?.call(id);
         return jsonEncode(SaveTopicResult(
-          id: existing!.id!,
+          id: id,
           isNew: false,
           message: '知识点「$title」已存在。如需补充答案请用 update_topic。',
         ).toJson());
       }
       rethrow;
     }
+    await _ensureDefaultSchedule(id, force: true);
     await onTopicTouched?.call(id);
     return jsonEncode(SaveTopicResult(
       id: id,

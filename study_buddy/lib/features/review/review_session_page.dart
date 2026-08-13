@@ -1,7 +1,8 @@
-// 复习会话：翻面卡 + 四档 FSRS 评分。
+// 复习会话：翻面卡 + 四档 FSRS 评分 + 再来一组。
 //
-// 队列取 reviewQueueProvider（今日到期 ≤ kDailyReviewCap(20) 张），进度推进
-// 走 reviewSessionProvider。
+// 队列取 reviewQueueProvider（autoDispose：一次查够多组，供会话内内存切片翻页），
+// 当组由 ReviewSessionState.setIndex + limit 在内存切片得到，进度推进走
+// reviewSessionProvider；完成态可「再来一组」续评。
 library;
 
 import 'package:flutter/material.dart';
@@ -9,12 +10,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/daily_review_limit_provider.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/markdown_latex.dart';
 import 'review_providers.dart';
 
-/// 复习会话页：今日到期卡片的翻面背诵 + 四档 FSRS 评分。
+/// 复习会话页：今日到期卡片的翻面背诵 + 四档 FSRS 评分 + 再来一组续评。
 class ReviewSessionPage extends ConsumerStatefulWidget {
   const ReviewSessionPage({super.key});
 
@@ -29,6 +31,18 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
   Widget build(BuildContext context) {
     final queueAsync = ref.watch(reviewQueueProvider);
     final session = ref.watch(reviewSessionProvider);
+    final limitAsync = ref.watch(dailyReviewLimitProvider);
+
+    // 进入会话：用当前每日复习上限初始化本组大小快照。
+    // postFrameCallback 避免在 build 中同步修改 state；init 内部幂等（_inited）。
+    limitAsync.maybeWhen(
+      data: (limit) => WidgetsBinding.instance.addPostFrameCallback(
+        (_) {
+          if (mounted) ref.read(reviewSessionProvider.notifier).init(limit);
+        },
+      ),
+      orElse: () {},
+    );
 
     return PaperScaffold(
       appBar: AppBar(title: const Text('复习')),
@@ -39,35 +53,38 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
           onBack: () => context.go('/today'),
         ),
         data: (queue) {
-          if (queue.isEmpty) {
+          // 当组：从全量队列按 setIndex 起点切片 limit 张（会话内内存分页）。
+          final page = queue.skip(session.setIndex).take(session.limit).toList();
+          if (page.isEmpty) {
             return _CenteredMessage(
               message: '今日无待复习',
               onBack: () => context.go('/today'),
             );
           }
-          // 队列非空但会话自然 done（next 越界）→ 完成视图。
-          // done 时 index 停在最后一张（0 基），已复习张数 = index+1。
-          if (session.done || session.index >= queue.length) {
-            return _DoneView(
-              reviewed: (session.index + 1).clamp(0, queue.length),
+          // 组完成：显示累计已复习 + 再来一组 / 返回。
+          if (session.done || session.index >= page.length) {
+            return _BatchSummaryView(
+              reviewed: session.setIndex + session.index + 1,
+              onMore: () => _nextSet(),
               onBack: () => context.go('/today'),
             );
           }
-          return _buildCard(context, queue, session.index);
+          return _buildCard(context, page, session);
         },
       ),
     );
   }
 
-  /// 当前卡：进度条 + 翻卡 + 四档评分。
+  /// 当前卡：进度条 + 翻卡 + 四档评分。进度展示累计（已复习 setIndex 张 + 本组进度）。
   Widget _buildCard(
     BuildContext context,
-    List<TopicSchedule> queue,
-    int index,
+    List<TopicSchedule> page,
+    ReviewSessionState session,
   ) {
-    final schedule = queue[index];
+    final index = session.index;
+    final schedule = page[index];
     final topicAsync = ref.watch(reviewTopicProvider(schedule.topicId));
-    final total = queue.length;
+    final total = page.length;
     final theme = Theme.of(context);
     final paper = theme.extension<PaperColors>();
     final accent = paper?.stampRed ?? theme.colorScheme.primary;
@@ -76,12 +93,19 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 顶部进度：第 N / M 张 + 细进度条。
+          // 顶部进度：第 N / M 张（本组）+ 累计已复习 + 细进度条。
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (session.setIndex > 0)
+                  Text(
+                    '今日已复习 ${session.setIndex} 张',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 Text(
                   '第 ${index + 1} / $total 张',
                   style: theme.textTheme.headlineSmall?.copyWith(
@@ -185,6 +209,14 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
     ).showSnackBar(const SnackBar(content: Text('已跳过无效卡')));
     setState(() => _flipped = false);
     ref.read(reviewSessionProvider.notifier).next(total);
+  }
+
+  /// 再来一组：读当前每日复习上限，nextSet 重置到新组首张。
+  Future<void> _nextSet() async {
+    final limit = await ref.read(dailyReviewLimitProvider.future);
+    if (!mounted) return;
+    setState(() => _flipped = false);
+    ref.read(reviewSessionProvider.notifier).nextSet(limit);
   }
 }
 
@@ -341,11 +373,16 @@ class _CenteredMessage extends StatelessWidget {
   }
 }
 
-/// 完成视图：显示本次已复习张数。
-class _DoneView extends StatelessWidget {
-  const _DoneView({required this.reviewed, required this.onBack});
+/// 组完成视图：显示累计已复习张数 + 再来一组 / 返回。
+class _BatchSummaryView extends StatelessWidget {
+  const _BatchSummaryView({
+    required this.reviewed,
+    required this.onMore,
+    required this.onBack,
+  });
 
   final int reviewed;
+  final VoidCallback onMore;
   final VoidCallback onBack;
 
   @override
@@ -355,8 +392,13 @@ class _DoneView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('今日复习 $reviewed 张已完成', style: theme.textTheme.titleMedium),
+          Text('今日已复习 $reviewed 张', style: theme.textTheme.titleMedium),
           const SizedBox(height: 16),
+          FilledButton.tonal(
+            onPressed: onMore,
+            child: const Text('再来一组'),
+          ),
+          const SizedBox(height: 8),
           FilledButton.tonal(onPressed: onBack, child: const Text('返回')),
         ],
       ),

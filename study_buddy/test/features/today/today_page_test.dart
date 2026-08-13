@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
@@ -24,6 +25,7 @@ import 'package:study_engine/study_engine.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(sqfliteFfiInit);
+  setUp(() => SharedPreferences.setMockInitialValues({})); // dueNowCountProvider 依赖 dailyReviewLimitProvider
 
   late StudyDatabase sdb;
 
