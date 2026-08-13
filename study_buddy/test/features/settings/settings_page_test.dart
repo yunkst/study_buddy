@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
@@ -14,6 +15,8 @@ void main() {
   late StudyDatabase sdb;
 
   setUp(() async {
+    // 预览通道开关等 SharedPreferences 偏好，默认关闭。
+    SharedPreferences.setMockInitialValues({});
     sdb = await StudyDatabase.open(
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
@@ -85,5 +88,67 @@ void main() {
     expect(find.text('API Key'), findsWidgets);
     expect(find.text('模型'), findsWidgets);
     expect(find.text('保存'), findsOneWidget);
+  });
+
+  /// 滚动系统分组到「预览版下载」开关可见（ListView 懒构建）。
+  Future<void> scrollToPreviewSwitch(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.text('预览版下载'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('设置页渲染预览版下载开关行', (tester) async {
+    await pumpSettings(tester);
+    await scrollToPreviewSwitch(tester);
+    expect(find.text('预览版下载'), findsOneWidget);
+    // 初始关闭。
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+  });
+
+  testWidgets('打开预览版开关先弹非常不稳定提醒,确认后开启', (tester) async {
+    await pumpSettings(tester);
+    await scrollToPreviewSwitch(tester);
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    // 提醒对话框：标题 + 非常不稳定文案 + 两个按钮。
+    expect(find.text('开启预览版下载'), findsOneWidget);
+    expect(find.textContaining('非常不稳定'), findsOneWidget);
+    expect(find.text('继续开启'), findsOneWidget);
+    expect(find.text('再想想'), findsOneWidget);
+
+    await tester.tap(find.text('继续开启'));
+    await tester.pumpAndSettle();
+    // 确认后开关开启。
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+  });
+
+  testWidgets('打开预览版开关取消则保持关闭', (tester) async {
+    await pumpSettings(tester);
+    await scrollToPreviewSwitch(tester);
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('再想想'));
+    await tester.pumpAndSettle();
+    // 取消：对话框关闭，开关保持关闭。
+    expect(find.text('开启预览版下载'), findsNothing);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+  });
+
+  testWidgets('已开启预览版时点开关直接关闭,无提醒', (tester) async {
+    SharedPreferences.setMockInitialValues({'app_update_preview_channel': true});
+    await pumpSettings(tester);
+    await scrollToPreviewSwitch(tester);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    // 关闭无需确认，无提醒对话框，开关直接关闭。
+    expect(find.text('开启预览版下载'), findsNothing);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
   });
 }
