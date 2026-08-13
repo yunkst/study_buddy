@@ -33,11 +33,15 @@ class AgentSession {
   /// [planId] 可选：非空则读取该计划概要到 system prompt（调整模式）；为空时
   /// 是"新建计划"模式（提示词会引导收齐信息后 create_plan）。[today] 可选：
   /// 总是注入今天日期，供 agent 推算相对时间（不传默认 DateTime.now()）。
+  ///
+  /// [topicId] 可选：非空则读取该知识点（标题/分类路径/引子/答案）到 system prompt，
+  /// 触发「知识点教学模式」（详情页【为什么？】入口）；为空时是普通学习伴侣会话。
   Future<AgentSessionHandle> run(
     List<ChatMessage> messages, {
     int? chatSessionId,
     int? planId,
     DateTime? today,
+    int? topicId,
   }) async {
     final db = await _ref.read(databaseProvider.future);
     final llmConfigs = LlmConfigRepository(db);
@@ -68,6 +72,22 @@ class AgentSession {
           '最近测评：${lastA?.score ?? "无"}${lastA?.note != null ? "（${lastA!.note}）" : ""}';
     } else {
       planSummary = '（用户尚未指定计划，可能是新建场景。请收齐信息后 create_plan。）';
+    }
+
+    // 知识点教学模式上下文：仿 planSummary 从 DB 读 Topic + 分类路径拼成文本，
+    // 供 PromptResolver 渲染「知识点教学模式」段（空串则不激活教学模式）。
+    String topicContext = '';
+    if (topicId != null) {
+      final t = await topics.findById(topicId);
+      if (t != null) {
+        final path = (await categories.pathOf(t.categoryId)).join('/');
+        topicContext = '知识点：${t.title}（id=${t.id}）\n'
+            '分类路径：$path\n'
+            '引子（背景/问题）：${t.question}\n'
+            '答案（核心内容）：${t.summary}';
+      } else {
+        topicContext = '（知识点 id=$topicId 不存在）';
+      }
     }
 
     final traceId = 'agent-${DateTime.now().millisecondsSinceEpoch}';
@@ -117,6 +137,7 @@ class AgentSession {
           'today': today ?? DateTime.now(),
           'plan_summary': planSummary,
           if (chatSessionId != null) 'chat_session_id': chatSessionId,
+          if (topicContext.isNotEmpty) 'topic_context': topicContext,
         }),
         traceId: traceId,
       ),

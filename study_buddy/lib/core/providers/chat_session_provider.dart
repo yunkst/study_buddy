@@ -27,6 +27,9 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
   AgentSessionHandle? _handle;
   /// 当前持久化会话 id（null=尚未建会话）。新建/续聊时填充。
   int? _sessionId;
+  /// 知识点教学入口的 topic id（详情页【为什么？】入口），send 时透传给 agent。
+  /// null=普通学习伴侣会话。clear() 时重置。
+  int? _teachingTopicId;
   /// hydrate 幂等标志：冷启动只加载一次最近会话；「新对话」clear 后不重载。
   bool _hydrated = false;
   /// 首次 send 触发后台建会话的信号（用于在 session 就绪后 flush 待持久化队列）。
@@ -155,7 +158,11 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       // 后台建会话（不阻塞）；user 消息进队列，session 就绪后按序落库。
       _ensureSessionAsync(trimmed);
       final session = _ref.read(agentSessionProvider);
-      final handle = await session.run(msgs, chatSessionId: _sessionId);
+      final handle = await session.run(
+        msgs,
+        chatSessionId: _sessionId,
+        topicId: _teachingTopicId,
+      );
       _handle = handle;
       // 存 user 消息（剥离图片）。chat_session_id 已注入 ctx，
       // save_review 的批改记录也能关联到本会话。
@@ -252,9 +259,28 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
     _done = null;
     _sessionId = null;
     _sessionReady = null;
+    _teachingTopicId = null;
     _pendingPersist.clear();
     state = ChatSessionState.initial;
   }
+
+  /// 启动「知识点教学模式」（详情页【为什么？】入口）：清空旧会话 → 记录教学 topic →
+  /// 立即发开场消息，触发 AI 从该知识点诞生的场景/解决的问题出发开场引导。
+  /// 开场不 await（流式输出经事件流回填，busy 由 send 内部管理）；「新对话」按钮复用
+  /// clear() 即退出教学模式回到普通会话。
+  void startTopicTeaching(int topicId) {
+    clear();
+    _teachingTopicId = topicId;
+    unawaited(send(_teachingOpeningPrompt));
+  }
+
+  /// 教学开场指令（详情页【为什么？】入口）：作为首条 user 消息触发 AI 自动开场。
+  /// 知识点内容由 system prompt（topic_context 占位符）注入，故模板不依赖具体知识点。
+  static const String _teachingOpeningPrompt =
+      '我要理解这个知识点。请先给我讲一个它诞生的具体场景——它当初是为了解决什么问题而诞生的，'
+      '或它现在被用在什么实际情境里。然后从这个场景出发，向我介绍这个知识点解决了什么、'
+      '核心思想是什么。讲完场景和动机后，再一步步引导我理解，一次只讲一步，'
+      '多用提问确认我懂了没有。';
 
   @override
   void dispose() {

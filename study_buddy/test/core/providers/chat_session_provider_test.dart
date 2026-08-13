@@ -18,11 +18,14 @@ class _FakeAgentSession extends AgentSession {
   _FakeAgentSession(super.ref, this._events);
   final List<AgentEvent> _events;
   final List<List<ChatMessage>> receivedMessages = [];
+  /// 每次 run 收到的 topicId（教学入口参数），用于断言 startTopicTeaching 透传。
+  final List<int?> receivedTopicIds = [];
   AgentSessionHandle? lastHandle;
 
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     receivedMessages.add(List.of(messages));
+    receivedTopicIds.add(topicId);
     final handle = AgentSessionHandle(stream: Stream.fromIterable(_events));
     lastHandle = handle;
     return handle;
@@ -231,6 +234,44 @@ void main() {
     expect(state.toolEvents, isEmpty);
   });
 
+  test('startTopicTeaching: 清空旧会话 + 发开场消息 + run 收到 topicId', () async {
+    final events = <AgentEvent>[
+      TextDeltaEvent('开场'),
+      AgentDoneEvent('开场'),
+    ];
+    _FakeAgentSession? captured;
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) {
+        return captured = _FakeAgentSession(ref, events);
+      }),
+    ]);
+    addTearDown(container.dispose);
+
+    final notifier = container.read(currentChatProvider.notifier);
+    // 先积累一轮旧会话（普通模式，topicId 应为 null）
+    await notifier.send('旧问题', image: _screenshot());
+    expect(container.read(currentChatProvider).messages, isNotEmpty);
+
+    // 教学启动：清旧会话 → 记录 topic → 发开场消息触发 AI 开场
+    notifier.startTopicTeaching(42);
+    // 开场 send 是 unawaited 异步，等事件流（Stream.fromIterable）走完
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final state = container.read(currentChatProvider);
+    // 旧会话被清空，只剩开场 user + assistant 回复
+    expect(state.messages, hasLength(2));
+    expect(state.messages[0].role, 'user');
+    expect(state.messages[1].role, 'assistant');
+    expect(state.messages[1].content, '开场');
+    expect(state.busy, isFalse);
+    // 开场 user 消息是教学指令（含「场景」），且不以用户气泡语义泄漏
+    final userContent = state.messages[0].content as List<ContentPart>;
+    final userText = userContent.whereType<TextPart>().map((p) => p.text).join();
+    expect(userText, contains('场景'));
+    // run 透传 topicId：旧轮为 null，教学轮为 42
+    expect(captured!.receivedTopicIds, [null, 42]);
+  });
+
   test('send 运行中 clear:挂起的 send future 必须返回(不永久挂起)', () async {
     // 用 controller 制造一个不会自动结束的流，模拟 agent 仍在跑时用户关闭抽屉。
     final container = ProviderContainer(overrides: [
@@ -351,7 +392,7 @@ class _DelayedSession extends AgentSession {
   final _FakeAgentSession _inner;
   final StreamController<AgentEvent> _ctrl;
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     _inner.receivedMessages.add(List.of(messages));
     final handle = AgentSessionHandle(stream: _ctrl.stream);
     _inner.lastHandle = handle;
@@ -362,7 +403,7 @@ class _DelayedSession extends AgentSession {
 class _ThrowingAgentSession extends AgentSession {
   _ThrowingAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     throw StateError('未配置支持视觉的默认 LLM');
   }
 }
@@ -372,7 +413,7 @@ class _ThrowingAgentSession extends AgentSession {
 class _HangingAgentSession extends AgentSession {
   _HangingAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     final ctrl = StreamController<AgentEvent>();
     // 不 emit、不 close —— 流保持打开，模拟 agent 正在跑
     return AgentSessionHandle(stream: ctrl.stream);

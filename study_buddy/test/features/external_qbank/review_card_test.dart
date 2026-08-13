@@ -18,7 +18,7 @@ class _ControllableAgentSession extends AgentSession {
   _ControllableAgentSession(super.ref, this._controller);
   final StreamController<AgentEvent> _controller;
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     return AgentSessionHandle(stream: _controller.stream);
   }
 }
@@ -48,11 +48,15 @@ Future<void> pumpPanel(
       ),
       GoRoute(
         path: '/ai',
-        builder: (_, state) => AiChatPage(
-          initialScreenshot: state.extra is CapturedScreenshot
-              ? state.extra as CapturedScreenshot
-              : null,
-        ),
+        builder: (_, state) {
+          final launch = state.extra is AiPanelLaunch
+              ? state.extra as AiPanelLaunch
+              : const AiPanelLaunch();
+          return AiChatPage(
+            initialScreenshot: launch.screenshot,
+            initialTopicId: launch.topicId,
+          );
+        },
       ),
     ],
   );

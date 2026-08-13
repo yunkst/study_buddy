@@ -128,14 +128,20 @@ GoRouter buildRouter({bool showOnboarding = false}) {
         builder: (context, state) => const ReviewSessionPage(),
       ),
       // 全屏 AI 对话页：顶层 GoRoute（root navigator 承载 → 全屏盖住底部导航）。
-      // state.extra 透传 CapturedScreenshot?（按引用传递，不序列化）：
-      // 非空 = 拍题/分享冷启动预填截图；null = 纯文字入口（直接聊 / 知识点深度交流）。
+      // state.extra 透传 AiPanelLaunch（按引用传递，不序列化）：screenshot 非空 =
+      // 拍题/分享冷启动预填截图；topicId 非空 = 知识点【为什么？】教学入口；两者皆空
+      // = 纯文字入口（直接聊）。
       GoRoute(
         path: '/ai',
-        builder: (context, state) => AiChatPage(
-          initialScreenshot:
-              state.extra is CapturedScreenshot ? state.extra as CapturedScreenshot : null,
-        ),
+        builder: (context, state) {
+          final launch = state.extra is AiPanelLaunch
+              ? state.extra as AiPanelLaunch
+              : const AiPanelLaunch();
+          return AiChatPage(
+            initialScreenshot: launch.screenshot,
+            initialTopicId: launch.topicId,
+          );
+        },
       ),
       // 拍题裁剪页：state.extra 透传 Uint8List（按引用传递，不序列化），
       // 非 Uint8List（deeplink/误传）回 /today，避免红屏。
