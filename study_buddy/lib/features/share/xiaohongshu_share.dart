@@ -1,6 +1,7 @@
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/share_card_provider.dart';
+import '../../core/services/logger_service.dart';
 
 /// 小红书没有开放第三方分享 SDK，只能用「URL Scheme 唤起 + 相册兜底」路线。
 /// 本文件：生成分享文案 + 唤起小红书 App。
@@ -39,12 +40,16 @@ Future<XhsOpenResult> openXiaohongshu() async {
     if (!can) return XhsOpenResult.notInstalled;
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     return ok ? XhsOpenResult.launched : XhsOpenResult.failed;
-  } catch (_) {
+  } catch (e) {
     // canLaunch/launch 平台异常（如旧 Android 无 scheme 处理）→ 网页兜底。
+    LoggerService.instance.w('小红书 scheme 唤起失败,回退网页: $e',
+        category: LogCategory.ui, tags: const ['xhs-share']);
     try {
       await launchUrl(Uri.parse(web), mode: LaunchMode.externalApplication);
       return XhsOpenResult.launched;
-    } catch (_) {
+    } catch (e2) {
+      LoggerService.instance.w('小红书网页兜底也失败: $e2',
+          category: LogCategory.ui, tags: const ['xhs-share']);
       return XhsOpenResult.notInstalled;
     }
   }

@@ -7,6 +7,7 @@
 import 'package:custom_lint_builder/custom_lint_builder.dart';
 
 import 'src/rules/avoid_business_debug_print.dart';
+import 'src/rules/avoid_developer_log.dart';
 import 'src/rules/avoid_literal_color.dart';
 import 'src/rules/avoid_literal_font_family.dart';
 import 'src/rules/avoid_material_colors.dart';
@@ -20,5 +21,6 @@ class _StudyBuddyLintsPlugin extends PluginBase {
         const AvoidMaterialColors(),
         const AvoidLiteralFontFamily(),
         const AvoidBusinessDebugPrint(),
+        const AvoidDeveloperLog(),
       ];
 }

@@ -1,4 +1,5 @@
 import '../db/database.dart';
+import '../logging/logger_sink.dart';
 import '../models/models.dart';
 
 /// 专注会话仓储：会话生命周期 + 知识点关联 + 按日期查询。
@@ -45,7 +46,10 @@ class FocusSessionRepository {
       );
     } catch (e) {
       if (!e.toString().contains('UNIQUE constraint failed')) rethrow;
-      // 幂等：已关联则忽略
+      // 幂等：已关联则忽略。记 debug 供排障时确认「重复关联被吞」而非缺失。
+      _db.logger.log(LoggerLevel.debug,
+          '关联知识点重复被吞: session=$sessionId topic=$topicId',
+          category: 'database', tags: const ['idempotent-unique']);
     }
   }
 

@@ -1,4 +1,5 @@
 import '../db/database.dart';
+import '../logging/logger_sink.dart';
 
 /// findByTopic 返回的边项：类型 + 对端 topic 的 id/title。
 class TopicEdgeView {
@@ -24,6 +25,10 @@ class TopicEdgeRepository {
     } catch (e) {
       // 仅忽略 UNIQUE 冲突；FK/锁/IO 等异常必须上抛，否则知识点图谱静默断链。
       if (!e.toString().contains('UNIQUE constraint failed')) rethrow;
+      // 幂等：边已存在则忽略。记 debug 供排障确认「重复建边被吞」。
+      _db.logger.log(LoggerLevel.debug,
+          '知识点边重复被吞: $fromTopicId -> $toTopicId ($type)',
+          category: 'database', tags: const ['idempotent-unique']);
     }
   }
 

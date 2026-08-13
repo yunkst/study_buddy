@@ -196,7 +196,7 @@ class AgentLoop {
           logger.log(LoggerLevel.info, '工具调用: ${tc.name}',
               category: 'ai', traceId: traceId, tags: const ['tool-call']);
           yield ToolCallStartEvent(tc.name, tc.id);
-          final args = _parseArgs(tc.arguments);
+          final args = _parseArgs(tc.arguments, traceId: traceId);
           String result;
 
           // ask_user 特殊路径：拦下并挂起，等 UI 用户作答后把答案作为工具结果。
@@ -227,7 +227,13 @@ class AgentLoop {
               // 超长工具输出落临时文件（opencode 风格），给 LLM 保留可追溯指针；
               // toolTmpDir 为 null（测试默认）时不截断。
               result = truncateToolOutput(raw, tmpDir: toolTmpDir);
-            } catch (e) {
+            } catch (e, st) {
+              // 工具执行失败：结果回填给 LLM 继续对话，同时记 error 级日志供排障。
+              logger.log(LoggerLevel.error, '工具执行失败: ${tc.name} — $e',
+                  category: 'ai',
+                  traceId: traceId,
+                  stackTrace: st.toString(),
+                  tags: const ['tool-error']);
               result = '工具执行出错: $e';
             }
           }
@@ -269,11 +275,13 @@ class AgentLoop {
     }
   }
 
-  Map<String, dynamic> _parseArgs(String raw) {
+  Map<String, dynamic> _parseArgs(String raw, {String? traceId}) {
     try {
       final decoded = jsonDecode(raw);
       return decoded is Map ? Map<String, dynamic>.from(decoded) : {};
     } catch (_) {
+      logger.log(LoggerLevel.warning, 'LLM 返回非法 JSON 参数: $raw',
+          category: 'ai', traceId: traceId, tags: const ['tool-args']);
       return {};
     }
   }
