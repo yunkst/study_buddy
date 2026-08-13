@@ -5,12 +5,21 @@ import 'database_migrations.dart';
 /// 持有 SQLite 连接的门面。factory 由调用方注入（生产/测试各异）。
 class StudyDatabase {
   final Database db;
-  StudyDatabase._(this.db);
+
+  /// open 时注入的日志出口（默认 [NullLoggerSink]）。
+  ///
+  /// 各 repository 通过 `_db.logger` 复用同一出口上报「吞掉/降级」事件
+  /// （如 UNIQUE 幂等冲突），避免写操作失败不可观测。普通 insert 异常会上抛
+  /// 由上层（agent_loop / provider）记录，不在此重复。
+  final LoggerSink logger;
+
+  StudyDatabase._(this.db, this.logger);
 
   /// 打开/创建数据库。factory 为 null 时由调用环境提供（app 用 sqflite/sqflite_common_ffi）。
   ///
   /// [logger] 可选；注入后 onCreate/onUpgrade/onDowngrade 三条迁移路径都会
-  /// 透传到 [migrateDatabase]，使 `migration-start/step/done/failed` 埋点入库。
+  /// 透传到 [migrateDatabase]，使 `migration-start/step/done/failed` 埋点入库，
+  /// 并保存到 [logger] 字段供各 repository 复用。
   /// 未传则走 [NullLoggerSink] 兜底，行为与历史一致（向后兼容）。
   static Future<StudyDatabase> open({
     required DatabaseFactory factory,
@@ -31,7 +40,7 @@ class StudyDatabase {
             onDowngradeRecreate(db, oldV, newV, logger: logger),
       ),
     );
-    return StudyDatabase._(db);
+    return StudyDatabase._(db, logger ?? const NullLoggerSink());
   }
 
   Future<void> close() => db.close();

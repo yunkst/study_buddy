@@ -15,10 +15,10 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/logger_service.dart';
 import 'captured_image.dart';
 
 /// 热启动分享图片 holder：app.dart 在 resumed 时取出，弹 AI 面板后置 null。
@@ -63,7 +63,8 @@ StreamSubscription<dynamic> bootstrapShareIntent({
       notifier.set(_bytesToCaptured(bytes));
     },
     onError: (e, st) {
-      debugPrint('shareIntent stream error: $e\n$st');
+      LoggerService.instance.e('分享 Intent 流错误: $e',
+          category: LogCategory.ui, stackTrace: st.toString(), tags: const ['share-intent']);
     },
   );
 }

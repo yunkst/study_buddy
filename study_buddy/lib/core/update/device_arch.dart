@@ -1,7 +1,8 @@
-import 'dart:developer';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
+
+import '../services/logger_service.dart';
 
 /// 设备 CPU 架构枚举（用于选取对应架构的 split APK）
 enum DeviceArch {
@@ -46,10 +47,12 @@ class DeviceArchDetector {
       if (abis.contains('arm64-v8a')) return DeviceArch.arm64;
       if (abis.contains('x86_64')) return DeviceArch.x64;
       if (abis.contains('armeabi-v7a')) return DeviceArch.arm;
-      log('未识别的设备 ABI: $abis，将使用通用 APK', name: 'app_update');
+      LoggerService.instance.w('未识别的设备 ABI: $abis，将使用通用 APK',
+          category: LogCategory.general, tags: const ['app_update']);
       return DeviceArch.unknown;
     } catch (e) {
-      log('获取设备架构失败: $e', name: 'app_update');
+      LoggerService.instance.e('获取设备架构失败: $e',
+          category: LogCategory.general, tags: const ['app_update']);
       return DeviceArch.unknown;
     }
   }
