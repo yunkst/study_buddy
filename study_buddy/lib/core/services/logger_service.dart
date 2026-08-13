@@ -72,7 +72,6 @@ class LoggerService implements LoggerSink {
 
   static const int _maxLogs = 1000;
   static const String _prefsKey = 'app_logs';
-  static const String _exportFileName = 'app_logs.txt';
   static const String _fallbackFileName = 'app_logs_fallback.json';
   static const Symbol _traceIdKey = #_logTraceId;
   static const int _flushIntervalMs = 1000;
@@ -210,18 +209,6 @@ class LoggerService implements LoggerSink {
 
   Future<void> flush() async {
     if (_pendingPersist) await _persistChain();
-  }
-
-  Future<File> exportToFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/$_exportFileName');
-    final content = _logs.map((l) {
-      final ts = formatTimestamp(l.timestamp);
-      final st = l.stackTrace != null ? '\n${l.stackTrace}' : '';
-      return '[$ts] [${l.level.name}] ${l.message}$st';
-    }).join('\n\n---\n\n');
-    await file.writeAsString(content, flush: true);
-    return file;
   }
 
   static String formatTimestamp(DateTime dt) {

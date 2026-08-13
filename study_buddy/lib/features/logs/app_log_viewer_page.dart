@@ -1,6 +1,7 @@
-// 应用日志查看页:纸感列表,支持级别过滤、关键词搜索、展开详情、清空、导出。
+// 应用日志查看页:纸感列表,支持级别过滤、关键词搜索、展开详情、长按复制、清空。
 // 数据来自 LoggerService(单例,Task 6 产物),通过 logChangeNotifier 监听变更。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/services/logger_service.dart';
 import '../../core/theme/paper_extension.dart';
@@ -72,10 +73,6 @@ class _AppLogViewerPageState extends State<AppLogViewerPage> {
               icon: const Icon(Icons.delete_outline),
               tooltip: '清空',
               onPressed: _clear),
-          IconButton(
-              icon: const Icon(Icons.ios_share),
-              tooltip: '导出',
-              onPressed: _export),
         ],
       ),
       body: Column(children: [
@@ -133,6 +130,7 @@ class _AppLogViewerPageState extends State<AppLogViewerPage> {
                           _expanded.add(k);
                         }
                       }),
+                      onLongPress: () => _copyLog(log),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 10),
@@ -212,6 +210,21 @@ class _AppLogViewerPageState extends State<AppLogViewerPage> {
     );
   }
 
+  /// 长按日志条目复制其完整内容(时间/级别/分类/消息/traceId/tags/堆栈)。
+  Future<void> _copyLog(LogEntry log) async {
+    final buf = StringBuffer()
+      ..writeln(
+          '[${LoggerService.formatTimestamp(log.timestamp)}] [${log.level.name}] [${log.category.name}] ${log.message}');
+    if (log.traceId != null) buf.writeln('trace: ${log.traceId}');
+    if (log.tags.isNotEmpty) buf.writeln('tags: ${log.tags.join(', ')}');
+    if (log.stackTrace != null) buf.writeln(log.stackTrace);
+    await Clipboard.setData(ClipboardData(text: buf.toString().trimRight()));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已复制该条日志')));
+    }
+  }
+
   Future<void> _clear() async {
     final ok = await showDialog<bool>(
         context: context,
@@ -228,13 +241,5 @@ class _AppLogViewerPageState extends State<AppLogViewerPage> {
               ],
             ));
     if (ok == true) await LoggerService.instance.clearLogs();
-  }
-
-  Future<void> _export() async {
-    final file = await LoggerService.instance.exportToFile();
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('已导出到: ${file.path}')));
-    }
   }
 }

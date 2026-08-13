@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:study_buddy/core/services/logger_service.dart';
@@ -29,6 +30,40 @@ void main() {
     expect(find.textContaining('共'), findsOneWidget); // 统计条
     expect(find.text('hello'), findsOneWidget);
     expect(find.text('boom'), findsOneWidget);
+    await drainTimers(tester);
+  });
+
+  testWidgets('长按日志项复制到剪贴板,不触发展开', (tester) async {
+    LoggerService.instance.e('copy-me',
+        category: LogCategory.database, traceId: 'trace-123', tags: ['tag1']);
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const AppLogViewerPage()),
+    );
+    await tester.pumpAndSettle();
+
+    // mock 平台剪贴板 channel,捕获复制文本。
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (MethodCall call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+
+    await tester.longPress(find.text('copy-me'));
+    await tester.pumpAndSettle();
+
+    expect(copied, isNotNull);
+    expect(copied, contains('copy-me'));
+    expect(copied, contains('[error]'));
+    expect(copied, contains('[database]'));
+    expect(copied, contains('trace: trace-123'));
+    expect(copied, contains('tags: tag1'));
+    // 长按不应改变展开状态(展开详情走 onTap)。
+    expect(find.text('已复制该条日志'), findsOneWidget);
     await drainTimers(tester);
   });
 
