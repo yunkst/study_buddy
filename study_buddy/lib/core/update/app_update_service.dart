@@ -1,4 +1,3 @@
-import 'dart:developer';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -7,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/logger_service.dart';
 import 'app_update_check_exception.dart';
 import 'device_arch.dart';
 import 'github_release_service.dart';
@@ -65,8 +65,8 @@ class AppUpdateService {
 
       final currentInfo = await getCurrentVersion();
       final hasNew = hasNewVersion(currentInfo.version, appVersion.version);
-      log('版本比较: ${currentInfo.version} vs ${appVersion.version}, hasNew: $hasNew',
-          name: 'app_update');
+      LoggerService.instance.i('版本比较: ${currentInfo.version} vs ${appVersion.version}, hasNew: $hasNew',
+          category: LogCategory.general, tags: const ['app_update']);
 
       // 强制检查或有新版本都返回 Available（调用方按需提示）
       if (forceCheck || hasNew) {
@@ -76,7 +76,8 @@ class AppUpdateService {
     } on AppUpdateCheckException catch (e) {
       return AppUpdateCheckFailed(e.message);
     } catch (e) {
-      log('检查更新失败: $e', name: 'app_update');
+      LoggerService.instance.e('检查更新失败: $e',
+          category: LogCategory.general, tags: const ['app_update']);
       return const AppUpdateCheckFailed('检查更新失败，请稍后重试');
     }
   }
@@ -102,7 +103,8 @@ class AppUpdateService {
     try {
       return _compareVersions(current, latest) < 0;
     } catch (e) {
-      log('版本号比较失败: $e', name: 'app_update');
+      LoggerService.instance.w('版本号比较失败: $e',
+          category: LogCategory.general, tags: const ['app_update']);
       return false;
     }
   }
@@ -180,7 +182,8 @@ class AppUpdateService {
       final filePath = '${directory.path}/updates/$fileName';
       final file = File(filePath);
       if (!await file.exists()) {
-        log('APK 文件不存在: $filePath', name: 'app_update');
+        LoggerService.instance.w('APK 文件不存在: $filePath',
+            category: LogCategory.general, tags: const ['app_update']);
         return false;
       }
       final result = await _platformChannel.invokeMethod('installApk', {
@@ -188,10 +191,12 @@ class AppUpdateService {
       });
       return result == true;
     } on PlatformException catch (e) {
-      log('安装失败: ${e.code}', name: 'app_update');
+      LoggerService.instance.e('安装失败: ${e.code}',
+          category: LogCategory.general, tags: const ['app_update']);
       return false;
     } catch (e) {
-      log('安装 APK 失败: $e', name: 'app_update');
+      LoggerService.instance.e('安装 APK 失败: $e',
+          category: LogCategory.general, tags: const ['app_update']);
       return false;
     }
   }

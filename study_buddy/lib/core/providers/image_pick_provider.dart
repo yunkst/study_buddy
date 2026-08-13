@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as im;
 import 'package:image_picker/image_picker.dart';
 
+import '../services/logger_service.dart';
 import 'captured_image.dart'; // CapturedScreenshot
 
 /// 拍题问 AI 的选图 helper。
@@ -63,8 +64,11 @@ Future<Uint8List?> _normalizeOrientation(Uint8List bytes, String mime) async {
   if (mime != 'image/jpeg') return null;
   try {
     return await compute(_bakeInIsolate, bytes);
-  } catch (_) {
-    return null; // 解码失败/内存不足 → 保留原图，不阻断拍照流程
+  } catch (e) {
+    // 解码失败/内存不足 → 保留原图，不阻断拍照流程；记 warning 供排查方向校正失效。
+    LoggerService.instance.w('EXIF 方向校正失败(保留原图): $e',
+        category: LogCategory.ui, tags: const ['image-orientation']);
+    return null;
   }
 }
 

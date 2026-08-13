@@ -1,10 +1,10 @@
-import 'dart:developer';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/logger_service.dart';
 import 'app_update_check_exception.dart';
 import 'models/github_release.dart';
 
@@ -42,7 +42,8 @@ class GithubReleaseService {
           ? '/repos/$_repoOwner/$_repoName/releases?per_page=10'
           : '/repos/$_repoOwner/$_repoName/releases/latest';
       final url = '$_apiBase$path';
-      log('GitHub API: $url', name: 'app_update');
+      LoggerService.instance.d('GitHub API: $url',
+          category: LogCategory.general, tags: const ['app_update']);
 
       final response = await _dio.get<dynamic>(url);
       if (response.statusCode != 200 || response.data == null) {
@@ -135,7 +136,8 @@ class GithubReleaseService {
         await existingFile.delete();
       }
       onStatus?.call('开始下载...');
-      log('从 GitHub 下载 APK: $downloadUrl', name: 'app_update');
+      LoggerService.instance.i('从 GitHub 下载 APK: $downloadUrl',
+          category: LogCategory.general, tags: const ['app_update']);
       await _dio.download(
         downloadUrl,
         filePath,
@@ -150,13 +152,15 @@ class GithubReleaseService {
       onProgress?.call(1.0);
       return true;
     } on DioException catch (e) {
-      log('APK 下载失败: ${e.message}', name: 'app_update');
+      LoggerService.instance.e('APK 下载失败: ${e.message}',
+          category: LogCategory.general, tags: const ['app_update']);
       onStatus?.call(e.response != null
           ? '下载失败: 服务器错误 ${e.response?.statusCode}'
           : '下载失败: ${e.message ?? '网络错误'}');
       return false;
     } catch (e) {
-      log('APK 下载异常: $e', name: 'app_update');
+      LoggerService.instance.e('APK 下载异常: $e',
+          category: LogCategory.general, tags: const ['app_update']);
       onStatus?.call('下载出错: $e');
       return false;
     }

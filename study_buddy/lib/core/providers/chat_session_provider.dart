@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../services/logger_service.dart';
 import 'agent_session_provider.dart';
 import 'captured_image.dart';
 
@@ -118,7 +119,9 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       );
       await done.future;
     } catch (e) {
-      // 构造期抛错：回滚 user 消息
+      // 构造期抛错：回滚 user 消息。agent_loop 尚未启动，异常仅此可观测，须记录。
+      LoggerService.instance.e('AI 会话启动失败: $e',
+          category: LogCategory.ai, tags: const ['chat-session-start']);
       _handle = null;
       state = ChatSessionState(
         messages: state.messages.sublist(0, state.messages.length - 1),

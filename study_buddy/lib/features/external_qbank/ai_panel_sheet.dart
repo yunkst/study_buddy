@@ -20,6 +20,7 @@ import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/captured_image.dart';
+import '../../core/services/logger_service.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/ask_user_card.dart';
@@ -831,8 +832,10 @@ Widget buildToolResultWidget({
           isNew: decoded['is_new'] as bool? ?? false,
         );
       }
-    } catch (_) {
-      // 非合法 JSON，回退普通工具轨迹行
+    } catch (e) {
+      // 非合法 JSON，回退普通工具轨迹行。工具返回非预期格式说明协议异常，记录排查。
+      LoggerService.instance.w('save_topic 结果解析失败,回退普通轨迹行: $e',
+          category: LogCategory.ai, tags: const ['save-topic-result']);
     }
   }
   return _ToolTraceLine(line: line, colorScheme: colorScheme, theme: theme);

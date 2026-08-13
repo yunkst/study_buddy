@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:gal/gal.dart';
 
+import 'logger_service.dart';
+
 /// 把图片字节保存到系统相册（小红书发图需从相册取）。
 ///
 /// 用 gal 包：自动处理 Android 10+ / iOS 的相册写入权限（scoped storage / Photos）。
@@ -32,8 +34,12 @@ Future<SaveToGalleryResult> saveImageToGallery(Uint8List pngBytes) async {
     if (e.type == GalExceptionType.accessDenied) {
       return SaveToGalleryResult.permissionDenied;
     }
+    LoggerService.instance.e('保存图片到相册失败: ${e.type}: $e',
+        category: LogCategory.ui, tags: const ['gallery-save']);
     return SaveToGalleryResult.failed;
-  } catch (_) {
+  } catch (e) {
+    LoggerService.instance.e('保存图片到相册异常: $e',
+        category: LogCategory.ui, tags: const ['gallery-save']);
     return SaveToGalleryResult.failed;
   }
 }

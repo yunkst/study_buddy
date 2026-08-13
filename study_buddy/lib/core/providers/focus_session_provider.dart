@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../services/logger_service.dart';
 import 'database_provider.dart';
 import 'focus_timer_bridge.dart';
 
@@ -61,8 +62,10 @@ class FocusSessionNotifier extends StateNotifier<FocusSessionState> {
     final bridge = _ref.read(focusTimerBridgeProvider);
     try {
       await bridge.start(id);
-    } catch (_) {
-      // 通知栏启动失败不阻断计时（降级：app 内仍计时）
+    } catch (e) {
+      // 通知栏启动失败不阻断计时（降级：app 内仍计时），但需记录便于排查原生桥问题。
+      LoggerService.instance.w('通知栏启动失败(降级为 app 内计时): $e',
+          category: LogCategory.focus, tags: const ['focus-bridge']);
     }
 
     _stopwatch = Stopwatch()..start();
@@ -101,8 +104,10 @@ class FocusSessionNotifier extends StateNotifier<FocusSessionState> {
     final bridge = _ref.read(focusTimerBridgeProvider);
     try {
       await bridge.stop();
-    } catch (_) {
-      // 通知栏取消失败不阻断
+    } catch (e) {
+      // 通知栏取消失败不阻断主流程，记录供排查原生桥问题。
+      LoggerService.instance.w('通知栏取消失败: $e',
+          category: LogCategory.focus, tags: const ['focus-bridge']);
     }
 
     state = FocusSessionState.idle;
