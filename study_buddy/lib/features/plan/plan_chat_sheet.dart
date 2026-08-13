@@ -254,6 +254,15 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               AskUserCard(request: _pendingAsk!, onSubmit: _respondToAsk),
             ],
             const SizedBox(height: 16),
+            // 「AI 正在思考…」指示器：busy 且暂无流式文本/工具轨迹/挂起提问时
+            // 显示。覆盖发送后首 token 延迟等无反馈时刻，避免「卡住」错觉。
+            if (_busy &&
+                _aiText.isEmpty &&
+                _toolEvents.isEmpty &&
+                _pendingAsk == null) ...[
+              _ThinkingLine(cs: cs),
+              const SizedBox(height: 12),
+            ],
             if (_errorText != null)
               Container(
                 padding: const EdgeInsets.all(8),
@@ -279,6 +288,59 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：紧凑「思考中」行
+// ─────────────────────────────────────────────────────────────
+
+/// 紧凑「AI 正在思考…」行：旋转刷新图标 + 文案。
+///
+/// 弹窗空间有限，不做全宽指示器，仅在发送后、首个事件到达前短暂提示，
+/// 让用户明确「请求已发出，正在处理」。
+class _ThinkingLine extends StatefulWidget {
+  const _ThinkingLine({required this.cs});
+  final ColorScheme cs;
+
+  @override
+  State<_ThinkingLine> createState() => _ThinkingLineState();
+}
+
+class _ThinkingLineState extends State<_ThinkingLine>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        RotationTransition(
+          turns: _ctrl,
+          child: Icon(Icons.autorenew, size: 16, color: widget.cs.primary),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'AI 正在思考…',
+          style: TextStyle(fontSize: 12, color: widget.cs.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }

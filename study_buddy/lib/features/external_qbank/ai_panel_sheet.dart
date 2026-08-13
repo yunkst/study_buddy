@@ -273,6 +273,17 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 children: [
                   ...state.messages
                       .map((m) => _buildMessage(m, theme, state.messages)),
+                  // 「AI 正在思考…」指示器：busy 且暂无流式文本/挂起提问时显示。
+                  // 覆盖此前无反馈的几个时刻——发送后首 token 延迟、工具执行间隙、
+                  // 多轮 ReAct 轮次切换空窗——消除「AI 卡住」的错觉。
+                  if (state.busy &&
+                      state.streamingText.isEmpty &&
+                      state.pendingAsk == null)
+                    _ThinkingIndicator(
+                      toolEvents: state.toolEvents,
+                      colorScheme: colorScheme,
+                      theme: theme,
+                    ),
                   // 流式文本（当前轮 LLM 正在输出）
                   if (state.streamingText.isNotEmpty)
                     _AiNote(
@@ -828,6 +839,146 @@ class _AiNote extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：「AI 正在思考…」指示器
+// ─────────────────────────────────────────────────────────────
+
+/// 「AI 正在思考…」指示器：三点错峰跳动 + 文案。
+///
+/// 在 busy 且暂无流式文本/挂起提问时显示于消息列表底部，覆盖「发送后首 token
+/// 延迟 / 工具执行间隙 / 多轮 ReAct 切换空窗」这几个此前无反馈、易被误认为
+/// 「卡住」的时刻。容器风格沿用 [_AiNote]（全宽 surfaceContainerLow 底），
+/// 使「思考中 → 流式输出」的过渡平滑（流式文本到达后本组件被替换为 _AiNote）。
+///
+/// [toolEvents] 在此期间（streamingText 为空，原 _AiNote 不渲染）一并展示，
+/// 让工具执行阶段的轨迹也可见，而非只在有流式文本时才浮现。
+class _ThinkingIndicator extends StatefulWidget {
+  const _ThinkingIndicator({
+    required this.toolEvents,
+    required this.colorScheme,
+    required this.theme,
+  });
+
+  final List<ToolEvent> toolEvents;
+  final ColorScheme colorScheme;
+  final ThemeData theme;
+
+  @override
+  State<_ThinkingIndicator> createState() => _ThinkingIndicatorState();
+}
+
+class _ThinkingIndicatorState extends State<_ThinkingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: cs.surfaceContainerLow),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...widget.toolEvents.map((e) => buildToolResultWidget(
+                name: e.name,
+                result: e.result,
+                line: '${e.name}: ${e.result}',
+                colorScheme: cs,
+                theme: widget.theme,
+              )),
+          if (widget.toolEvents.isNotEmpty) const SizedBox(height: 6),
+          Row(
+            children: [
+              _TypingDots(controller: _ctrl, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                'AI 正在思考…',
+                style: widget.theme.textTheme.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 三点错峰透明度动画：典型「正在输入」指示。
+///
+/// 每个点在 1.2s 周期内依次「淡入→全亮→淡出」，错相 0.2，朱砂色。
+/// 不跳动、不位移，仅亮度呼吸——比缩放/弹跳更克制，避免长等待时分散注意力。
+class _TypingDots extends StatelessWidget {
+  const _TypingDots({required this.controller, required this.color});
+
+  final AnimationController controller;
+  final Color color;
+
+  Widget _dot(double beginPhase) {
+    // beginPhase ∈ [0,1)：该点的亮起起点；动画覆盖其后的 0.6 区间。
+    final opacity = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.3, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 25,
+      ),
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 8),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.3)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 25,
+      ),
+      TweenSequenceItem(tween: ConstantTween(0.3), weight: 42),
+    ]).animate(
+      CurvedAnimation(
+        parent: controller,
+        curve: Interval(
+          beginPhase,
+          (beginPhase + 0.6).clamp(0.0, 1.0),
+        ),
+      ),
+    );
+    return AnimatedBuilder(
+      animation: opacity,
+      builder: (_, __) => Opacity(
+        opacity: opacity.value,
+        child: Container(
+          width: 7,
+          height: 7,
+          margin: const EdgeInsets.symmetric(horizontal: 1.5),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [_dot(0.0), _dot(0.2), _dot(0.4)],
     );
   }
 }
