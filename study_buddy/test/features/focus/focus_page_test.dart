@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/providers/focus_session_provider.dart';
+import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/features/focus/focus_page.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -56,7 +57,10 @@ void main() {
     await tester.runAsync(() => c.read(databaseProvider.future));
     await tester.pumpWidget(UncontrolledProviderScope(
       container: c,
-      child: const MaterialApp(home: FocusPage()),
+      child: MaterialApp(
+        theme: AppTheme.light,
+        home: FocusPage(),
+      ),
     ));
     return c;
   }
@@ -68,52 +72,123 @@ void main() {
     return sdb!;
   }
 
-  testWidgets('idle 态显示开始按钮', (tester) async {
-    final container = ProviderContainer(overrides: [
-      focusSessionProvider.overrideWith((ref) => _FakeNotifier(ref)),
+  // 简易泵：无 DB（ProviderContainer 仅 override focusSessionProvider），
+  // 用于 idle/running 的按钮与计时断言（面板走加载/错误分支即可）。
+  Future<ProviderContainer> pumpFocus(
+    WidgetTester tester, {
+    FocusSessionState? state,
+  }) async {
+    final c = ProviderContainer(overrides: [
+      focusSessionProvider.overrideWith(
+          (ref) => _FakeNotifier(ref, state: state)),
     ]);
-    addTearDown(container.dispose);
+    addTearDown(c.dispose);
     await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: const MaterialApp(home: FocusPage()),
+      container: c,
+      child: MaterialApp(theme: AppTheme.light, home: FocusPage()),
     ));
+    return c;
+  }
+
+  testWidgets('idle 态显示开始按钮', (tester) async {
+    await pumpFocus(tester);
 
     expect(find.text('开始专注'), findsOneWidget);
     expect(find.text('结束专注'), findsNothing);
+    expect(find.text('准备好就开始吧'), findsOneWidget);
   });
 
   testWidgets('running 态显示结束按钮与计时', (tester) async {
-    final container = ProviderContainer(overrides: [
-      focusSessionProvider.overrideWith((ref) =>
-          _FakeNotifier(ref, state: const FocusSessionState(
-            sessionId: 1, running: true, elapsed: Duration(minutes: 5, seconds: 3),
-          ))),
-    ]);
-    addTearDown(container.dispose);
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: const MaterialApp(home: FocusPage()),
+    await pumpFocus(tester, state: const FocusSessionState(
+      sessionId: 1,
+      running: true,
+      elapsed: Duration(minutes: 5, seconds: 3),
     ));
 
     expect(find.text('结束专注'), findsOneWidget);
     expect(find.text('开始专注'), findsNothing);
     expect(find.text('00:05:03'), findsOneWidget);
+    expect(find.text('专注中…'), findsOneWidget);
   });
 
   testWidgets('点开始按钮调用 start', (tester) async {
-    final container = ProviderContainer(overrides: [
-      focusSessionProvider.overrideWith((ref) => _FakeNotifier(ref)),
-    ]);
-    addTearDown(container.dispose);
-    await tester.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: const MaterialApp(home: FocusPage()),
-    ));
+    final container = await pumpFocus(tester);
 
     await tester.tap(find.text('开始专注'));
     await tester.pump();
-    final notifier = container.read(focusSessionProvider.notifier) as _FakeNotifier;
+    final notifier =
+        container.read(focusSessionProvider.notifier) as _FakeNotifier;
     expect(notifier.startCalled, isTrue);
+  });
+
+  testWidgets('running 态展示当前会话已关联知识点 chips', (tester) async {
+    await mockChannel();
+    final sdb = await openSdb(tester);
+    final sessionId = await seedSession(tester, sdb);
+    // 预置两个知识点并关联到会话。
+    await tester.runAsync(() async {
+      final repo = FocusSessionRepository(sdb);
+      final topics = TopicRepository(sdb);
+      final cates = CategoryRepository(sdb);
+      final now = DateTime(2026, 8, 12, 9, 0);
+      final cateId = await cates.ensurePath(['高数']);
+      final t1 = await topics.insert(Topic(
+        title: '洛必达法则',
+        categoryId: cateId,
+        question: '洛必达法则适用条件？',
+        summary: '0/0 或 ∞/∞',
+        createdAt: now,
+        updatedAt: now,
+      ));
+      final t2 = await topics.insert(Topic(
+        title: '极限的定义',
+        categoryId: cateId,
+        question: 'ε-δ 定义？',
+        summary: '对任意 ε>0…',
+        createdAt: now,
+        updatedAt: now,
+      ));
+      await repo.linkTopic(sessionId, t1);
+      await repo.linkTopic(sessionId, t2);
+    });
+    await pumpFocusPage(tester, sdb, sessionId);
+
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(find.textContaining('本场已学 · 2'), findsOneWidget);
+    expect(find.text('洛必达法则'), findsOneWidget);
+    expect(find.text('极限的定义'), findsOneWidget);
+  });
+
+  testWidgets('idle 态显示今日累计摘要', (tester) async {
+    await mockChannel();
+    final sdb = await openSdb(tester);
+    // 预置一条已结束会话（今天 30 分钟）。
+    await tester.runAsync(() async {
+      final repo = FocusSessionRepository(sdb);
+      final now = DateTime.now();
+      final id =
+          await repo.start(DateTime(now.year, now.month, now.day, 9, 0));
+      await repo.end(id, now, const Duration(minutes: 30).inMilliseconds);
+    });
+    final c = ProviderContainer(overrides: [
+      databaseProvider.overrideWith((ref) async => sdb),
+      focusSessionProvider.overrideWith((ref) => _FakeNotifier(ref)),
+    ]);
+    addTearDown(c.dispose);
+    await tester.runAsync(() => c.read(databaseProvider.future));
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: c,
+      child: MaterialApp(theme: AppTheme.light, home: FocusPage()),
+    ));
+
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(find.text('今日专注'), findsOneWidget);
+    expect(find.textContaining('30'), findsWidgets);
+    expect(find.textContaining('已完成 1 场'), findsOneWidget);
   });
 
   testWidgets('结束专注：弹框输入→保存→DB summary 写入且 stop 被调用', (tester) async {
@@ -141,7 +216,8 @@ void main() {
     final rows = await tester.runAsync(
         () => sdb.db.query('focus_session', where: 'id = ?', whereArgs: [sessionId]));
     expect(rows!.first['summary'], '复习了洛必达法则，刷了十道极限题');
-    final notifier = container.read(focusSessionProvider.notifier) as _FakeNotifier;
+    final notifier =
+        container.read(focusSessionProvider.notifier) as _FakeNotifier;
     expect(notifier.stopCalled, isTrue);
   });
 
@@ -162,7 +238,8 @@ void main() {
     final rows = await tester.runAsync(
         () => sdb.db.query('focus_session', where: 'id = ?', whereArgs: [sessionId]));
     expect(rows!.first['summary'], isNull);
-    final notifier = container.read(focusSessionProvider.notifier) as _FakeNotifier;
+    final notifier =
+        container.read(focusSessionProvider.notifier) as _FakeNotifier;
     expect(notifier.stopCalled, isTrue);
   });
 
@@ -184,7 +261,8 @@ void main() {
     final rows = await tester.runAsync(
         () => sdb.db.query('focus_session', where: 'id = ?', whereArgs: [sessionId]));
     expect(rows!.first['summary'], isNull);
-    final notifier = container.read(focusSessionProvider.notifier) as _FakeNotifier;
+    final notifier =
+        container.read(focusSessionProvider.notifier) as _FakeNotifier;
     expect(notifier.stopCalled, isTrue);
   });
 }
