@@ -1,4 +1,5 @@
 import '../models/models.dart';
+import 'ask_user.dart';
 
 /// Agent 运行时事件流。UI 通过 Riverpod StreamProvider 订阅。
 sealed class AgentEvent {}
@@ -50,4 +51,19 @@ class AgentDoneEvent extends AgentEvent {
 class AgentErrorEvent extends AgentEvent {
   final String message;
   AgentErrorEvent(this.message);
+}
+
+/// ask_user 工具触发：UI 渲染提问卡片，等待用户作答。
+/// 在 ToolCallStartEvent 之后、ToolCallEndEvent 之前 yield。
+class AskUserRequestedEvent extends AgentEvent {
+  final AskUserRequest request;
+  AskUserRequestedEvent(this.request);
+}
+
+/// 用户提交答案后 yield（在 AskUserRequestedEvent 之后、ToolCallEndEvent 之前）。
+/// UI 据此把卡片从“等待中”切换到“已作答”，避免重复提交。
+class AskUserAnsweredEvent extends AgentEvent {
+  final String toolCallId;
+  final String answer; // 用户最终选/输入的 value（多选用", "分隔）
+  AskUserAnsweredEvent(this.toolCallId, this.answer);
 }

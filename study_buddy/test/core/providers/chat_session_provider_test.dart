@@ -17,11 +17,14 @@ class _FakeAgentSession extends AgentSession {
   _FakeAgentSession(super.ref, this._events);
   final List<AgentEvent> _events;
   final List<List<ChatMessage>> receivedMessages = [];
+  AgentSessionHandle? lastHandle;
 
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     receivedMessages.add(List.of(messages));
-    return Stream.fromIterable(_events);
+    final handle = AgentSessionHandle(stream: Stream.fromIterable(_events));
+    lastHandle = handle;
+    return handle;
   }
 }
 
@@ -247,12 +250,83 @@ void main() {
     await sendFuture.timeout(const Duration(seconds: 1));
     expect(container.read(currentChatProvider).messages, isEmpty);
   });
+
+  test('ask_user:pendingAsk 在 Requested 后置位,respondToAsk 回灌并清空', () async {
+    // 事件序列：ask_user 挂起(不自动结束) → UI 调 respondToAsk → Answered → RoundEnd+Done。
+    // 用 controller 控制流不自动放完，模拟 agent 真的挂起等用户。
+    final ctrl = StreamController<AgentEvent>();
+    _FakeAgentSession? captured;
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) {
+        captured = _FakeAgentSession(ref, const []);
+        return _DelayedSession(ref, captured!, ctrl);
+      }),
+    ]);
+    addTearDown(container.dispose);
+
+    final notifier = container.read(currentChatProvider.notifier);
+    final sendFuture = notifier.send('帮我创建计划');
+    // 事件先放 AskUserRequested（agent 挂起等用户）
+    ctrl.add(AskUserRequestedEvent(AskUserRequest(
+      question: '选哪个学科？',
+      toolCallId: 'ask-1',
+      options: [
+        AskUserOption(label: '数学', value: 'math'),
+        AskUserOption(label: '英语', value: 'eng'),
+      ],
+    )));
+    await Future.delayed(const Duration(milliseconds: 10));
+
+    // agent 挂起期间：pendingAsk 置位、busy 保持 true（阻断重复 send）
+    var state = container.read(currentChatProvider);
+    expect(state.pendingAsk, isNotNull);
+    expect(state.pendingAsk!.question, '选哪个学科？');
+    expect(state.pendingAsk!.options.map((o) => o.value), ['math', 'eng']);
+    expect(state.busy, isTrue);
+
+    // UI 调 respondToAsk 喂答案 → pendingAsk 清空
+    notifier.respondToAsk('math');
+    state = container.read(currentChatProvider);
+    expect(state.pendingAsk, isNull);
+
+    // 后续事件：agent 拿到答案继续 → Answered → RoundEnd → Done
+    ctrl.add(AskUserAnsweredEvent('ask-1', 'math'));
+    ctrl.add(ToolCallEndEvent('ask_user', 'math', 'ask-1'));
+    ctrl.add(AgentRoundEndEvent([
+      const ChatMessage(role: 'assistant', content: '', toolCalls: [
+        ToolCall(id: 'ask-1', name: 'ask_user', arguments: '{"question":"选哪个学科？"}'),
+      ]),
+      const ChatMessage(role: 'tool', content: 'math', toolCallId: 'ask-1'),
+    ]));
+    ctrl.add(TextDeltaEvent('已确认'));
+    ctrl.add(AgentDoneEvent('已确认'));
+    await ctrl.close();
+    await sendFuture;
+
+    state = container.read(currentChatProvider);
+    expect(state.busy, isFalse);
+    expect(state.messages.any((m) => m.role == 'tool' && m.toolCallId == 'ask-1'), isTrue);
+  });
+}
+
+/// 延迟包装：让 fake 用外部 controller 提供的流（不自动放完）。
+class _DelayedSession extends AgentSession {
+  _DelayedSession(super.ref, this._inner, this._ctrl);
+  final _FakeAgentSession _inner;
+  final StreamController<AgentEvent> _ctrl;
+  @override
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+    _inner.receivedMessages.add(List.of(messages));
+    final handle = AgentSessionHandle(stream: _ctrl.stream);
+    _inner.lastHandle = handle;
+    return handle;
+  }
 }
 
 class _ThrowingAgentSession extends AgentSession {
   _ThrowingAgentSession(super.ref);
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     throw StateError('未配置支持视觉的默认 LLM');
   }
 }
@@ -262,9 +336,9 @@ class _ThrowingAgentSession extends AgentSession {
 class _HangingAgentSession extends AgentSession {
   _HangingAgentSession(super.ref);
   @override
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     final ctrl = StreamController<AgentEvent>();
     // 不 emit、不 close —— 流保持打开，模拟 agent 正在跑
-    return ctrl.stream;
+    return AgentSessionHandle(stream: ctrl.stream);
   }
 }

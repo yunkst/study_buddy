@@ -16,14 +16,14 @@ class AgentSession {
 
   final Ref _ref;
 
-  /// 运行 agent 循环。返回 [AgentEvent] 事件流（实时增量）。
+  /// 运行 agent 循环。返回会话句柄（含事件流，供 UI 监听并回灌 ask_user 答案）。
   ///
   /// 每次调用都会重新从 DB 读取 LLM 配置、构造新的 StudyScenario 与 AgentLoop。
-  /// 调用方负责监听流并在 done/error 时释放资源。
+  /// 调用方负责监听 handle.stream 并在 done/error 时释放资源。
   ///
   /// [chatSessionId] 可选：传入则注入 AgentScenarioContext.extra，供 save_review
   /// 等工具把批改明细落库到对应会话；不传则 chatSessionId 为 null。
-  Future<Stream<AgentEvent>> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
     final db = await _ref.read(databaseProvider.future);
     final llmConfigs = LlmConfigRepository(db);
     final cfg = await llmConfigs.getDefault(vision: true);
@@ -62,10 +62,14 @@ class AgentSession {
     );
     final loop = AgentLoop(llm: llm, scenario: scenario, logger: LoggerService.instance);
     LoggerService.instance.i('Agent 会话开始', category: LogCategory.ai, tags: const ['session-start'], traceId: traceId);
-    return loop.run(
-      messages,
-      context: AgentScenarioContext(extra: chatSessionId == null ? const {} : {'chat_session_id': chatSessionId}),
-      traceId: traceId,
+    return AgentSessionHandle(
+      stream: loop.run(
+        messages,
+        context: AgentScenarioContext(extra: chatSessionId == null ? const {} : {'chat_session_id': chatSessionId}),
+        traceId: traceId,
+      ),
+      completeAskUser: loop.completeAskUser,
+      abortAskUser: loop.abortAskUser,
     );
   }
 }

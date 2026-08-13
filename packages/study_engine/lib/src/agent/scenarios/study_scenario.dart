@@ -8,7 +8,7 @@ import '../../repos/topic_edge_repository.dart';
 import '../../repos/topic_repository.dart';
 import '../../repos/topic_schedule_repository.dart';
 import '../agent_scenario.dart';
-import '../agent_tools.dart';
+import '../ask_user_tools.dart';
 
 /// 学习伴侣场景：8 工具，工具执行调 Repository，记忆来自 agent_memory 表。
 class StudyScenario implements AgentScenario {
@@ -37,7 +37,7 @@ class StudyScenario implements AgentScenario {
 
   @override String get id => 'study';
   @override String get displayName => '学习伴侣';
-  @override List<Map<String, dynamic>> get tools => AgentTools.studyTools;
+  @override List<Map<String, dynamic>> get tools => AskUserTools.studyToolsWithAsk;
 
   @override
   String buildSystemPrompt(AgentScenarioContext ctx) {
