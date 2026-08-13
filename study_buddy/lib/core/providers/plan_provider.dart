@@ -46,6 +46,7 @@ class PlanSession {
     }
     final plans = PlanRepository(db);
     final memories = AgentMemoryRepository(db);
+    final dayTasks = PlanDayTaskRepository(db);
 
     String planSummary;
     if (planId != null) {
@@ -66,7 +67,7 @@ class PlanSession {
       llmSink: LlmLogger.instance,
       logger: LoggerService.instance,
     );
-    final scenario = PlanScenario(plans: plans, memories: memories);
+    final scenario = PlanScenario(plans: plans, memories: memories, dayTasks: dayTasks);
     final ctx = AgentScenarioContext(extra: {
       'today': today,
       'plan_summary': planSummary,
@@ -88,4 +89,18 @@ class PlanSession {
 
 final planSessionProvider = Provider<PlanSession>((ref) {
   return PlanSession(ref);
+});
+
+/// 计划每日任务仓储 provider（日历视图用）。
+final planDayTaskRepositoryAsyncProvider =
+    FutureProvider<PlanDayTaskRepository>((ref) async {
+  final db = await ref.watch(databaseProvider.future);
+  return PlanDayTaskRepository(db);
+});
+
+/// 某 plan 全部每日任务（family 参数 planId）。日历视图与详情页共用。
+final planDayTasksProvider =
+    FutureProvider.family<List<PlanDayTask>, int>((ref, planId) async {
+  final repo = await ref.watch(planDayTaskRepositoryAsyncProvider.future);
+  return repo.findByPlan(planId);
 });

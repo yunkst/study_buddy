@@ -79,8 +79,8 @@ void main() {
     });
     tearDown(() async => await sdb.close());
 
-    test('建库后版本为 7', () async {
-      expect(await sdb.db.getVersion(), 7);
+test('建库后版本等于 kCurrentDbVersion', () async {
+      expect(await sdb.db.getVersion(), kCurrentDbVersion);
     });
 
     test('focus_session 表存在且列结构正确', () async {
@@ -188,6 +188,69 @@ void main() {
       // (b) 旧 mastery_log 历史被清空（表保留，后续继续写新轨迹）
       expect(await db.query('mastery_log'), isEmpty,
           reason: 'v6 迁移应清空 mastery_log 历史');
+
+      await db.close();
+    });
+  });
+
+  group('v8 plan_day_task 每日打卡', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('v7→v8 迁移：plan_day_task 表 9 列齐全 + 旧 plan 数据保留', () async {
+      // 手动建 v7 库（含 v7 的 focus_session.summary，但尚无 plan_day_task），
+      // 写入计划三表数据，对齐其它迁移组测试写法。
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: 7,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) => migrateDatabase(d, 0, 7),
+          ));
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final planId = await db.insert('plan', {
+        'name': '考研冲刺', 'exam_date': now, 'exam_content': '408',
+        'target': '380', 'daily_minutes': 180, 'current_level': '估 300 分',
+        'created_at': now, 'updated_at': now,
+      });
+      await db.insert('milestone', {
+        'plan_id': planId, 'title': '旧节点', 'description': 'd',
+        'target_date': now, 'sort_order': 0, 'status': 'pending',
+        'created_at': now, 'updated_at': now,
+      });
+      await db.insert('assessment', {
+        'plan_id': planId, 'score': 300, 'note': '旧测评',
+        'assessed_at': now, 'created_at': now,
+      });
+      // v7 还没有 plan_day_task 表，此处仅验证升级前数据齐全
+      expect(await db.query('plan', where: 'id = ?', whereArgs: [planId]), hasLength(1));
+
+      // 升级 v7 → v8
+      await migrateDatabase(db, 7, 8);
+
+      // (a) plan_day_task 表 9 列齐全
+      final rows = await db.rawQuery('PRAGMA table_info(plan_day_task)');
+      final cols = {for (final r in rows) r['name'] as String};
+      expect(
+        cols,
+        containsAll(['id', 'plan_id', 'task_date', 'title', 'sort_order',
+            'status', 'done_at', 'created_at', 'updated_at']),
+        reason: 'plan_day_task 应含 9 列,实际=$cols',
+      );
+
+      // (b) 旧 plan/milestone/assessment 数据保留
+      expect(await db.query('milestone', where: 'plan_id = ?', whereArgs: [planId]), hasLength(1),
+          reason: 'v8 迁移不应动既有里程碑');
+      expect(await db.query('assessment', where: 'plan_id = ?', whereArgs: [planId]), hasLength(1),
+          reason: 'v8 迁移不应动既有测评');
+
+      // (c) 新表可用 + 外键 CASCADE：删 plan 连带清 task
+      await db.insert('plan_day_task', {
+        'plan_id': planId, 'task_date': now, 'title': '极限30题',
+        'sort_order': 0, 'status': 'pending', 'created_at': now, 'updated_at': now,
+      });
+      expect(await db.query('plan_day_task'), hasLength(1));
+      await db.delete('plan', where: 'id = ?', whereArgs: [planId]);
+      expect(await db.query('plan_day_task'), isEmpty,
+          reason: '删 plan 应级联清 plan_day_task');
 
       await db.close();
     });

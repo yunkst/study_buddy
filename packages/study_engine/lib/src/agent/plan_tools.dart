@@ -129,7 +129,123 @@ class PlanTools {
     },
   };
 
+  static const deletePlan = {
+    'type': 'function',
+    'function': {
+      'name': 'delete_plan',
+      'description': '删除一个学习计划。会级联删掉该计划下所有里程碑节点、测评记录以及每日任务，不可撤销。删除前应向用户确认一句。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'plan_id': {'type': 'integer', 'description': '计划 id'},
+        },
+        'required': ['plan_id'],
+      },
+    },
+  };
+
+  static const deleteAssessment = {
+    'type': 'function',
+    'function': {
+      'name': 'delete_assessment',
+      'description': '删除一条测评记录。仅影响单条，不会删节点或计划。删除前应向用户确认一句。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'assessment_id': {'type': 'integer', 'description': '测评 id'},
+        },
+        'required': ['assessment_id'],
+      },
+    },
+  };
+
+  static const createDayTask = {
+    'type': 'function',
+    'function': {
+      'name': 'create_day_task',
+      'description': '按用户意图给某计划某天加一个待办任务。task_date 是本地日历日 YYYY-MM-DD（不必带时分）。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'plan_id': {'type': 'integer', 'description': '计划 id'},
+          'task_date': {'type': 'string', 'description': '任务日期 YYYY-MM-DD'},
+          'title': {'type': 'string', 'description': '任务名，如"极限30题"'},
+          'sort_order': {'type': 'integer', 'description': '顺序，默认 0（可选）'},
+        },
+        'required': ['plan_id', 'task_date', 'title'],
+      },
+    },
+  };
+
+  static const listDayTasks = {
+    'type': 'function',
+    'function': {
+      'name': 'list_day_tasks',
+      'description': '查某计划某天的任务列表。task_date 不传则返回该 plan 所有任务（用于日历视图）。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'plan_id': {'type': 'integer', 'description': '计划 id'},
+          'task_date': {'type': 'string', 'description': '日期 YYYY-MM-DD（可选；不传返回全部）'},
+        },
+        'required': ['plan_id'],
+      },
+    },
+  };
+
+  static const checkinDayTask = {
+    'type': 'function',
+    'function': {
+      'name': 'checkin_day_task',
+      'description': '把任务标为完成或重置为待办。status 是 pending 或 done；置 done 自动记 done_at。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'task_id': {'type': 'integer', 'description': '任务 id'},
+          'status': {'type': 'string', 'enum': ['pending', 'done'], 'description': '新状态'},
+        },
+        'required': ['task_id', 'status'],
+      },
+    },
+  };
+
+  static const updateDayTask = {
+    'type': 'function',
+    'function': {
+      'name': 'update_day_task',
+      'description': '更新每日任务（标题/日期/顺序）。只传需要改的字段。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'task_id': {'type': 'integer', 'description': '任务 id'},
+          'title': {'type': 'string', 'description': '新标题（可选）'},
+          'task_date': {'type': 'string', 'description': '新日期 YYYY-MM-DD（可选）'},
+          'sort_order': {'type': 'integer', 'description': '新顺序（可选）'},
+        },
+        'required': ['task_id'],
+      },
+    },
+  };
+
+  static const deleteDayTask = {
+    'type': 'function',
+    'function': {
+      'name': 'delete_day_task',
+      'description': '删除一个每日任务。删除前应向用户确认一句。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'task_id': {'type': 'integer', 'description': '任务 id'},
+        },
+        'required': ['task_id'],
+      },
+    },
+  };
+
   static const planTools = [
-    createPlan, getPlan, updatePlan, addMilestone, updateMilestone, deleteMilestone, addAssessment,
+    createPlan, getPlan, updatePlan,
+    addMilestone, updateMilestone, deleteMilestone,
+    addAssessment, deletePlan, deleteAssessment,
+    createDayTask, listDayTasks, checkinDayTask, updateDayTask, deleteDayTask,
   ];
 }

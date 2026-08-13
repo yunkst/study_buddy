@@ -93,4 +93,15 @@ void main() {
     expect(await repo.findMilestonesByPlan(pid), isEmpty);
     expect(await repo.findAssessmentsByPlan(pid), isEmpty);
   });
+
+  test('deleteAssessment 单条不影响其他测评', () async {
+    final pid = await repo.insertPlan(plan());
+    final now = DateTime.now();
+    final a1 = await repo.addAssessment(Assessment(planId: pid, score: 300, assessedAt: now, createdAt: now));
+    await repo.addAssessment(Assessment(planId: pid, score: 310, assessedAt: now, createdAt: now));
+    await repo.deleteAssessment(a1);
+    final list = await repo.findAssessmentsByPlan(pid);
+    expect(list, hasLength(1));
+    expect(list.first.score, 310);
+  });
 }

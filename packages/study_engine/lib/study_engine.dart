@@ -15,6 +15,7 @@ export 'src/repos/agent_memory_repository.dart';
 export 'src/repos/review_repository.dart';
 export 'src/repos/chat_repository.dart';
 export 'src/repos/plan_repository.dart';
+export 'src/repos/plan_day_task_repository.dart';
 export 'src/repos/focus_session_repository.dart';
 export 'src/repos/topic_schedule_repository.dart';
 export 'src/aggregations/daily_report.dart';

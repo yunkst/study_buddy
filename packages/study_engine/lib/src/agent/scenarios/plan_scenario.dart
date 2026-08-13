@@ -1,16 +1,23 @@
 import 'dart:convert';
 import '../../models/models.dart';
 import '../../repos/agent_memory_repository.dart';
+import '../../repos/plan_day_task_repository.dart';
 import '../../repos/plan_repository.dart';
 import '../agent_scenario.dart';
 import '../plan_tools.dart';
 
-/// 学习计划场景：7 工具管理计划全生命周期，记忆来自 agent_memory 表（scenario_id='plan'）。
+/// 学习计划场景：14 工具管理计划全生命周期（创建/调整/删除/测评/每日打卡），
+/// 记忆来自 agent_memory 表（scenario_id='plan'）。
 class PlanScenario implements AgentScenario {
   final PlanRepository plans;
   final AgentMemoryRepository memories;
+  final PlanDayTaskRepository dayTasks;
 
-  PlanScenario({required this.plans, required this.memories});
+  PlanScenario({
+    required this.plans,
+    required this.memories,
+    required this.dayTasks,
+  });
 
   @override String get id => 'plan';
   @override String get displayName => '学习计划';
@@ -48,11 +55,16 @@ class PlanScenario implements AgentScenario {
 ## 调整原则
 - 用户报进度落后/超前时，对照 get_plan 的节点和测评重排后续节点。
 - 改目标时联动调整节点的分数预期。
-- 高危操作（删节点）执行前向用户确认一句。
+- 高危操作（删计划/节点/测评/任务）执行前向用户确认一句。
 
 ## 测评
 - 用户提到做了真题/模考并报分时，用 add_assessment 录入。
 - 鼓励用户定期测评，对照曲线看趋势。
+
+## 每日任务
+- 节点（milestone）是阶段性目标，每日任务是当天具体动作。
+- 拆节点时不必同时排每日任务；用户主动问「今天该做什么」或提到「今天做 X」时调用 create_day_task。
+- 调整/删除任务前可先 list_day_tasks(plan_id, task_date) 看现状。
 
 ## 当前计划上下文
 $planSummary
@@ -81,6 +93,20 @@ $memBlock''';
         return _deleteMilestone(args['milestone_id'] as int);
       case 'add_assessment':
         return _addAssessment(args);
+      case 'delete_plan':
+        return _deletePlan(args['plan_id'] as int);
+      case 'delete_assessment':
+        return _deleteAssessment(args['assessment_id'] as int);
+      case 'create_day_task':
+        return _createDayTask(args);
+      case 'list_day_tasks':
+        return _listDayTasks(args);
+      case 'checkin_day_task':
+        return _checkinDayTask(args);
+      case 'update_day_task':
+        return _updateDayTask(args);
+      case 'delete_day_task':
+        return _deleteDayTask(args['task_id'] as int);
       default:
         return '未知工具: $name';
     }
@@ -231,6 +257,94 @@ $memBlock''';
       createdAt: now,
     ));
     return jsonEncode({'ok': true, 'assessment_id': id, 'score': score});
+  }
+
+  Future<String> _deletePlan(int planId) async {
+    // 删前取一次详情用于反馈计数
+    final detail = await plans.getPlanDetail(planId);
+    final name = detail.plan.name;
+    final msCount = detail.milestones.length;
+    final aCount = detail.assessments.length;
+    final tCount = (await dayTasks.findByPlan(planId)).length;
+    await plans.deletePlan(planId); // CASCADE 自动清 milestone / assessment / plan_day_task
+    return jsonEncode({
+      'ok': true,
+      'plan_id': planId,
+      'message': '已删除计划「$name」(id=$planId，连带 $msCount 节点、$aCount 测评、$tCount 每日任务)',
+    });
+  }
+
+  Future<String> _deleteAssessment(int assessmentId) async {
+    await plans.deleteAssessment(assessmentId);
+    return '已删除测评 id=$assessmentId';
+  }
+
+  Future<String> _createDayTask(Map<String, dynamic> args) async {
+    final pid = args['plan_id'] as int;
+    final existing = await plans.findPlanById(pid);
+    if (existing == null) return '计划 id=$pid 不存在';
+    final now = DateTime.now();
+    final id = await dayTasks.addTask(PlanDayTask(
+      planId: pid,
+      taskDate: _parseDate(args['task_date'] as String),
+      title: args['title'] as String,
+      sortOrder: (args['sort_order'] as int?) ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    ));
+    return '已添加每日任务「${args['title']}」(id=$id)';
+  }
+
+  Future<String> _listDayTasks(Map<String, dynamic> args) async {
+    final pid = args['plan_id'] as int;
+    final date = args['task_date'] as String?;
+    final list = date != null
+        ? await dayTasks.findByPlanAndDate(pid, _parseDate(date))
+        : await dayTasks.findByPlan(pid);
+    String fmtDate(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    String fmtDateTime(DateTime d) =>
+        '${fmtDate(d)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    return jsonEncode({
+      'plan_id': pid,
+      'count': list.length,
+      'tasks': list
+          .map((t) => {
+                'id': t.id,
+                'task_date': fmtDate(t.taskDate),
+                'title': t.title,
+                'status': t.status,
+                'sort_order': t.sortOrder,
+                'done_at': t.doneAt == null ? null : fmtDateTime(t.doneAt!),
+              })
+          .toList(),
+    });
+  }
+
+  Future<String> _checkinDayTask(Map<String, dynamic> args) async {
+    final tid = args['task_id'] as int;
+    final status = args['status'] as String;
+    if (status != 'pending' && status != 'done') {
+      return 'status 必须是 pending 或 done，收到: $status';
+    }
+    await dayTasks.updateTask(tid, status: status);
+    return '已把任务 $tid 标记为 $status';
+  }
+
+  Future<String> _updateDayTask(Map<String, dynamic> args) async {
+    final tid = args['task_id'] as int;
+    await dayTasks.updateTask(
+      tid,
+      title: args['title'] as String?,
+      taskDate: args['task_date'] != null ? _parseDate(args['task_date'] as String) : null,
+      sortOrder: args['sort_order'] as int?,
+    );
+    return '已更新每日任务 id=$tid';
+  }
+
+  Future<String> _deleteDayTask(int taskId) async {
+    await dayTasks.deleteTask(taskId);
+    return '已删除每日任务 id=$taskId';
   }
 
   @override

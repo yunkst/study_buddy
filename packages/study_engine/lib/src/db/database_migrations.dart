@@ -3,7 +3,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 7;
+const int kCurrentDbVersion = 8;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -46,6 +46,9 @@ Future<void> migrateDatabase(
           break;
         case 7:
           _v7(batch);
+          break;
+        case 8:
+          _v8(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -367,4 +370,29 @@ void _v6(Batch batch) {
 /// - 不变更其它列、不动 v6 表。
 void _v7(Batch batch) {
   batch.execute('ALTER TABLE focus_session ADD COLUMN summary TEXT');
+}
+
+/// v8：每日打卡。新增 plan_day_task（任务挂在一个具体本地日历日）。
+///
+/// - task_date 存「本地零点 unix millis」，归一化在 repo 层做。
+/// - ON DELETE CASCADE 跟随 milestone/assessment 习惯。
+void _v8(Batch batch) {
+  batch.execute('''
+    CREATE TABLE plan_day_task (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL,
+      task_date INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      done_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (plan_id) REFERENCES plan(id) ON DELETE CASCADE,
+      CHECK (status IN ('pending', 'done'))
+    )
+  ''');
+  batch.execute(
+    'CREATE INDEX idx_plan_day_task_plan_date ON plan_day_task(plan_id, task_date)',
+  );
 }
