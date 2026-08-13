@@ -9,9 +9,15 @@ Future<StudyDatabase> _fresh() {
   return StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
 }
 
-PlanScenario newScenario(StudyDatabase sdb) => PlanScenario(
-      plans: PlanRepository(sdb),
+StudyPlanScenario newScenario(StudyDatabase sdb) => StudyPlanScenario(
+      categories: CategoryRepository(sdb),
+      topics: TopicRepository(sdb),
+      edges: TopicEdgeRepository(sdb),
       memories: AgentMemoryRepository(sdb),
+      mastery: MasteryRepository(sdb),
+      reviews: ReviewRepository(sdb),
+      schedules: TopicScheduleRepository(sdb),
+      plans: PlanRepository(sdb),
       dayTasks: PlanDayTaskRepository(sdb),
     );
 

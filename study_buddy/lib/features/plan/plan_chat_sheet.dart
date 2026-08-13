@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
-import '../../core/providers/plan_provider.dart';
+import '../../core/providers/agent_session_provider.dart';
 import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/ask_user_input_semantics.dart';
 
@@ -70,7 +70,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
     try {
       // 启动新流前取消旧订阅，避免流事件串进同一 _aiText/_toolEvents 与双重 onDone
       await _sub?.cancel();
-      final session = ref.read(planSessionProvider);
+      final session = ref.read(agentSessionProvider);
       final handle = await session.run(messages, planId: widget.planId, today: DateTime.now());
       _handle = handle;
       if (!mounted) return;

@@ -3,7 +3,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 8;
+const int kCurrentDbVersion = 9;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -49,6 +49,9 @@ Future<void> migrateDatabase(
           break;
         case 8:
           _v8(batch);
+          break;
+        case 9:
+          _v9(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -394,5 +397,16 @@ void _v8(Batch batch) {
   ''');
   batch.execute(
     'CREATE INDEX idx_plan_day_task_plan_date ON plan_day_task(plan_id, task_date)',
+  );
+}
+
+/// v9：合并 study/plan 两个 agent 场景为单一 study_plan。
+/// agent_memory 与 chat_session 的 scenario_id 一并归并（两列均无 UNIQUE/FK 约束，UPDATE 幂等）。
+void _v9(Batch batch) {
+  batch.execute(
+    "UPDATE agent_memory SET scenario_id = 'study_plan' WHERE scenario_id IN ('study', 'plan')",
+  );
+  batch.execute(
+    "UPDATE chat_session SET scenario_id = 'study_plan' WHERE scenario_id IN ('study', 'plan')",
   );
 }

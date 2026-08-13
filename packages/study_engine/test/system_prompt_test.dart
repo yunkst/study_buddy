@@ -31,6 +31,15 @@ void main() {
     expect(prompt, contains('learning'));
     expect(prompt, contains('mastered'));
   });
+
+  test('提示词含计划流程段（create_plan/拆节点/每日任务）', () async {
+    final prompt = await _prompt();
+    expect(prompt, contains('计划：创建计划'));
+    expect(prompt, contains('create_plan'));
+    expect(prompt, contains('拆节点原则'));
+    expect(prompt, contains('每日任务'));
+    expect(prompt, contains('add_assessment'));
+  });
 }
 
 Future<String> _prompt() async {
@@ -38,7 +47,7 @@ Future<String> _prompt() async {
     factory: databaseFactoryFfi,
     path: inMemoryDatabasePath,
   );
-  final s = StudyScenario(
+  final s = StudyPlanScenario(
     categories: CategoryRepository(sdb),
     topics: TopicRepository(sdb),
     edges: TopicEdgeRepository(sdb),
@@ -46,6 +55,8 @@ Future<String> _prompt() async {
     mastery: MasteryRepository(sdb),
     reviews: ReviewRepository(sdb),
     schedules: TopicScheduleRepository(sdb),
+    plans: PlanRepository(sdb),
+    dayTasks: PlanDayTaskRepository(sdb),
   );
   final p = s.buildSystemPrompt(const AgentScenarioContext());
   await sdb.close();

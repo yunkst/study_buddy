@@ -6,9 +6,9 @@ void main() {
   setUpAll(sqfliteFfiInit);
 
   // 与 study_scenario_integration_test 同款装配，多了 mastery / reviews
-  Future<(StudyScenario, MasteryRepository, TopicRepository, StudyDatabase)> setup() async {
+  Future<(StudyPlanScenario, MasteryRepository, TopicRepository, StudyDatabase)> setup() async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-    final scenario = StudyScenario(
+    final scenario = StudyPlanScenario(
       categories: CategoryRepository(sdb),
       topics: TopicRepository(sdb),
       edges: TopicEdgeRepository(sdb),
@@ -16,6 +16,8 @@ void main() {
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb), // Task 3 才有实现，本 Task 用占位桩
       schedules: TopicScheduleRepository(sdb),
+      plans: PlanRepository(sdb),
+      dayTasks: PlanDayTaskRepository(sdb),
     );
     return (scenario, MasteryRepository(sdb), TopicRepository(sdb), sdb);
   }

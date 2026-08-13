@@ -64,7 +64,7 @@ void main() {
 
   test('AgentLoop mock: save_review 落库 review 表', () async {
     final sdb = await openDb();
-    final scenario = StudyScenario(
+    final scenario = StudyPlanScenario(
       categories: CategoryRepository(sdb),
       topics: TopicRepository(sdb),
       edges: TopicEdgeRepository(sdb),
@@ -72,6 +72,8 @@ void main() {
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb),
       schedules: TopicScheduleRepository(sdb),
+      plans: PlanRepository(sdb),
+      dayTasks: PlanDayTaskRepository(sdb),
     );
 
     // FK 开启：先造 chat_session id=42 行，否则 save_review 落库 FOREIGN KEY 失败。
@@ -107,7 +109,7 @@ void main() {
   test('save_review 容忍 LLM 字符串化数字传参(国产 OpenAI 兼容端点)', () async {
     // seq/topic_ids 被序列化成字符串 "1"/"7"(国产端点常见)，不应抛 type cast 异常。
     final sdb = await openDb();
-    final scenario = StudyScenario(
+    final scenario = StudyPlanScenario(
       categories: CategoryRepository(sdb),
       topics: TopicRepository(sdb),
       edges: TopicEdgeRepository(sdb),
@@ -115,6 +117,8 @@ void main() {
       mastery: MasteryRepository(sdb),
       reviews: ReviewRepository(sdb),
       schedules: TopicScheduleRepository(sdb),
+      plans: PlanRepository(sdb),
+      dayTasks: PlanDayTaskRepository(sdb),
     );
     final now = DateTime.now().millisecondsSinceEpoch;
     await sdb.db.insert('chat_session', {'id': 43, 'scenario_id': 'study', 'title': 's43', 'created_at': now, 'updated_at': now});

@@ -21,7 +21,7 @@ class _FakeAgentSession extends AgentSession {
   AgentSessionHandle? lastHandle;
 
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     receivedMessages.add(List.of(messages));
     final handle = AgentSessionHandle(stream: Stream.fromIterable(_events));
     lastHandle = handle;
@@ -351,7 +351,7 @@ class _DelayedSession extends AgentSession {
   final _FakeAgentSession _inner;
   final StreamController<AgentEvent> _ctrl;
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     _inner.receivedMessages.add(List.of(messages));
     final handle = AgentSessionHandle(stream: _ctrl.stream);
     _inner.lastHandle = handle;
@@ -362,7 +362,7 @@ class _DelayedSession extends AgentSession {
 class _ThrowingAgentSession extends AgentSession {
   _ThrowingAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     throw StateError('未配置支持视觉的默认 LLM');
   }
 }
@@ -372,7 +372,7 @@ class _ThrowingAgentSession extends AgentSession {
 class _HangingAgentSession extends AgentSession {
   _HangingAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     final ctrl = StreamController<AgentEvent>();
     // 不 emit、不 close —— 流保持打开，模拟 agent 正在跑
     return AgentSessionHandle(stream: ctrl.stream);

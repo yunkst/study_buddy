@@ -110,7 +110,7 @@ void main() {
 class _NoopAgentSession extends AgentSession {
   _NoopAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     return AgentSessionHandle(stream: const Stream.empty());
   }
 }

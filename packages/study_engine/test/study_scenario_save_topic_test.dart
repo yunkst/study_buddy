@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 void main() {
   setUpAll(sqfliteFfiInit);
 
-  StudyScenario buildScenario(StudyDatabase sdb) => StudyScenario(
+  StudyPlanScenario buildScenario(StudyDatabase sdb) => StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -15,6 +15,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
       );
 
   test('save_topic 新建 → is_new=true 且 id 为 int', () async {
