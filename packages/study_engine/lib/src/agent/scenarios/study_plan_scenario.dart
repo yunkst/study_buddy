@@ -10,8 +10,11 @@ import '../../repos/topic_edge_repository.dart';
 import '../../repos/topic_repository.dart';
 import '../../repos/topic_schedule_repository.dart';
 import '../agent_scenario.dart';
+import '../agent_tools.dart';
 import '../ask_user_tools.dart';
+import '../plan_tools.dart';
 import '../prompt_resolver.dart';
+import '../tool_definition.dart';
 
 /// 融合场景：学习伴侣 + 学习计划合一。24 工具（知识点 9 + 计划 14 + ask_user），
 /// 一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
@@ -54,6 +57,58 @@ class StudyPlanScenario implements AgentScenario {
   @override String get id => 'study_plan';
   @override String get displayName => '学习伴侣';
   @override List<Map<String, dynamic>> get tools => AskUserTools.combinedTools;
+
+  /// 工具定义表（24 个：知识点 9 + 计划 14 + ask_user）。
+  /// schema 复用现有 const Map（AskUserTools.combinedTools 同源），execute 复用
+  /// 下方私有实现方法；[executeTool] 按 id 查表分发。
+  late final List<ToolDefinition> _defs = [
+    // —— 知识点 / 批改 ——
+    _tool(AgentTools.studyTools[0], (a, _) => _listTopics(a['path'] as String?)),
+    _tool(AgentTools.studyTools[1],
+        (a, _) => _searchTopics(a['keyword'] as String, a['offset'] as int?)),
+    _tool(AgentTools.studyTools[2], (a, _) => _getTopic(a['id'] as int)),
+    _tool(AgentTools.studyTools[3], (a, _) => _saveTopic(
+          a['path'] as String,
+          a['title'] as String,
+          a['question'] as String,
+          a['summary'] as String,
+        )),
+    _tool(AgentTools.studyTools[4],
+        (a, _) => _updateTopic(a['id'] as int, a['summary'] as String)),
+    _tool(AgentTools.studyTools[5], (a, _) =>
+        _linkTopics(a['from'] as int, a['to'] as int, a['type'] as String)),
+    _tool(AgentTools.studyTools[6], (a, _) =>
+        _setMastery(a['topic_id'] as int, a['status'] as String, a['reason'] as String)),
+    _tool(AgentTools.studyTools[7], (a, _) => _getMastery(a['topic_id'] as int)),
+    _tool(AgentTools.studyTools[8],
+        (a, ctx) => _saveReview(a, ctx.scenarioContext as AgentScenarioContext?)),
+    // —— 学习计划 ——
+    _tool(PlanTools.planTools[0], (a, _) => _createPlan(a)),
+    _tool(PlanTools.planTools[1], (a, _) => _getPlan(a['plan_id'] as int)),
+    _tool(PlanTools.planTools[2], (a, _) => _updatePlan(a)),
+    _tool(PlanTools.planTools[3], (a, _) => _addMilestone(a)),
+    _tool(PlanTools.planTools[4], (a, _) => _updateMilestone(a)),
+    _tool(PlanTools.planTools[5], (a, _) => _deleteMilestone(a['milestone_id'] as int)),
+    _tool(PlanTools.planTools[6], (a, _) => _addAssessment(a)),
+    _tool(PlanTools.planTools[7], (a, _) => _deletePlan(a['plan_id'] as int)),
+    _tool(PlanTools.planTools[8], (a, _) => _deleteAssessment(a['assessment_id'] as int)),
+    _tool(PlanTools.planTools[9], (a, _) => _createDayTask(a)),
+    _tool(PlanTools.planTools[10], (a, _) => _listDayTasks(a)),
+    _tool(PlanTools.planTools[11], (a, _) => _checkinDayTask(a)),
+    _tool(PlanTools.planTools[12], (a, _) => _updateDayTask(a)),
+    _tool(PlanTools.planTools[13], (a, _) => _deleteDayTask(a['task_id'] as int)),
+    // ask_user：由 AgentLoop 特殊拦截（挂起等用户作答），不走 executeTool。
+    _tool(AskUserTools.askUser, (a, _) async => 'ask_user 由 AgentLoop 拦截处理'),
+  ];
+
+  SchemaToolDefinition _tool(
+    Map<String, dynamic> schema,
+    Future<String> Function(Map<String, dynamic> args, ToolExecContext ctx) exec,
+  ) =>
+      SchemaToolDefinition(schema, exec);
+
+  @override
+  List<ToolDefinition> get definitions => _defs;
 
   @override
   String buildSystemPrompt(AgentScenarioContext ctx) => promptResolver.resolve(id, ctx);
@@ -116,67 +171,20 @@ class StudyPlanScenario implements AgentScenario {
   @override
   Future<String> executeTool(String name, Map<String, dynamic> args,
       {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async {
-    switch (name) {
-      // —— 知识点 / 批改 ——
-      case 'list_topics':
-        return _listTopics(args['path'] as String?);
-      case 'search_topics':
-        return _searchTopics(args['keyword'] as String, args['offset'] as int?);
-      case 'get_topic':
-        return _getTopic(args['id'] as int);
-      case 'save_topic':
-        return _saveTopic(
-          args['path'] as String,
-          args['title'] as String,
-          args['question'] as String,
-          args['summary'] as String,
+    // 按 id 查表分发（原 24 个 case 的 switch 已拆成 _defs 注册）。
+    for (final d in _defs) {
+      if (d.id == name) {
+        return d.execute(
+          args,
+          ToolExecContext(
+            toolCallId: toolCallId,
+            scenarioContext: context,
+            onProgress: onProgress,
+          ),
         );
-      case 'update_topic':
-        return _updateTopic(args['id'] as int, args['summary'] as String);
-      case 'link_topics':
-        return _linkTopics(args['from'] as int, args['to'] as int, args['type'] as String);
-      case 'set_mastery':
-        return _setMastery(
-          args['topic_id'] as int,
-          args['status'] as String,
-          args['reason'] as String,
-        );
-      case 'get_mastery':
-        return _getMastery(args['topic_id'] as int);
-      case 'save_review':
-        return _saveReview(args, context);
-      // —— 学习计划 ——
-      case 'create_plan':
-        return _createPlan(args);
-      case 'get_plan':
-        return _getPlan(args['plan_id'] as int);
-      case 'update_plan':
-        return _updatePlan(args);
-      case 'add_milestone':
-        return _addMilestone(args);
-      case 'update_milestone':
-        return _updateMilestone(args);
-      case 'delete_milestone':
-        return _deleteMilestone(args['milestone_id'] as int);
-      case 'add_assessment':
-        return _addAssessment(args);
-      case 'delete_plan':
-        return _deletePlan(args['plan_id'] as int);
-      case 'delete_assessment':
-        return _deleteAssessment(args['assessment_id'] as int);
-      case 'create_day_task':
-        return _createDayTask(args);
-      case 'list_day_tasks':
-        return _listDayTasks(args);
-      case 'checkin_day_task':
-        return _checkinDayTask(args);
-      case 'update_day_task':
-        return _updateDayTask(args);
-      case 'delete_day_task':
-        return _deleteDayTask(args['task_id'] as int);
-      default:
-        return '未知工具: $name';
+      }
     }
+    return '未知工具: $name';
   }
 
   // ===================== 知识点 / 批改 =====================

@@ -1,4 +1,5 @@
 import '../models/models.dart';
+import 'tool_definition.dart';
 
 /// 场景上下文：注入每轮动态信息（当前学科、最近拍题结果等）。
 class AgentScenarioContext {
@@ -20,6 +21,10 @@ abstract class AgentScenario {
   String get displayName;
   List<Map<String, dynamic>> get tools;
   String buildSystemPrompt(AgentScenarioContext ctx);
+
+  /// 工具定义表（id → schema + execute）。默认空——无工具场景（及测试 fake）
+  /// 无需实现；场景通过注册 [ToolDefinition] 让 [executeTool] 按 id 查表分发。
+  List<ToolDefinition> get definitions => const [];
 
   /// 构造「发给 LLM 的消息列表」（hermes compose_user_api_content 思路）。
   ///
