@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/database_provider.dart';
+import '../../core/theme/paper_extension.dart';
 
 class DailyReportPage extends ConsumerStatefulWidget {
   /// 可空：为空时默认展示「今天」。const 构造函数不能调用 DateTime.now()，
@@ -117,7 +118,11 @@ class _DailyReportPageState extends ConsumerState<DailyReportPage> {
               ),
               ...report.uniqueTopics.map((t) => Card(
                     child: ListTile(
-                      leading: const Icon(Icons.lightbulb_outline, color: Colors.amber),
+                      leading: Icon(
+                        Icons.lightbulb_outline,
+                        color: Theme.of(context).extension<PaperColors>()?.gold ??
+                            Theme.of(context).colorScheme.tertiary,
+                      ),
                       title: Text(t.title),
                     ),
                   )),

@@ -82,7 +82,6 @@ class _TimerCard extends StatelessWidget {
             child: Text(
               _clockText,
               style: theme.textTheme.displayLarge?.copyWith(
-                fontFamily: 'NotoSerifSC',
                 fontSize: 56,
                 letterSpacing: 3,
                 color: accent,
@@ -96,8 +95,8 @@ class _TimerCard extends StatelessWidget {
           Center(
             child: Text(
               state.running ? '专注中…' : '准备好就开始吧',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontFamily: 'NotoSerifSC',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 14,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
@@ -210,7 +209,7 @@ class _CurrentSessionPanel extends StatelessWidget {
         border: Border.all(color: cs.outlineVariant),
         boxShadow: [
           BoxShadow(
-            color: paper?.warmShadow ?? const Color(0x144C3C28),
+            color: paper?.warmShadow ?? theme.colorScheme.shadow,
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
@@ -244,8 +243,8 @@ class _CurrentSessionPanel extends StatelessWidget {
                     topics.isEmpty
                         ? '本场已学'
                         : '本场已学 · ${topics.length}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      fontFamily: 'NotoSerifSC',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: paper?.gold ?? cs.tertiary,
                     ),
@@ -306,7 +305,7 @@ class _TodaySummaryPanel extends StatelessWidget {
         border: Border.all(color: cs.outlineVariant),
         boxShadow: [
           BoxShadow(
-            color: paper?.warmShadow ?? const Color(0x144C3C28),
+            color: paper?.warmShadow ?? theme.colorScheme.shadow,
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
@@ -338,8 +337,8 @@ class _TodaySummaryPanel extends StatelessWidget {
                   const SizedBox(width: 6),
                   Text(
                     '今日专注',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      fontFamily: 'NotoSerifSC',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: paper?.gold ?? cs.tertiary,
                     ),
@@ -354,7 +353,6 @@ class _TodaySummaryPanel extends StatelessWidget {
                   Text(
                     _fmtDuration(summary.totalMs),
                     style: theme.textTheme.headlineLarge?.copyWith(
-                      fontFamily: 'NotoSerifSC',
                       fontWeight: FontWeight.w700,
                       color: cs.onSurface,
                     ),

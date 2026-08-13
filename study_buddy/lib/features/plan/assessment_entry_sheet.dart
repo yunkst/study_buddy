@@ -71,6 +71,7 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(left: 16, right: 16, top: 12, bottom: mq.viewInsets.bottom + 16),
       child: Column(
@@ -79,7 +80,7 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
         children: [
           Center(
             child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
+              decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2))),
           ),
           const Text('记录测评', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -117,7 +118,7 @@ class _AssessmentEntrySheetState extends ConsumerState<_AssessmentEntrySheet> {
             ],
           ),
           if (_error != null)
-            Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: Colors.red.shade900, fontSize: 12))),
+            Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: cs.error, fontSize: 12))),
           const SizedBox(height: 12),
           FilledButton(
             onPressed: _saving ? null : _save,

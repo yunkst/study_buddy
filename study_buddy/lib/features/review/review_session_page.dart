@@ -84,8 +84,7 @@ class _ReviewSessionPageState extends ConsumerState<ReviewSessionPage> {
               children: [
                 Text(
                   '第 ${index + 1} / $total 张',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontFamily: 'NotoSerifSC',
+                  style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -232,9 +231,9 @@ class _CardView extends StatelessWidget {
                 Text(
                   '点击翻面看答案',
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontSize: 12,
                     color: cs.onSurfaceVariant,
-                    fontFamily: 'NotoSerifSC',
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -290,7 +289,9 @@ class _RatingRow extends StatelessWidget {
                     ),
                     child: Text(
                       _labels[r]!,
-                      style: const TextStyle(fontFamily: 'NotoSerifSC'),
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -329,9 +330,9 @@ class _CenteredMessage extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton.tonal(
             onPressed: onBack,
-            child: const Text(
+            child: Text(
               '返回',
-              style: TextStyle(fontFamily: 'NotoSerifSC'),
+              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
             ),
           ),
         ],
@@ -384,9 +385,9 @@ class _TopicErrorView extends StatelessWidget {
         const SizedBox(height: 12),
         FilledButton.tonal(
           onPressed: onSkip,
-          child: const Text(
+          child: Text(
             '跳过此卡',
-            style: TextStyle(fontFamily: 'NotoSerifSC'),
+            style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
           ),
         ),
       ],

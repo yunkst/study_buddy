@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/providers/plan_provider.dart';
+import '../../core/theme/paper_extension.dart';
 import 'assessment_entry_sheet.dart';
 import 'day_task_calendar.dart';
 import 'plan_chat_sheet.dart';
@@ -61,6 +62,8 @@ class PlanDetailPage extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('加载失败: $e')),
         data: (detail) {
+          final cs = Theme.of(context).colorScheme;
+          final paper = Theme.of(context).extension<PaperColors>()!;
           final plan = detail.plan;
           final milestones = detail.milestones;
           final assessments = detail.assessments;
@@ -81,12 +84,12 @@ class PlanDetailPage extends ConsumerWidget {
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: paper.goldContainer, borderRadius: BorderRadius.circular(8)),
                   child: Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+                      Icon(Icons.warning_amber_rounded, color: paper.gold),
                       const SizedBox(width: 8),
-                      Expanded(child: Text('距上次测评已 $reminderDays 天，建议做一次测评。', style: TextStyle(color: Colors.orange.shade900))),
+                      Expanded(child: Text('距上次测评已 $reminderDays 天，建议做一次测评。', style: TextStyle(color: paper.onGold))),
                     ],
                   ),
                 ),
@@ -121,7 +124,7 @@ class PlanDetailPage extends ConsumerWidget {
                   child: ListTile(
                     leading: IconButton(
                       icon: Icon(isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                          color: isDone ? Colors.green : (overdue ? Colors.red : (near ? Colors.orange : Colors.grey))),
+                          color: isDone ? cs.tertiary : (overdue ? cs.error : (near ? paper.gold : cs.onSurfaceVariant))),
                       onPressed: () async {
                         final repo = await ref.read(planRepositoryAsyncProvider.future);
                         await repo.updateMilestone(m.id!, status: isDone ? 'pending' : 'done');
@@ -131,12 +134,12 @@ class PlanDetailPage extends ConsumerWidget {
                     ),
                     title: Text(
                       '${m.targetDate.month}/${m.targetDate.day} ${m.title}',
-                      style: TextStyle(decoration: isDone ? TextDecoration.lineThrough : null, color: isDone ? Colors.grey : null),
+                      style: TextStyle(decoration: isDone ? TextDecoration.lineThrough : null, color: isDone ? cs.onSurfaceVariant : null),
                     ),
                     subtitle: Text(m.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
                     trailing: overdue
-                        ? const Text('已过期', style: TextStyle(color: Colors.red, fontSize: 12))
-                        : (near ? Text(daysTo == 0 ? '今天' : '$daysTo天', style: TextStyle(color: Colors.orange.shade800, fontSize: 12)) : null),
+                        ? Text('已过期', style: TextStyle(color: cs.error, fontSize: 12))
+                        : (near ? Text(daysTo == 0 ? '今天' : '$daysTo天', style: TextStyle(color: paper.gold, fontSize: 12)) : null),
                   ),
                 );
               }),
