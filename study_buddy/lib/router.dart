@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'core/providers/captured_image.dart';
 import 'core/theme/paper_scaffold.dart';
 import 'features/crop/image_crop_page.dart';
 import 'features/external_qbank/ai_panel_sheet.dart';
