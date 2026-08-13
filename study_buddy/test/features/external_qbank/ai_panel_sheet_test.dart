@@ -167,8 +167,8 @@ void main() {
 
     // 首轮截图预览可见
     expect(find.byType(Image), findsWidgets);
-    // 点发送
-    await tester.tap(find.text('开始分析'));
+    // 点发送（微信风小按钮，tooltip 定位）
+    await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
 
     // user 消息与 assistant 消息都渲染
@@ -204,11 +204,11 @@ void main() {
 
     await pumpPanel(tester, container: container, screenshot: screenshot);
 
-    await tester.tap(find.text('开始分析'));
+    await tester.tap(find.byTooltip('发送'));
     await tester.pump(); // 不等完成
 
-    // 按钮变为分析中
-    expect(find.text('分析中...'), findsOneWidget);
+    // 按钮变为 busy：输入框禁用 + 发送按钮呈沙漏（无文字，改断言图标）
+    expect(find.byIcon(Icons.hourglass_top), findsOneWidget);
 
     // 放行事件流：本轮完成,恢复可用。
     // StreamController 事件派发是真实异步，需 runAsync 才能推进；
@@ -222,8 +222,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // 结束后不再 busy
-    expect(find.text('分析中...'), findsNothing);
+    // 结束后不再 busy（沙漏消失）
+    expect(find.byIcon(Icons.hourglass_top), findsNothing);
   });
 
   testWidgets('追问轮:tap 加图按钮弹 Sheet,选相册后预览出现', (tester) async {
@@ -247,9 +247,9 @@ void main() {
     addTearDown(container.dispose);
     await pumpPanel(tester, container: container, screenshot: screenshot);
 
-    // 3. 先点「开始分析」让 _firstSent=true（追问轮加图才生效；实际首轮加图也可，
+    // 3. 先点发送让 _firstSent=true（追问轮加图才生效；实际首轮加图也可，
     //    但测追问轮更贴近真实使用场景）
-    await tester.tap(find.text('开始分析'));
+    await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
 
     // 4. tap 加图按钮 → Sheet 弹出 → 选"从相册选择"
@@ -268,6 +268,27 @@ void main() {
     expect(find.byIcon(Icons.close), findsOneWidget);
   });
 
+  testWidgets('微信风发送按钮:纯文字空输入禁用,输入文本后可用并发送', (tester) async {
+    // 纯文字入口（无截图）：_pendingImage=null,初始 canSend=false → 发送禁用。
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+    await pumpPanel(tester, container: container);
+
+    // 空输入：tap 发送按钮（InkWell onTap=null,实际不响应）不应新增消息。
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pump();
+    expect(container.read(currentChatProvider).messages, isEmpty);
+
+    // 输入文本 → canSend=true,按钮可用；tap 发送 → 新增 user+assistant。
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.pump(); // 触发 _onInputChanged → 按钮转可用
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pumpAndSettle();
+    expect(container.read(currentChatProvider).messages, hasLength(2));
+  });
+
   testWidgets('save_topic 工具结果落地后,流式轨迹转 SavedTopicCapsule,AI 走 MarkdownLatex',
       (tester) async {
     // 接线回归（task 7.2）：save_topic 工具结果(JSON) → SavedTopicCapsule，
@@ -282,7 +303,7 @@ void main() {
     addTearDown(container.dispose);
 
     await pumpPanel(tester, container: container, screenshot: screenshot);
-    await tester.tap(find.text('开始分析'));
+    await tester.tap(find.byTooltip('发送'));
     await tester.pump();
 
     // save_topic 事件：tool result 与 tool 消息 content 都是
@@ -327,7 +348,8 @@ void main() {
     // 纯文字入口必须先输入内容，否则 send('', null) 在 chat_session_provider 直接 return，
     // messages 不会累计（空输入不发送是本产品的既定语义）。
     await tester.enterText(find.byType(TextField), '你好');
-    await tester.tap(find.text('开始分析'));
+    await tester.pump(); // 触发 _onInputChanged → 发送按钮转可用
+    await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
 
     // 已有 user + assistant 两条消息

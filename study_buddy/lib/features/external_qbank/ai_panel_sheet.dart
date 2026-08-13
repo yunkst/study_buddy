@@ -64,6 +64,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     super.initState();
     // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
     _pendingImage = widget.initialScreenshot;
+    // 输入文本变化时重算发送按钮可用态（canSend 依赖 _inputCtrl.text）。
+    _inputCtrl.addListener(_onInputChanged);
     // 监听会话状态变化：仅在有新消息/流式增量时滚动到底部。
     ref.listenManual(currentChatProvider, (prev, next) {
       if (prev == null) return;
@@ -73,8 +75,12 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     });
   }
 
+  /// 文本变化触发 rebuild：微信风发送按钮随输入内容实时切换可用态。
+  void _onInputChanged() => setState(() {});
+
   @override
   void dispose() {
+    _inputCtrl.removeListener(_onInputChanged);
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _inputFocus.dispose();
@@ -184,6 +190,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     final hasHistory = state.messages.isNotEmpty;
     final showEmptyState = !hasHistory && _pendingImage == null;
 
+    // 微信风发送可用态：有正文或待附图才可发送。
+    final canSend = _inputCtrl.text.trim().isNotEmpty || _pendingImage != null;
+
     return PaperScaffold(
       appBar: AppBar(
         title: const Text('问 AI'),
@@ -285,52 +294,50 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 ],
               ),
             ],
-            // 输入行：加图按钮 + TextField + 发送/开始分析按钮。
+            // 输入行：微信风——➕ 加图在前，圆角输入框后是小号发送按钮。
             const SizedBox(height: 8),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 IconButton(
                   icon: const Icon(Icons.add_photo_alternate_outlined),
                   onPressed: state.busy
                       ? null
                       : () => _pickImageForFollowUp(context),
+                  tooltip: '拍照或从相册选择',
                 ),
                 Builder(builder: (ctx) {
                   final s = _semantics(state);
-                  final submit = _onInputSubmit(state);
                   return Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _inputCtrl,
-                            focusNode: _inputFocus,
-                            enabled: s.inputEnabled,
-                            decoration: InputDecoration(
-                              hintText: s.hint,
-                              border: const OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            onSubmitted: (_) => submit?.call(),
-                          ),
+                    child: TextField(
+                      controller: _inputCtrl,
+                      focusNode: _inputFocus,
+                      enabled: s.inputEnabled,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _onInputSubmit(state)?.call(),
+                      decoration: InputDecoration(
+                        hintText: s.hint,
+                        isDense: true,
+                        filled: true,
+                        fillColor: colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.4),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          borderSide: BorderSide.none,
                         ),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: submit,
-                          icon: Icon(
-                            s.buttonIconKey == 'busy'
-                                ? Icons.hourglass_top
-                                : (s.buttonIconKey == 'check'
-                                    ? Icons.check
-                                    : Icons.edit_note),
-                            size: 18,
-                          ),
-                          label: Text(s.currentButtonLabel()),
-                        ),
-                      ],
+                      ),
                     ),
                   );
                 }),
+                _SendButton(
+                  canSend: canSend,
+                  semantics: _semantics(state),
+                  onTap: _onInputSubmit(state),
+                ),
               ],
             ),
           ],
@@ -730,6 +737,72 @@ class _AiNote extends StatelessWidget {
             MarkdownLatex(data: text, selectable: true),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：微信风发送按钮
+// ─────────────────────────────────────────────────────────────
+
+/// 微信风小号发送按钮：圆角实底（36px），纯图标无文字。
+///
+/// 状态由 [AskUserInputSemantics] 三态机（busy/pendingAsk）决定图标，
+/// [canSend]（有正文或待附图）决定可用态：
+/// - busy → 沙漏（灰显禁用）
+/// - 有内容可发 → 箭头，primary 底高亮，可点
+/// - 空输入 → 箭头灰显禁用；pendingAsk 含选项时也禁用（须点 AskUserCard）
+///
+/// [onTap] 由调用方传入 `_onInputSubmit(state)`（busy / pendingAsk 含选项时
+/// 已为 null → 天然禁用），这里仅叠加 canSend 判空。
+class _SendButton extends StatelessWidget {
+  const _SendButton({
+    required this.canSend,
+    required this.semantics,
+    required this.onTap,
+  });
+
+  final bool canSend;
+  final AskUserInputSemantics semantics;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final busy = semantics.busy;
+    final enabled = onTap != null && canSend;
+
+    final IconData icon;
+    if (busy) {
+      icon = Icons.hourglass_top;
+    } else if (semantics.buttonIconKey == 'check') {
+      icon = Icons.check;
+    } else {
+      icon = Icons.arrow_upward;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Tooltip(
+        message: '发送',
+        child: Material(
+          color: enabled ? cs.primary : cs.onSurface.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              width: 36,
+              height: 36,
+              child: Icon(
+                icon,
+                size: 20,
+                color: enabled ? cs.onPrimary : cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
