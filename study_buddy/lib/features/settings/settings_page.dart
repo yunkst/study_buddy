@@ -404,10 +404,13 @@ class _VersionRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 版本号运行时读取（package_info_plus），避免与 pubspec 硬编码漂移；
+    // FutureProvider 首帧未就绪时显示占位，就绪后自动刷新。
+    final version = ref.watch(appVersionProvider).value ?? '…';
     return _NavRow(
       icon: Icons.system_update_alt_outlined,
       label: '版本更新',
-      value: '0.1.0-preview.6',
+      value: version,
       onTap: () => _checkForUpdate(context, ref),
     );
   }
@@ -442,13 +445,14 @@ class _AboutRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(appVersionProvider).value ?? '…';
     return _NavRow(
       icon: Icons.info_outline,
       label: '关于',
       onTap: () => showAboutDialog(
         context: context,
         applicationName: 'Study Buddy',
-        applicationVersion: '0.1.0-preview.6',
+        applicationVersion: version,
         applicationLegalese: '© Study Buddy',
       ),
     );
