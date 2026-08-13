@@ -100,6 +100,11 @@ void main() {
           path: '/review',
           builder: (_, __) => const Scaffold(body: SizedBox.shrink()),
         ),
+        // 【为什么？】按钮的跳转目标（占位，避免构造真实 AiChatPage 依赖 LLM）。
+        GoRoute(
+          path: '/ai',
+          builder: (_, __) => const Scaffold(body: Center(child: Text('ai-page'))),
+        ),
       ],
     );
     await tester.pumpWidget(
@@ -145,5 +150,23 @@ void main() {
     // 3) 掌握度徽标「已掌握」渲染。
     // _MasteryBadge 内部 switch(status=mastered) → '已掌握'。
     expect(find.text('已掌握'), findsOneWidget);
+  });
+
+  testWidgets('【为什么？】按钮渲染并点击跳转 /ai 教学入口', (tester) async {
+    final container = ProviderContainer(
+      overrides: [databaseProvider.overrideWith((ref) async => sdb)],
+    );
+    addTearDown(container.dispose);
+
+    await pumpDetailPage(tester, container);
+
+    // 正文区明显按钮渲染（key + 文案）。
+    expect(find.byKey(const ValueKey('why-button')), findsOneWidget);
+    expect(find.text('为什么？'), findsOneWidget);
+
+    // 点击 → push /ai（占位页 'ai-page' 出现）。
+    await tester.tap(find.byKey(const ValueKey('why-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('ai-page'), findsOneWidget);
   });
 }

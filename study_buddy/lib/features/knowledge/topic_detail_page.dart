@@ -123,16 +123,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
     final masteryAsync = ref.watch(masteryOfProvider(widget.topicId));
 
     return PaperScaffold(
-      appBar: AppBar(
-        title: const Text('知识点'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.smart_toy_outlined),
-            tooltip: '问 AI 深度交流',
-            onPressed: () => showAiPanel(context),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('知识点')),
       body: SafeArea(
         child: FutureBuilder<_TopicDetail>(
           future: _detailFuture,
@@ -169,6 +160,21 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
                   status: masteryAsync.maybeWhen(
                     data: (m) => m,
                     orElse: () => MasteryStatus.unknown,
+                  ),
+                ),
+                // 互动式教学入口【为什么？】：带 topicId 进入 AI 对话，AI 自动从该知识点
+                // 诞生的具体场景/解决的问题出发，用启发式方式引导用户理解。
+                const SizedBox(height: 16),
+                FilledButton.tonalIcon(
+                  key: const ValueKey('why-button'),
+                  onPressed: () => showAiPanel(context, topicId: widget.topicId),
+                  icon: const Icon(Icons.emoji_objects_outlined),
+                  label: const Text(
+                    '为什么？',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
                   ),
                 ),
                 const _SectionLabel('引子'),

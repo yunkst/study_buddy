@@ -28,10 +28,24 @@ import '../../core/widgets/ask_user_input_semantics.dart';
 import '../../core/widgets/markdown_latex.dart';
 import 'saved_topic_capsule.dart';
 
+/// 对话页启动参数：截图（拍题/分享冷启动）与知识点教学入口（【为什么？】）可并存。
+class AiPanelLaunch {
+  const AiPanelLaunch({this.screenshot, this.topicId});
+
+  /// 拍题/分享冷启动预填的截图；null = 纯文字入口。
+  final CapturedScreenshot? screenshot;
+
+  /// 知识点教学入口的 topic id（详情页【为什么？】）；null = 普通会话。
+  final int? topicId;
+}
+
 /// 推入全屏 AI 对话页（`/ai`）。
 ///
 /// [screenshot] 可空：来自 [CapturedScreenshot] 的截图（拍题入口 / 分享冷启动），
 /// 纯内存持有，会话结束即释放；为 null 时表示纯文字入口。
+///
+/// [topicId] 可空：知识点详情页【为什么？】入口传入，进入后启动「知识点教学模式」
+/// （AI 从场景出发做启发式教学）。为 null 时是普通学习伴侣会话。
 ///
 /// 签名保持与历史 `showModalBottomSheet` 版本一致，使各调用方（app.dart 分享冷启动、
 /// 今日页 _consumePendingScreenshot、知识点详情页深度交流）零改动。返回的 Future 在
@@ -39,15 +53,21 @@ import 'saved_topic_capsule.dart';
 Future<void> showAiPanel(
   BuildContext context, {
   CapturedScreenshot? screenshot,
+  int? topicId,
 }) async {
-  await context.push('/ai', extra: screenshot);
+  await context.push(
+    '/ai',
+    extra: AiPanelLaunch(screenshot: screenshot, topicId: topicId),
+  );
 }
 
-/// 全屏 AI 对话页。由路由 `/ai` 注入可选的 [initialScreenshot]（拍题 / 分享冷启动）。
+/// 全屏 AI 对话页。由路由 `/ai` 注入可选的 [initialScreenshot]（拍题 / 分享冷启动）
+/// 与 [initialTopicId]（知识点详情页【为什么？】教学入口）。
 class AiChatPage extends ConsumerStatefulWidget {
-  const AiChatPage({super.key, this.initialScreenshot});
+  const AiChatPage({super.key, this.initialScreenshot, this.initialTopicId});
 
   final CapturedScreenshot? initialScreenshot;
+  final int? initialTopicId;
 
   @override
   ConsumerState<AiChatPage> createState() => _AiChatPageState();
@@ -59,6 +79,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   final FocusNode _inputFocus = FocusNode();
   CapturedScreenshot? _pendingImage; // 待附图（首轮入口或追问轮追加）
   bool _firstSent = false;
+  /// 是否教学开场（详情页【为什么？】入口）：开场指令 user 消息渲染为居中引导横幅
+  /// 而非用户气泡；用户自行发送首条消息后（_firstSent=true）恢复普通气泡。
+  bool _teachingOpening = false;
 
   @override
   void initState() {
@@ -67,6 +90,19 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     ref.read(currentChatProvider.notifier).hydrate();
     // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
     _pendingImage = widget.initialScreenshot;
+    // 知识点教学入口（【为什么？】）：清旧会话 + 记录教学 topic + 发开场消息，
+    // AI 自动从知识点诞生的场景出发开场引导。
+    // 延迟到首帧后执行：send() 会修改 currentChatProvider，而 initState 期间
+    // 修改 provider 违反 Riverpod 3 的「构建期禁止修改」断言。
+    final topicId = widget.initialTopicId;
+    _teachingOpening = topicId != null;
+    if (topicId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(currentChatProvider.notifier).startTopicTeaching(topicId);
+        }
+      });
+    }
     // 输入文本变化时重算发送按钮可用态（canSend 依赖 _inputCtrl.text）。
     _inputCtrl.addListener(_onInputChanged);
     // 监听会话状态变化：仅在有新消息/流式增量时滚动到底部。
@@ -356,6 +392,15 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   Widget _buildMessage(
       ChatMessage msg, ThemeData theme, List<ChatMessage> allMessages) {
     if (msg.role == 'user') {
+      // 教学开场：系统代发的首条 user 消息（用户未接管前）渲染为居中引导横幅，
+      // 而非用户气泡；用户自行发送消息后恢复普通气泡。
+      final isTeachingOpening = _teachingOpening &&
+          !_firstSent &&
+          allMessages.isNotEmpty &&
+          identical(allMessages.first, msg);
+      if (isTeachingOpening) {
+        return const _TeachingOpeningBanner();
+      }
       final text = _extractText(msg);
       final images = _extractImages(msg);
       return Padding(
@@ -570,6 +615,48 @@ class _Polaroid extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：教学开场引导横幅
+// ─────────────────────────────────────────────────────────────
+
+/// 教学开场引导横幅：知识点详情页【为什么？】入口自动开场时，代替用户气泡
+/// 显示居中的「✦ 从场景出发，认识这个知识点」提示，表明 AI 正在开场教学。
+class _TeachingOpeningBanner extends StatelessWidget {
+  const _TeachingOpeningBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cs.outlineVariant, width: 0.5),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('✦', style: TextStyle(color: cs.primary, fontSize: 14)),
+              const SizedBox(width: 6),
+              Text(
+                '从场景出发，认识这个知识点',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

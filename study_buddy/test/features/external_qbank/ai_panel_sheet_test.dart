@@ -31,7 +31,7 @@ import 'package:study_engine/study_engine.dart';
 class _FakeAgentSession extends AgentSession {
   _FakeAgentSession(super.ref);
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     return AgentSessionHandle(stream: Stream.fromIterable([
       TextDeltaEvent('这是'),
       TextDeltaEvent('分析'),
@@ -46,7 +46,7 @@ class _ControllableAgentSession extends AgentSession {
   _ControllableAgentSession(super.ref, this._controller);
   final StreamController<AgentEvent> _controller;
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
     return AgentSessionHandle(stream: _controller.stream);
   }
 }
@@ -114,6 +114,7 @@ Future<void> pumpPanel(
   WidgetTester tester, {
   required ProviderContainer container,
   CapturedScreenshot? screenshot,
+  int? topicId,
 }) async {
   final router = GoRouter(
     routes: [
@@ -122,7 +123,7 @@ Future<void> pumpPanel(
         builder: (_, __) => Scaffold(
           body: Builder(builder: (ctx) => Center(
                 child: ElevatedButton(
-                  onPressed: () => showAiPanel(ctx, screenshot: screenshot),
+                  onPressed: () => showAiPanel(ctx, screenshot: screenshot, topicId: topicId),
                   child: const Text('open'),
                 ),
               )),
@@ -130,11 +131,15 @@ Future<void> pumpPanel(
       ),
       GoRoute(
         path: '/ai',
-        builder: (_, state) => AiChatPage(
-          initialScreenshot: state.extra is CapturedScreenshot
-              ? state.extra as CapturedScreenshot
-              : null,
-        ),
+        builder: (_, state) {
+          final launch = state.extra is AiPanelLaunch
+              ? state.extra as AiPanelLaunch
+              : const AiPanelLaunch();
+          return AiChatPage(
+            initialScreenshot: launch.screenshot,
+            initialTopicId: launch.topicId,
+          );
+        },
       ),
       // 用 _FakeCropPage 而非真实 ImageCropPage：避免 ui 解码拖慢/污染测试。
       GoRoute(
@@ -362,5 +367,29 @@ void main() {
     // messages 已清，对话页仍在（输入框在）
     expect(container.read(currentChatProvider).messages, isEmpty);
     expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('教学入口:带 topicId 进入后 AI 自动开场,开场指令渲染为引导横幅',
+      (tester) async {
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+
+    // 知识点教学入口（topicId=42）：进入即自动清会话 + 发开场消息 + AI 开场回复。
+    await pumpPanel(tester, container: container, topicId: 42);
+    await tester.pumpAndSettle();
+
+    // 开场指令 user 消息渲染为居中引导横幅（而非用户气泡）。
+    expect(find.text('从场景出发，认识这个知识点'), findsOneWidget);
+    // AI 开场回复渲染（_FakeAgentSession 返回 '这是分析'）。
+    expect(_selectableTextContaining('这是分析'), findsOneWidget);
+    // 开场指令本身不作为用户气泡文本泄漏显示。
+    expect(find.textContaining('诞生的具体场景'), findsNothing);
+    // 会话含 user(开场指令) + assistant(开场回复)。
+    final state = container.read(currentChatProvider);
+    expect(state.messages, hasLength(2));
+    expect(state.messages[0].role, 'user');
+    expect(state.messages[1].role, 'assistant');
   });
 }

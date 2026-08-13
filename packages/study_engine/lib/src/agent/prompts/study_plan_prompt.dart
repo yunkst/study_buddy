@@ -4,7 +4,8 @@
 /// （无 Flutter/rootBundle）直接调 buildSystemPrompt，asset 会导致测试不可运行。
 /// 运行时覆盖见 PromptResolver + DB `prompt_override` 表（App 层 DbPromptResolver）。
 ///
-/// 占位符：{{today}} 当前日期、{{plan_summary}} 当前计划概览。
+/// 占位符：{{today}} 当前日期、{{plan_summary}} 当前计划概览、
+/// {{topic_context}} 知识点详情页【为什么？】入口的教学上下文（空串时教学模式段不出现）。
 /// 经验记忆不再嵌入本模板——它经 composeApiMessages 随当前轮用户消息注入
 /// （`<memory-context>` 块，标注 NOT new user input）。
 library;
@@ -116,4 +117,5 @@ const String kStudyPlanSystemPromptTemplate = '''你是学习伴侣 AI。职责�
 ## 经验记忆
 你的经验记忆（过去对话沉淀的偏好与教训）不在此处，而是在每轮的用户消息里以
 <memory-context> 块随附（标注为 NOT new user input）。请读取并遵守其中的约定。
-''';
+
+{{topic_context}}''';
