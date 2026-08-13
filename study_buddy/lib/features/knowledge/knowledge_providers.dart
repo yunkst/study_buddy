@@ -17,6 +17,12 @@ final categoryChildrenProvider = FutureProvider.family<List<Category>, int?>((re
   return CategoryRepository(db).findChildren(parentId);
 });
 
+/// 按 id 取单个分类（用于读取 parentId 以支持「返回上级」回到父级而非根）。
+final categoryByIdProvider = FutureProvider.family<Category?, int>((ref, id) async {
+  final db = await ref.watch(databaseProvider.future);
+  return CategoryRepository(db).findById(id);
+});
+
 /// 指定分类下的知识点列表。
 final topicsInCategoryProvider = FutureProvider.family<List<Topic>, int>((ref, categoryId) async {
   final db = await ref.watch(databaseProvider.future);
@@ -35,3 +41,19 @@ final masteryOfProvider = FutureProvider.family<MasteryStatus, int>((ref, topicI
   final s = await repo.findByTopic(topicId);
   return MasteryFromSchedule.fromSchedule(s);
 });
+
+/// 作废知识 Tab 全量缓存（分类树 / 按分类知识点 / 搜索 / 单分类）。
+///
+/// 这些 provider 是 `FutureProvider.family`，结果会被无限期缓存。当 agent
+/// 在别处（如 /ai 会话）save_topic / update_topic 写库后，已浏览过知识 Tab
+/// 的用户切回时若不刷新会看不到新增知识点（StatefulShellRoute.indexedStack
+/// 保活页面，watch 的是旧缓存）。故在写库后调用本函数令其下次读取重拉。
+///
+/// 入参为 `ProviderContainer`：provider 内可传 `ref.container`，测试可直接传
+/// `ProviderContainer`，二者共用同一套 invalidate 行为。
+void invalidateKnowledgeCache(ProviderContainer container) {
+  container.invalidate(categoryChildrenProvider);
+  container.invalidate(categoryByIdProvider);
+  container.invalidate(topicsInCategoryProvider);
+  container.invalidate(topicSearchProvider);
+}

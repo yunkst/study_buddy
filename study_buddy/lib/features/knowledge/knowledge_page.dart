@@ -167,11 +167,20 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
   /// 支持无限层下钻：分类可逐级进入（数学 → 高等数学 → 极限…），
   /// 知识点挂在任意深度都能通过浏览到达（修复 agent 按嵌套 path 建知识点
   /// 后浏览不到的问题）。子分类与直挂知识点皆空时才提示空态。
+  ///
+  /// 「返回上级」回到当前分类的父级（而非直接回根），支持逐级回退；
+  /// 父级为 null（即当前已在顶级）时回到根视图。
   Widget _buildSelectedCategory(int categoryId) {
     final theme = Theme.of(context);
     final rule = theme.extension<PaperColors>()?.ruleSoft;
     final childrenAsync = ref.watch(categoryChildrenProvider(categoryId));
     final topicsAsync = ref.watch(topicsInCategoryProvider(categoryId));
+    final parentAsync = ref.watch(categoryByIdProvider(categoryId));
+    // 返回上级目标：当前分类的 parentId；未解析到时回退到根（null）。
+    final parentId = parentAsync.maybeWhen(
+      data: (cat) => cat?.parentId,
+      orElse: () => null,
+    );
     final hasChildren = childrenAsync.maybeWhen(
       data: (c) => c.isNotEmpty,
       orElse: () => false,
@@ -184,10 +193,10 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       children: [
-        // 返回上级：置 null 回到根。
+        // 返回上级：回到父级；父级为空（已在顶级）则回根。
         InkWell(
-          key: const ValueKey('back-to-root'),
-          onTap: () => _enterCategory(null),
+          key: const ValueKey('back-to-parent'),
+          onTap: () => _enterCategory(parentId),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(

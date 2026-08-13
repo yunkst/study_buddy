@@ -45,6 +45,12 @@ class CategoryRepository {
     return rows.map(Category.fromMap).toList();
   }
 
+  /// 按 id 取单个分类（不存在返回 null）。
+  Future<Category?> findById(int id) async {
+    final rows = await _db.db.query('category', where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : Category.fromMap(rows.first);
+  }
+
   /// 向上回溯到根，返回完整路径段列表。
   Future<List<String>> pathOf(int categoryId) async {
     final segments = <String>[];
