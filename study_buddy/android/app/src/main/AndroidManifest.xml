@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 分享卡保存到相册：Android 10+ 走 scoped storage 免此权限；兼容 9 及以下 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <!-- 相机可选（仅拍照入口需要）；相册走 Android Photo Picker 免权限 -->
     <uses-feature
         android:name="android.hardware.camera"
@@ -79,6 +83,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- 分享到小红书：声明 xhsdiscover scheme 可见性，使 canLaunchUrl 正确返回 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="xhsdiscover"/>
         </intent>
     </queries>
 </manifest>

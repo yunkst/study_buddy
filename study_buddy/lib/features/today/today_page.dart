@@ -15,6 +15,7 @@ import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../features/external_qbank/ai_panel_sheet.dart';
 import '../../features/plan/plan_chat_sheet.dart';
+import '../../features/share/share_flow.dart';
 import '../../main.dart' show PendingScreenshotStore;
 
 /// 今日 Tab 根页：学习闭环（问 AI · 计划 · 专注 · 复习）入口。
@@ -53,7 +54,16 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final plansAsync = ref.watch(planListProvider);
     final dueAsync = ref.watch(dueNowCountProvider);
     return PaperScaffold(
-      appBar: AppBar(title: const Text('今日')),
+      appBar: AppBar(
+        title: const Text('今日'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: '分享今日学习到小红书',
+            onPressed: () => showShareSheet(context),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
