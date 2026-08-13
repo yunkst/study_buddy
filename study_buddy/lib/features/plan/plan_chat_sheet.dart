@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
-import '../../core/providers/plan_provider.dart';
+import '../../core/providers/agent_session_provider.dart';
 import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/ask_user_input_semantics.dart';
 
@@ -70,7 +70,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
     try {
       // 启动新流前取消旧订阅，避免流事件串进同一 _aiText/_toolEvents 与双重 onDone
       await _sub?.cancel();
-      final session = ref.read(planSessionProvider);
+      final session = ref.read(agentSessionProvider);
       final handle = await session.run(messages, planId: widget.planId, today: DateTime.now());
       _handle = handle;
       if (!mounted) return;
@@ -200,6 +200,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(left: 16, right: 16, top: 12, bottom: mq.viewInsets.bottom + 16),
       child: SingleChildScrollView(
@@ -209,7 +210,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
           children: [
             Center(
               child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
+                decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2))),
             ),
             Text(
               widget.planName != null ? '正在调整：${widget.planName}' : '新建学习计划',
@@ -220,7 +221,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               widget.planId == null
                   ? '告诉我考试日期、内容、目标、每日时长和当前水平，我帮你拆计划。'
                   : '说说你想怎么调整，比如"把第 3 个节点提前一周"。',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             Builder(builder: (ctx) {
@@ -256,8 +257,8 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
             if (_errorText != null)
               Container(
                 padding: const EdgeInsets.all(8),
-                color: Colors.red.shade50,
-                child: Text(_errorText!, style: TextStyle(color: Colors.red.shade900, fontSize: 12)),
+                color: cs.errorContainer,
+                child: Text(_errorText!, style: TextStyle(color: cs.onErrorContainer, fontSize: 12)),
               ),
             if (_toolEvents.isNotEmpty) ...[
               const Text('工具调用', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
@@ -271,7 +272,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
                 child: SelectableText(_aiText.toString()),
               ),
             ],

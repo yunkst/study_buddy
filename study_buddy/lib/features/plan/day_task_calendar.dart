@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/plan_provider.dart';
+import '../../core/theme/paper_extension.dart';
 
 /// 每日打卡月历视图。挂在计划详情页「每日任务」区块。
 ///
@@ -95,11 +96,12 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
   }
 
   Widget _buildWeekRowHeader() {
+    final cs = Theme.of(context).colorScheme;
     const weeks = ['一', '二', '三', '四', '五', '六', '日'];
     return Row(
       children: weeks
           .map((w) => Expanded(
-                child: Text(w, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                child: Text(w, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
               ))
           .toList(),
     );
@@ -116,6 +118,8 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
   }
 
   Widget _buildGrid(Map<String, List<PlanDayTask>> byDay) {
+    final cs = Theme.of(context).colorScheme;
+    final paper = Theme.of(context).extension<PaperColors>()!;
     final offset = _firstWeekdayOffset;
     final daysInMonth = _daysInMonth;
     return GridView.builder(
@@ -165,10 +169,10 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (done > 0) _dot(Colors.green, done),
+                    if (done > 0) _dot(cs.tertiary, done),
                     if (pending > 0) ...[
                       const SizedBox(width: 2),
-                      _dot(Colors.orange, pending),
+                      _dot(paper.gold, pending),
                     ],
                   ],
                 ),
@@ -188,6 +192,7 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
   }
 
   Widget _buildSelectedDayPanel(Map<String, List<PlanDayTask>> byDay) {
+    final cs = Theme.of(context).colorScheme;
     final selected = _selectedDay;
     if (selected == null) return const SizedBox.shrink();
     final key = _dateKey(selected);
@@ -212,9 +217,9 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
           ],
         ),
         if (dayTasks.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text('当天没有任务', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('当天没有任务', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
           )
         else
           ...dayTasks.map((t) {
@@ -230,7 +235,7 @@ class _DayTaskCalendarState extends ConsumerState<DayTaskCalendar> {
                     t.title,
                     style: TextStyle(
                       decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone ? Colors.grey : null,
+                      color: isDone ? cs.onSurfaceVariant : null,
                       fontSize: 13,
                     ),
                   ),

@@ -26,10 +26,13 @@ class AvoidLiteralFontFamily extends DartLintRule {
     ErrorReporter reporter,
     CustomLintContext context,
   ) {
-    if (isThemeFile(resolver.path)) return;
+    if (isExemptFile(resolver.path)) return;
     context.registry.addNamedExpression((node) {
       if (node.name.label.name != 'fontFamily') return;
-      if (node.expression is! StringLiteral) return;
+      final lit = node.expression;
+      if (lit is! StringLiteral) return;
+      // monospace:等宽字体是日志/代码/堆栈渲染的固有语义,textTheme 无等宽角色,放行。
+      if (lit.stringValue == 'monospace') return;
       reporter.reportError(
         AnalysisError.tmp(
           source: resolver.source,

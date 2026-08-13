@@ -25,7 +25,7 @@ class AvoidMaterialColors extends DartLintRule {
     ErrorReporter reporter,
     CustomLintContext context,
   ) {
-    if (isThemeFile(resolver.path)) return;
+    if (isExemptFile(resolver.path)) return;
     context.registry.addPrefixedIdentifier((node) {
       if (node.prefix.name != 'Colors') return;
       // transparent 无主题含义(纯透明),放行。

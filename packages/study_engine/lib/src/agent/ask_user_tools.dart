@@ -55,4 +55,12 @@ class AskUserTools {
     ...PlanTools.planTools,
     askUser,
   ];
+
+  /// 融合场景工具集：知识点 9 工具 + 计划 14 工具 + ask_user。
+  /// StudyPlanScenario 使用，agent 同时具备批改/知识库/计划全部能力。
+  static const combinedTools = [
+    ...AgentTools.studyTools,
+    ...PlanTools.planTools,
+    askUser,
+  ];
 }

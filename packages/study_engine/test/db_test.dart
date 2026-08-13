@@ -256,6 +256,46 @@ test('建库后版本等于 kCurrentDbVersion', () async {
     });
   });
 
+  group('v9 合并 agent 场景', () {
+    setUpAll(sqfliteFfiInit);
+
+    test('v8→v9 迁移：agent_memory 与 chat_session 的 study/plan 归并为 study_plan', () async {
+      // 手动建 v8 库，写入三场景记忆 + 两场景会话，对齐其它迁移组测试写法。
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: 8,
+            onConfigure: (d) => d.execute('PRAGMA foreign_keys = ON'),
+            onCreate: (d, _) => migrateDatabase(d, 0, 8),
+          ));
+      // 前置：study / plan / other 三场景记忆
+      await db.insert('agent_memory', {'scenario_id': 'study', 'content': 's1', 'created_at': 0});
+      await db.insert('agent_memory', {'scenario_id': 'plan', 'content': 'p1', 'created_at': 0});
+      await db.insert('agent_memory', {'scenario_id': 'other', 'content': 'o1', 'created_at': 0});
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await db.insert('chat_session', {'id': 1, 'scenario_id': 'study', 'title': 't1', 'created_at': now, 'updated_at': now});
+      await db.insert('chat_session', {'id': 2, 'scenario_id': 'plan', 'title': 't2', 'created_at': now, 'updated_at': now});
+
+      // 升级 v8 → v9
+      await migrateDatabase(db, 8, 9);
+
+      // (a) agent_memory：study/plan 归并到 study_plan，其它场景不动
+      final mem = await db.query('agent_memory');
+      expect(mem.where((r) => r['scenario_id'] == 'study_plan'), hasLength(2),
+          reason: 'study/plan 记忆应归并为 study_plan');
+      expect(mem.where((r) => r['scenario_id'] == 'study' || r['scenario_id'] == 'plan'), isEmpty,
+          reason: '不应残留 study/plan 记忆');
+      expect(mem.where((r) => r['scenario_id'] == 'other'), hasLength(1),
+          reason: '其它场景记忆不应被迁移');
+
+      // (b) chat_session：同样归并
+      final cs = await db.query('chat_session');
+      expect(cs.where((r) => r['scenario_id'] == 'study_plan'), hasLength(2),
+          reason: 'study/plan 会话应归并为 study_plan');
+
+      await db.close();
+    });
+  });
+
   group('mastery_log FK 约束', () {
     late StudyDatabase sdb;
     setUpAll(sqfliteFfiInit);

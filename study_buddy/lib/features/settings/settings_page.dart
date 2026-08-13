@@ -82,8 +82,7 @@ class _SectionLabel extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: theme.textTheme.labelSmall?.copyWith(
-          fontFamily: 'NotoSerifSC',
+        style: theme.textTheme.headlineSmall?.copyWith(
           fontStyle: FontStyle.italic,
           fontSize: 13,
           color: theme.colorScheme.primary,
@@ -130,7 +129,7 @@ class _NavRow extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: theme.textTheme.titleSmall?.copyWith(fontFamily: 'NotoSerifSC'),
+                style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
               ),
             ),
             if (value != null) ...[
@@ -287,8 +286,7 @@ class _LlmConfigSheetBodyState extends ConsumerState<_LlmConfigSheetBody> {
             children: [
               Text(
                 'LLM 配置',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontFamily: 'NotoSerifSC',
+                style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -359,8 +357,7 @@ class _Field extends StatelessWidget {
         children: [
           Text(
             label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'NotoSerifSC',
+            style: theme.textTheme.headlineSmall?.copyWith(
               fontSize: 12,
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -370,7 +367,7 @@ class _Field extends StatelessWidget {
             controller: controller,
             keyboardType: keyboard,
             obscureText: obscure,
-            style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'NotoSerifSC'),
+            style: theme.textTheme.bodyMedium,
             decoration: InputDecoration(
               isDense: true,
               hintText: hint,
@@ -509,7 +506,7 @@ Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   '主题模式',
-                  style: theme.textTheme.titleSmall?.copyWith(fontFamily: 'NotoSerifSC'),
+                  style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
                 ),
               ),
             ),
@@ -537,7 +534,7 @@ Future<void> showThemeModeSheet(BuildContext context, WidgetRef ref) async {
                       Expanded(
                         child: Text(
                           label,
-                          style: theme.textTheme.bodyLarge?.copyWith(fontFamily: 'NotoSansSC'),
+                          style: theme.textTheme.bodyLarge,
                         ),
                       ),
                       if (mode == current)

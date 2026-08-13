@@ -330,8 +330,7 @@ class _OnboardingSeal extends StatelessWidget {
             color: theme.colorScheme.surfaceContainerLowest,
           ),
           child: Text(ordinal,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontFamily: 'NotoSerifSC',
+              style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 fontSize: 16,
                 letterSpacing: 3,

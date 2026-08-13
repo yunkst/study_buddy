@@ -33,7 +33,6 @@ export 'src/agent/plan_tools.dart';
 export 'src/agent/agent_loop.dart';
 export 'src/agent/ask_user.dart';
 export 'src/agent/ask_user_tools.dart';
-export 'src/agent/scenarios/study_scenario.dart';
-export 'src/agent/scenarios/plan_scenario.dart';
+export 'src/agent/scenarios/study_plan_scenario.dart';
 export 'src/logging/logger_sink.dart';
 export 'src/logging/llm_call_sink.dart';

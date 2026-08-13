@@ -30,7 +30,7 @@ class AvoidLiteralColor extends DartLintRule {
     ErrorReporter reporter,
     CustomLintContext context,
   ) {
-    if (isThemeFile(resolver.path)) return;
+    if (isExemptFile(resolver.path)) return;
     context.registry.addInstanceCreationExpression((node) {
       final name = node.constructorName.type.name2.lexeme;
       if (name != 'Color') return;

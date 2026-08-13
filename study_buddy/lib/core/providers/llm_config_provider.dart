@@ -8,7 +8,7 @@ import 'database_provider.dart';
 /// build() 时:
 /// - 读 `llm_config` 表 all();
 /// - 若表为空(全新安装),种子一条占位默认配置(name="默认配置"/url=""/key=""/model=""/supportsVision=true/isDefault=true),
-///   消除 [AgentSession]/[PlanSession] 的 getDefault() 返回 null 抛 StateError 的崩溃路径,
+///   消除 [AgentSession] 的 getDefault() 返回 null 抛 StateError 的崩溃路径,
 ///   并让用户在设置页看到"待填写"的初始态。
 /// - 返回 sort_order 最前的默认项(无默认项则返回首行)。
 ///

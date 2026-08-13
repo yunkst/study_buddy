@@ -2,7 +2,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
 
-/// PlanScenario 工具执行测试。通过 executeTool 直接触发，验证 create_plan
+/// 计划工具执行测试。通过 executeTool 直接触发，验证 create_plan
 /// 从 current_level 抽起点分数的语义（_extractScore 不再把日期/时长误判为分数）。
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -12,9 +12,15 @@ void main() {
         path: inMemoryDatabasePath,
       );
 
-  PlanScenario newScenario(StudyDatabase sdb) => PlanScenario(
-        plans: PlanRepository(sdb),
+  StudyPlanScenario newScenario(StudyDatabase sdb) => StudyPlanScenario(
+        categories: CategoryRepository(sdb),
+        topics: TopicRepository(sdb),
+        edges: TopicEdgeRepository(sdb),
         memories: AgentMemoryRepository(sdb),
+        mastery: MasteryRepository(sdb),
+        reviews: ReviewRepository(sdb),
+        schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
         dayTasks: PlanDayTaskRepository(sdb),
       );
 

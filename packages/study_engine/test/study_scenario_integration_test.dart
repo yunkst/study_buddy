@@ -5,7 +5,7 @@ import 'package:study_engine/study_engine.dart';
 void main() {
   setUpAll(sqfliteFfiInit);
 
-  StudyScenario newScenario(StudyDatabase sdb) => StudyScenario(
+  StudyPlanScenario newScenario(StudyDatabase sdb) => StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -13,6 +13,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
       );
 
   test('场景1 save_topic 新建（分类自动建）', () async {
@@ -154,7 +156,7 @@ void main() {
     test('save_topic 新建成功后触发回调(新 topicId)', () async {
       final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
       final touched = <int>[];
-      final scenario = StudyScenario(
+      final scenario = StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -162,6 +164,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
 
@@ -178,7 +182,7 @@ void main() {
     test('save_topic 命中已存在也触发回调(existing.id)', () async {
       final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
       final touched = <int>[];
-      final scenario = StudyScenario(
+      final scenario = StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -186,6 +190,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
       // 第一次新建
@@ -204,7 +210,7 @@ void main() {
     test('update_topic 成功后触发回调', () async {
       final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
       final touched = <int>[];
-      final scenario = StudyScenario(
+      final scenario = StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -212,6 +218,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
         onTopicTouched: (id) async => touched.add(id),
       );
       await scenario.executeTool('save_topic', {
@@ -226,7 +234,7 @@ void main() {
 
     test('未设置回调时 no-op，不影响现有行为', () async {
       final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
-      final scenario = StudyScenario(
+      final scenario = StudyPlanScenario(
         categories: CategoryRepository(sdb),
         topics: TopicRepository(sdb),
         edges: TopicEdgeRepository(sdb),
@@ -234,6 +242,8 @@ void main() {
         mastery: MasteryRepository(sdb),
         reviews: ReviewRepository(sdb),
         schedules: TopicScheduleRepository(sdb),
+        plans: PlanRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
         // 不传 onTopicTouched
       );
       final result = await scenario.executeTool('save_topic', {

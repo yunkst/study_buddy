@@ -18,7 +18,7 @@ class _ControllableAgentSession extends AgentSession {
   _ControllableAgentSession(super.ref, this._controller);
   final StreamController<AgentEvent> _controller;
   @override
-  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId}) async {
+  Future<AgentSessionHandle> run(List<ChatMessage> messages, {int? chatSessionId, int? planId, DateTime? today}) async {
     return AgentSessionHandle(stream: _controller.stream);
   }
 }
