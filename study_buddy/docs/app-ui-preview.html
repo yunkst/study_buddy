@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Buddy · 实际 App UI 高保真预览（纸感主题）</title>
+<style>
+/* ===== 纸感主题令牌（逐字取自 app_colors.dart light/dark） ===== */
+:root {
+  --surface: #F5F0E6; --surface-lowest: #FAF6EC; --surface-low: #F2ECDF;
+  --surface-cont: #EEE6D4; --surface-high: #E8DFCA; --surface-highest: #EBE3D2;
+  --on-surface: #2C2620; --on-surface-var: #6B5D4F;
+  --primary: #B8472D; --on-primary: #FAF6EC; --primary-container: #F0DBD0;
+  --secondary: #3A5A7A; --secondary-container: #DDE6EF;
+  --tertiary: #5A7D4A; --tertiary-container: #E6EEDE;
+  --outline: #A89880; --outline-var: #D9CFB8;
+  --shadow: rgba(76,60,40,0.10); --shadow-soft: rgba(76,60,40,0.05);
+  --phone-bezel: #2C2620;
+}
+:root[data-theme="dark"] {
+  --surface: #1F1A14; --surface-lowest: #17130E; --surface-low: #251F18;
+  --surface-cont: #2B241C; --surface-high: #332B22; --surface-highest: #3D3428;
+  --on-surface: #E8DCC4; --on-surface-var: #B8A888;
+  --primary: #D9664A; --on-primary: #3A1A10; --primary-container: #6B2A18;
+  --secondary: #7BA0C0; --secondary-container: #2A3F52;
+  --tertiary: #8FB07A; --tertiary-container: #2E4226;
+  --outline: #7A6A52; --outline-var: #3D3428;
+  --shadow: rgba(0,0,0,0.40); --shadow-soft: rgba(0,0,0,0.20);
+  --phone-bezel: #0A0805;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: var(--surface); color: var(--on-surface); line-height: 1.6; font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 31px, rgba(108,93,79,0.05) 31px, rgba(108,93,79,0.05) 32px);
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+
+/* 顶部 */
+.topbar { display: flex; justify-content: space-between; align-items: center; padding: 20px 0 0; flex-wrap: wrap; gap: 10px; }
+.brand { font-family: "Noto Serif SC", Georgia, serif; font-size: 14px; letter-spacing: 3px; color: var(--on-surface-var); }
+.brand b { color: var(--primary); }
+.theme-toggle { display: inline-flex; border: 1px solid var(--outline); border-radius: 2px; overflow: hidden; background: var(--surface-lowest); }
+.theme-toggle button {
+  border: none; background: transparent; color: var(--on-surface-var);
+  font: inherit; font-size: 12px; padding: 6px 12px; cursor: pointer; transition: background .15s, color .15s;
+}
+.theme-toggle button[aria-pressed="true"] { background: var(--on-surface); color: var(--surface-lowest); }
+.theme-toggle button:hover { color: var(--on-surface); }
+
+header.masthead { border-bottom: 1px solid var(--outline-var); padding: 34px 0 26px; }
+.kicker { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 12px; letter-spacing: 4px; color: var(--on-surface-var); }
+h1.thesis {
+  font-family: "Noto Serif SC", Georgia, serif; font-weight: 700;
+  font-size: clamp(26px, 4vw, 38px); line-height: 1.2; margin: 12px 0 0; color: var(--on-surface);
+}
+h1.thesis .accent { color: var(--primary); }
+.lede { margin: 14px 0 0; max-width: 66ch; color: var(--on-surface-var); font-size: 15px; }
+.ornament { color: var(--primary); font-size: 15px; margin-top: 12px; }
+
+/* 布局：主交互手机 + 说明列 */
+.stage { display: grid; grid-template-columns: 340px 1fr; gap: 44px; align-items: start; margin: 44px 0 16px; }
+@media (max-width: 900px) { .stage { grid-template-columns: 1fr; } .side-col { order: -1; } }
+.side-col { position: sticky; top: 20px; }
+.side-col h2 { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 20px; margin: 0 0 4px; }
+.side-col .h-sub { color: var(--on-surface-var); font-size: 13px; margin: 0 0 20px; }
+.side-col .note { border-left: 3px solid var(--primary); padding: 2px 0 2px 14px; margin-bottom: 16px; }
+.side-col .note .n-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 14px; }
+.side-col .note .n-body { font-size: 13px; color: var(--on-surface-var); margin-top: 3px; }
+.side-col code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; color: var(--primary); }
+
+/* 手机框 */
+.phone-cell { display: flex; flex-direction: column; align-items: center; }
+.phone-tag { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 13px; color: var(--primary); margin-bottom: 10px; letter-spacing: 1px; }
+.phone-tag::before { content: "— "; }
+.phone {
+  width: 100%; max-width: 300px; aspect-ratio: 9 / 19; min-height: 620px;
+  background: var(--phone-bezel); border-radius: 30px; padding: 8px;
+  box-shadow: 0 12px 30px var(--shadow), 0 2px 6px var(--shadow); position: relative;
+}
+.phone-screen {
+  width: 100%; height: 100%; background: var(--surface);
+  border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; position: relative;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 31px, rgba(108,93,79,0.04) 31px, rgba(108,93,79,0.04) 32px);
+}
+.status-bar { display: flex; justify-content: space-between; align-items: center; padding: 9px 16px 4px; font-size: 10px; color: var(--on-surface); font-weight: 600; flex-shrink: 0; }
+.appbar {
+  display: flex; align-items: center; padding: 6px 14px 10px;
+  font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 15px; color: var(--on-surface); flex-shrink: 0;
+  border-bottom: 1px solid var(--outline-var);
+}
+.appbar .ab-ic { margin-right: 8px; color: var(--primary); font-size: 13px; }
+.screen-body { flex: 1; overflow: hidden; padding: 8px 14px 0; position: relative; display: flex; flex-direction: column; }
+.pane { display: none; flex-direction: column; flex: 1; }
+.pane.active { display: flex; }
+.scroll { overflow-y: auto; flex: 1; padding-right: 2px; }
+.scroll::-webkit-scrollbar { width: 3px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--outline-var); border-radius: 2px; }
+.tabbar {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--outline-var); background: var(--surface-lowest); flex-shrink: 0;
+}
+.tabbar .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 11px; color: var(--on-surface-var); font-size: 10px; cursor: pointer; }
+.tabbar .tab.active { color: var(--primary); }
+.tabbar .tab .ic { font-size: 16px; line-height: 1; }
+
+/* 屏内组件 */
+.greet { font-family: "Noto Serif SC", Georgia, serif; font-size: 11px; color: var(--on-surface-var); padding: 6px 0 10px; }
+.greet .big { display: block; font-size: 14px; font-weight: 700; color: var(--on-surface); margin-top: 1px; }
+.section-label {
+  font-family: "Noto Serif SC", Georgia, serif; font-style: italic;
+  font-size: 11px; color: var(--primary);
+  border-bottom: 1px solid var(--primary); padding-bottom: 2px; display: inline-block; margin: 14px 0 8px;
+}
+.btn-block {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--primary-container); color: var(--on-surface);
+  border: 1px solid var(--outline-var); border-bottom: 2px solid var(--outline);
+  border-radius: 2px; padding: 11px 12px; margin-bottom: 8px; font-size: 12px; font-weight: 600;
+  cursor: pointer; text-align: center; font-family: "Noto Serif SC", Georgia, serif;
+}
+.btn-block .bi { font-size: 15px; }
+.nav-row {
+  display: flex; align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--outline-var);
+  font-size: 12.5px; cursor: pointer; gap: 10px;
+}
+.nav-row .n-ic { font-size: 15px; color: var(--on-surface-var); width: 20px; text-align: center; }
+.nav-row .n-main { flex: 1; }
+.nav-row .n-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 12.5px; color: var(--on-surface); }
+.nav-row .n-sub { font-size: 10px; color: var(--on-surface-var); margin-top: 1px; }
+.nav-row .n-value { font-size: 11px; color: var(--on-surface-var); }
+.nav-row .n-chev { color: var(--on-surface-var); font-size: 13px; }
+.card {
+  background: var(--surface-lowest); border: 1px solid var(--outline-var); border-radius: 4px;
+  padding: 11px 12px; margin-bottom: 10px; box-shadow: 0 2px 6px var(--shadow-soft);
+}
+.card-title { font-size: 12.5px; font-weight: 700; color: var(--on-surface); }
+.card-sub { font-size: 10px; color: var(--on-surface-var); margin-top: 2px; }
+.progress-track { height: 5px; background: var(--surface-low); border-radius: 3px; margin: 7px 0 4px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--primary); border-radius: 3px; }
+.progress-meta { font-size: 9.5px; color: var(--on-surface-var); display: flex; justify-content: space-between; }
+.mini-btn-row { display: flex; gap: 7px; margin-top: 8px; }
+.mini-btn { flex: 1; font-size: 10.5px; padding: 6px 0; border-radius: 2px; text-align: center; font-weight: 600; cursor: pointer; }
+.mini-btn.primary { background: var(--on-surface); color: var(--surface-lowest); }
+.mini-btn.ghost { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+
+/* 知识 */
+.search-box { display: flex; align-items: center; gap: 6px; border: 1px solid var(--outline); border-radius: 3px; padding: 7px 10px; background: var(--surface-lowest); margin-bottom: 10px; }
+.search-box .ic { color: var(--on-surface-var); font-size: 12px; }
+.search-box .ph { color: var(--on-surface-var); font-size: 11px; }
+.tree-label { font-family: "Noto Serif SC", Georgia, serif; font-size: 11px; color: var(--on-surface-var); margin: 2px 0 4px; }
+.cat-row { display: flex; align-items: center; gap: 8px; padding: 11px 2px; border-bottom: 1px solid var(--outline-var); cursor: pointer; }
+.cat-row .c-ic { color: var(--on-surface-var); font-size: 14px; }
+.cat-row .c-name { flex: 1; font-size: 12.5px; font-weight: 600; }
+.cat-row .c-chev { color: var(--on-surface-var); font-size: 12px; }
+.back-row { display: flex; align-items: center; gap: 8px; padding: 10px 2px; cursor: pointer; }
+.back-row .b-ic { color: var(--primary); font-size: 14px; }
+.back-row .b-name { color: var(--primary); font-size: 12.5px; font-weight: 700; }
+.topic-row { display: flex; align-items: center; gap: 8px; padding: 10px 2px; border-bottom: 1px solid var(--outline-var); cursor: pointer; }
+.topic-row .t-ic { color: var(--on-surface-var); font-size: 14px; }
+.topic-row .t-body { flex: 1; }
+.topic-row .t-title { font-size: 12.5px; font-weight: 600; color: var(--on-surface); }
+.topic-row .t-due { font-size: 9.5px; color: var(--on-surface-var); margin-top: 1px; }
+.mastery { font-size: 9px; padding: 1px 6px; border-radius: 2px; font-weight: 600; letter-spacing: 0.3px; white-space: nowrap; }
+.m-weak { background: var(--primary-container); color: var(--primary); }
+.m-learn { background: var(--secondary-container); color: var(--secondary); }
+.m-ok { background: var(--tertiary-container); color: var(--tertiary); }
+.m-none { background: transparent; color: var(--outline); border: 1px solid var(--outline); }
+.recite-bar { margin-top: 10px; background: var(--on-surface); color: var(--surface-lowest); text-align: center; padding: 10px; border-radius: 2px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.recite-bar .cnt { color: var(--primary); }
+
+/* 设置 */
+.setting-group-title { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 11px; color: var(--primary); border-bottom: 1px solid var(--primary); display: inline-block; padding-bottom: 2px; margin: 16px 0 6px; }
+.setting-row { display: flex; align-items: center; gap: 10px; padding: 12px 2px; border-bottom: 1px solid var(--outline-var); font-size: 12.5px; cursor: pointer; }
+.setting-row .s-ic { font-size: 15px; color: var(--on-surface-var); width: 20px; text-align: center; }
+.setting-row .s-label { flex: 1; font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 12.5px; }
+.setting-row .s-value { font-size: 11px; color: var(--on-surface-var); }
+.setting-row .s-chev { color: var(--on-surface-var); font-size: 13px; }
+.badge-ok { color: var(--tertiary); font-weight: 700; }
+.badge-off { color: var(--primary); font-weight: 600; }
+
+/* 底部 Sheet（手机内） */
+.sheet-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.35); z-index: 20; display: none; }
+.sheet-mask.show { display: block; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 21;
+  background: var(--surface-lowest); border-top: 1px solid var(--outline-var);
+  border-radius: 18px 18px 0 0; padding: 10px 20px 20px;
+  transform: translateY(100%); transition: transform .22s ease; max-height: 88%; overflow-y: auto;
+}
+.sheet.show { transform: translateY(0); }
+.sheet .grabber { width: 36px; height: 4px; background: var(--outline); border-radius: 2px; margin: 2px auto 12px; }
+.sheet .sh-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 15px; margin-bottom: 14px; }
+.field { margin-bottom: 10px; }
+.field .f-label { font-size: 11px; color: var(--on-surface-var); font-family: "Noto Serif SC", Georgia, serif; margin-bottom: 3px; }
+.field .f-input { border: none; border-bottom: 1px solid var(--outline-var); background: transparent; color: var(--on-surface); font: inherit; font-size: 12.5px; padding: 6px 2px; width: 100%; }
+.field .f-input:focus { outline: none; border-bottom-color: var(--primary); }
+.btn-save { width: 100%; background: var(--primary-container); color: var(--on-surface); border: 1px solid var(--outline-var); border-bottom: 2px solid var(--outline); border-radius: 2px; padding: 11px; font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 13px; cursor: pointer; margin-top: 6px; }
+.opt-row { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--outline-var); font-size: 13px; cursor: pointer; }
+.opt-row .o-ic { font-size: 15px; color: var(--on-surface-var); }
+.opt-row .o-label { flex: 1; }
+.opt-row .o-check { color: var(--primary); font-weight: 700; }
+
+/* 深屏 showcase */
+.showcase { margin: 56px 0 10px; }
+.showcase .sh-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 22px; margin: 0 0 4px; }
+.showcase .sh-sub { color: var(--on-surface-var); font-size: 13px; margin: 0 0 22px; max-width: 64ch; }
+.sc-layout { display: grid; grid-template-columns: 300px 1fr; gap: 36px; align-items: start; }
+@media (max-width: 900px) { .sc-layout { grid-template-columns: 1fr; } .sc-notes { order: -1; } }
+.sc-notes { font-size: 13.5px; line-height: 1.8; }
+.sc-notes .item { margin-bottom: 15px; }
+.sc-notes h4 { font-family: "Noto Serif SC", Georgia, serif; font-size: 15px; margin: 0 0 2px; color: var(--on-surface); }
+.sc-notes .lab { color: var(--primary); font-weight: 600; }
+.sc-notes code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; color: var(--primary); }
+
+/* 详情页 */
+.detail-topbar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--outline-var); flex-shrink: 0; }
+.detail-topbar .back { color: var(--primary); font-size: 16px; }
+.detail-topbar .crumb { font-size: 9.5px; color: var(--on-surface-var); flex: 1; }
+.detail-topbar .crumb b { color: var(--on-surface); }
+.detail-body { flex: 1; overflow-y: auto; padding: 14px; }
+.detail-h { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 16px; line-height: 1.3; }
+.detail-mastery-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.seg { display: flex; border: 1px solid var(--outline); border-radius: 3px; overflow: hidden; }
+.seg .opt { font-size: 9px; padding: 4px 7px; color: var(--on-surface-var); }
+.seg .opt.on { background: var(--primary); color: var(--on-primary); }
+.detail-label { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 10px; color: var(--primary); border-bottom: 1px solid var(--primary); display: inline-block; padding-bottom: 1px; margin-bottom: 5px; }
+.detail-block { margin-bottom: 14px; }
+.detail-q { font-size: 12px; font-weight: 600; }
+.detail-summary { font-family: "Noto Serif SC", Georgia, serif; font-size: 11.5px; line-height: 1.85; }
+.detail-summary .formula { display: block; font-family: Georgia, "Times New Roman", serif; font-style: italic; padding: 6px 10px; margin: 6px 0; background: var(--surface-low); border-radius: 3px; text-align: center; font-size: 12px; }
+.detail-summary b { color: var(--primary); }
+.edge-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 3px 8px; border: 1px solid var(--outline); border-radius: 10px; margin: 0 4px 4px 0; }
+.edge-chip .et { color: var(--on-surface-var); font-size: 8.5px; }
+.timeline { font-size: 10px; color: var(--on-surface-var); line-height: 1.8; }
+.timeline .tl-row { display: flex; gap: 8px; }
+.timeline .tl-dot { color: var(--primary); }
+.detail-actions { display: flex; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--outline-var); flex-shrink: 0; }
+.detail-actions .da { flex: 1; text-align: center; font-size: 10px; padding: 7px 0; border-radius: 2px; font-weight: 600; }
+.detail-actions .da.primary { background: var(--on-surface); color: var(--surface-lowest); }
+.detail-actions .da.ghost { border: 1px solid var(--outline); color: var(--on-surface); }
+
+/* 复习流 */
+.review-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--outline-var); flex-shrink: 0; }
+.review-topbar .back { color: var(--on-surface-var); font-size: 18px; }
+.review-topbar .rv-progress { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 13px; }
+.review-topbar .rv-progress b { color: var(--primary); }
+.review-track { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.review-card { border: 1px solid var(--outline); border-left: 3px solid var(--primary); border-radius: 4px; padding: 14px; background: var(--surface-lowest); }
+.rc-label { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 10px; color: var(--primary); margin-bottom: 8px; }
+.rc-q { font-weight: 700; font-size: 14px; line-height: 1.6; }
+.rc-hint { font-size: 10px; color: var(--on-surface-var); margin-top: 10px; font-style: italic; }
+.rc-flipped { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--outline); }
+.rc-a-label { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 10px; color: var(--tertiary); margin-bottom: 6px; }
+.rc-a { font-size: 12px; line-height: 1.8; }
+.rc-a .formula { display: block; font-family: Georgia, serif; font-style: italic; padding: 6px 10px; margin: 6px 0 0; background: var(--surface-low); border-radius: 3px; text-align: center; font-size: 12px; }
+.review-grade { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--outline-var); background: var(--surface-lowest); flex-shrink: 0; }
+.grade-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: 4px; border: 1px solid var(--outline); background: var(--surface); cursor: pointer; }
+.grade-btn .gb-key { font-size: 11px; font-weight: 700; }
+.grade-btn .gb-int { font-size: 9px; color: var(--on-surface-var); }
+.g-again { border-color: var(--primary); } .g-again .gb-key { color: var(--primary); }
+.g-hard { border-color: var(--secondary); } .g-hard .gb-key { color: var(--secondary); }
+.g-good { border-color: var(--tertiary); } .g-good .gb-key { color: var(--tertiary); }
+
+/* 聊天 */
+.grabber { width: 36px; height: 4px; background: var(--outline); border-radius: 2px; margin: 8px auto 4px; flex-shrink: 0; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 10px; border-bottom: 1px solid var(--outline-var); flex-shrink: 0; }
+.chat-head .ch-title { font-family: "Noto Serif SC", Georgia, serif; font-weight: 700; font-size: 14px; }
+.chat-head .ch-sub { font-size: 9.5px; color: var(--on-surface-var); margin-top: 1px; }
+.chat-head .ch-close { color: var(--on-surface-var); font-size: 15px; }
+.chat-thread { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+.msg-user { align-self: flex-end; max-width: 84%; background: var(--secondary); color: var(--surface-lowest); padding: 8px 11px; border-radius: 10px 10px 2px 10px; font-size: 12px; line-height: 1.6; }
+.msg-user .att { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 10px; opacity: .9; }
+.msg-ai { align-self: flex-start; max-width: 94%; background: var(--surface-lowest); border: 1px solid var(--outline-var); border-left: 3px solid var(--primary); padding: 10px 12px; border-radius: 2px 8px 8px 8px; font-family: "Noto Serif SC", Georgia, serif; font-size: 12px; line-height: 1.9; }
+.msg-ai b { color: var(--primary); }
+.msg-ai .formula { display: block; font-family: Georgia, serif; font-style: italic; padding: 6px 10px; margin: 6px 0; background: var(--surface-low); border-radius: 3px; text-align: center; font-size: 13px; }
+.topic-card { align-self: flex-start; max-width: 94%; display: flex; align-items: center; gap: 8px; background: var(--surface-lowest); border: 1px solid var(--outline-var); border-radius: 4px; padding: 8px 10px; cursor: pointer; }
+.topic-card .tc-ic { font-size: 13px; }
+.topic-card .tc-title { font-size: 11.5px; font-weight: 600; }
+.topic-card .tc-meta { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 9.5px; }
+.tc-new { color: var(--primary); font-weight: 700; padding: 1px 6px; background: var(--primary-container); border-radius: 2px; }
+.tc-status { padding: 1px 6px; border-radius: 2px; font-weight: 600; }
+.tc-status.s-learn { background: var(--secondary-container); color: var(--secondary); }
+.chat-input { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border-top: 1px solid var(--outline-var); background: var(--surface-lowest); flex-shrink: 0; }
+.chat-input .ci-attach { color: var(--on-surface-var); font-size: 16px; }
+.chat-input .ci-field { flex: 1; border: 1px solid var(--outline); border-radius: 14px; padding: 6px 12px; font-size: 11px; color: var(--on-surface-var); background: var(--surface); }
+.chat-input .ci-send { background: var(--on-surface); color: var(--surface-lowest); border: none; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 13px; cursor: pointer; }
+
+footer.colophon { margin: 64px 0 56px; padding-top: 22px; border-top: 1px solid var(--outline-var); text-align: center; }
+footer.colophon span { font-family: "Noto Serif SC", Georgia, serif; font-style: italic; font-size: 11px; letter-spacing: 2px; color: var(--on-surface-var); }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">STUDY <b>BUDDY</b> · 实际 UI 预览</div>
+    <div class="theme-toggle" role="group" aria-label="主题切换">
+      <button type="button" data-set="light" aria-pressed="false">浅色</button>
+      <button type="button" data-set="dark" aria-pressed="false">暗色</button>
+      <button type="button" data-set="system" aria-pressed="true">跟随系统</button>
+    </div>
+  </div>
+
+  <header class="masthead">
+    <div class="kicker">Study Buddy · 纸感学术主题</div>
+    <h1 class="thesis">底部 3 Tab —— <span class="accent">今日 / 知识 / 设置</span></h1>
+    <p class="lede">左侧为可交互主手机：底部 Tab 可切换（今日 = 学习中枢 · 知识 = 沉淀背诵 · 设置 = 系统归拢），设置页含 LLM 配置底部表单。下方为三个深屏（知识点详情 / 复习流 / 问 AI 聊天）。全部还原自当前代码实现。</p>
+    <div class="ornament">❦</div>
+  </header>
+
+  <!-- ===== 主交互手机 + 说明 ===== -->
+  <div class="stage">
+    <div class="phone-cell">
+      <div class="phone-tag">主手机 · 3 Tab 可切换</div>
+      <div class="phone">
+        <div class="phone-screen" id="mainPhone">
+          <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+
+          <!-- 今日 -->
+          <div class="screen-body">
+            <div class="pane active" id="pane-today">
+              <div class="appbar"><span class="ab-ic">☰</span>今日</div>
+              <div class="scroll">
+                <div class="greet">8月12日 星期三<span class="big">早上好</span></div>
+                <span class="section-label">问 AI</span>
+                <div class="nav-row" style="border-bottom:1px solid var(--outline-var);">
+                  <span class="n-ic">🤖</span>
+                  <span class="n-main">
+                    <span class="n-title">问 AI</span>
+                    <span class="n-sub">拍照 · 相册 · 直接聊</span>
+                  </span>
+                  <span class="n-chev">›</span>
+                </div>
+                <span class="section-label">今日计划</span>
+                <div class="card" style="margin-bottom:12px;">
+                  <div class="card-title">英语四级冲刺</div>
+                  <div class="card-sub">考试 8/23 · 目标 520+</div>
+                  <div class="progress-track"><div class="progress-fill" style="width:43%"></div></div>
+                  <div class="progress-meta"><span>3 / 7 节点</span><span>下一节点 8/20</span></div>
+                </div>
+                <span class="section-label">今日专注</span>
+                <div class="nav-row"><span class="n-ic">⏱</span><span class="n-main"><span class="n-title">开始专注</span></span><span class="n-chev">›</span></div>
+                <div class="nav-row"><span class="n-ic">📋</span><span class="n-main"><span class="n-title">学习日报</span></span><span class="n-chev">›</span></div>
+                <span class="section-label">今日复习</span>
+                <div class="nav-row"><span class="n-ic">🗂</span><span class="n-main"><span class="n-title">今日待复习 5 张</span><span class="n-sub">点按开始复习</span></span><span class="n-chev">›</span></div>
+              </div>
+            </div>
+
+            <!-- 知识 -->
+            <div class="pane" id="pane-knowledge">
+              <div class="appbar"><span class="ab-ic">📚</span>知识</div>
+              <div class="scroll">
+                <div class="search-box"><span class="ic">🔍</span><span class="ph">搜索知识点…</span></div>
+                <div class="tree-label">分类 · 下钻</div>
+                <div class="cat-row"><span class="c-ic">📁</span><span class="c-name">英语四级</span><span class="c-chev">›</span></div>
+                <div class="cat-row"><span class="c-ic">📁</span><span class="c-name">计算机 · 408</span><span class="c-chev">›</span></div>
+                <div class="cat-row"><span class="c-ic">📁</span><span class="c-name">高等数学</span><span class="c-chev">›</span></div>
+                <div class="cat-row"><span class="c-ic">📁</span><span class="c-name">未分类</span><span class="c-chev">›</span></div>
+                <span class="section-label">最近</span>
+                <div class="topic-row"><span class="t-ic">📖</span><span class="t-body"><span class="t-title">虚拟语气</span><span class="t-due">8/20 到期</span></span><span class="mastery m-learn">学习中</span></div>
+                <div class="topic-row"><span class="t-ic">📖</span><span class="t-body"><span class="t-title">主定理 Master Theorem</span><span class="t-due">未排期</span></span><span class="mastery m-none">未学</span></div>
+              </div>
+            </div>
+
+            <!-- 设置（重设计后：外观/系统/诊断 三组 + LLM 配置入口） -->
+            <div class="pane" id="pane-settings">
+              <div class="appbar"><span class="ab-ic">⚙</span>设置</div>
+              <div class="scroll">
+                <div class="setting-group-title">外观</div>
+                <div class="setting-row" data-sheet="theme"><span class="s-ic">☀</span><span class="s-label">主题模式</span><span class="s-value" id="themeValue">跟随系统</span><span class="s-chev">›</span></div>
+                <div class="setting-group-title">系统</div>
+                <div class="setting-row" data-sheet="llm"><span class="s-ic">⇄</span><span class="s-label">LLM 配置</span><span class="s-value badge-off" id="llmValue">未配置</span><span class="s-chev">›</span></div>
+                <div class="setting-row"><span class="s-ic">↻</span><span class="s-label">版本更新</span><span class="s-value">0.1.0-preview.6</span><span class="s-chev">›</span></div>
+                <div class="setting-row"><span class="s-ic">ℹ</span><span class="s-label">关于</span><span class="s-chev">›</span></div>
+                <div class="setting-group-title">诊断</div>
+                <div class="setting-row"><span class="s-ic">📄</span><span class="s-label">应用日志</span><span class="s-chev">›</span></div>
+                <div class="setting-row"><span class="s-ic">🤖</span><span class="s-label">LLM 调用日志</span><span class="s-chev">›</span></div>
+              </div>
+            </div>
+
+            <div class="sheet-mask" id="sheetMask"></div>
+
+            <!-- LLM 配置 Sheet -->
+            <div class="sheet" id="sheet-llm">
+              <div class="grabber"></div>
+              <div class="sh-title">LLM 配置</div>
+              <div class="field"><div class="f-label">名称</div><input class="f-input" value="默认配置"></div>
+              <div class="field"><div class="f-label">API 地址</div><input class="f-input" placeholder="https://api.example.com/v1"></div>
+              <div class="field"><div class="f-label">API Key</div><input class="f-input" type="password" placeholder="sk-..."></div>
+              <div class="field"><div class="f-label">模型</div><input class="f-input" placeholder="如:gpt-4o"></div>
+              <button class="btn-save" id="llmSave">保存</button>
+            </div>
+
+            <!-- 主题 Sheet -->
+            <div class="sheet" id="sheet-theme">
+              <div class="grabber"></div>
+              <div class="sh-title">主题模式</div>
+              <div class="opt-row" data-theme-opt="system"><span class="o-ic">◐</span><span class="o-label">跟随系统</span><span class="o-check">✓</span></div>
+              <div class="opt-row" data-theme-opt="light"><span class="o-ic">☀</span><span class="o-label">浅色</span><span class="o-check"></span></div>
+              <div class="opt-row" data-theme-opt="dark"><span class="o-ic">☾</span><span class="o-label">深色</span><span class="o-check"></span></div>
+            </div>
+          </div>
+
+          <div class="tabbar">
+            <div class="tab active" data-tab="today"><span class="ic">☰</span>今日</div>
+            <div class="tab" data-tab="knowledge"><span class="ic">📚</span>知识</div>
+            <div class="tab" data-tab="settings"><span class="ic">⚙</span>设置</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col">
+      <h2>重设计要点</h2>
+      <p class="h-sub">三 Tab 职责单一：今日 = 学什么，知识 = 沉淀与背诵，设置 = 系统归拢。打开 App 第一屏零滚动触达学习闭环。</p>
+      <div class="note"><div class="n-title">今日 · 学习中枢</div><div class="n-body">「问 AI」单个导航行取代了原三按钮（拍照 / 相册 / 直接聊），点击进全屏对话页（<code>/ai</code>）；今日计划摘要、开始专注、学习日报、今日待复习 仍为设置行。复习入口按 <code>dueNowCountProvider</code> 显示张数，0 张自动置灰。</div></div>
+      <div class="note"><div class="n-title">知识 · 沉淀背诵</div><div class="n-body">分类树下钻 + 搜索（<code>TopicRepository.search</code>）。行内显示掌握度徽标（从 FSRS 稳定性 S 派生）+ 下次复习时间。点进详情页。</div></div>
+      <div class="note"><div class="n-title">设置 · 系统归拢（本次重设计）</div><div class="n-body">改为分组设置行：外观（主题模式）/ 系统（LLM 配置 · 版本更新 · 关于）/ 诊断（日志）。LLM 配置收敛为入口行，点按弹底部表单，不再首屏铺表单。</div></div>
+      <div class="note"><div class="n-title">底部 Sheet 交互</div><div class="n-body">LLM 配置、主题模式均为 <code>showModalBottomSheet</code>：点击设置行弹出，点遮罩关闭。右侧手机可点试。</div></div>
+    </div>
+  </div>
+
+  <!-- ===== 详情页 showcase ===== -->
+  <section class="showcase">
+    <div class="sh-title">知识点详情页</div>
+    <p class="sh-sub">从知识 Tab 或聊天里的知识点卡片点进。面包屑 → 标题 → 掌握度 → 引子 → 答案（公式）→ 关联 → 掌握度轨迹 + 底部三操作。</p>
+    <div class="sc-layout">
+      <div class="phone-cell">
+        <div class="phone-tag">详情 · /topic/:id</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+            <div class="detail-topbar">
+              <span class="back">‹</span>
+              <span class="crumb">计算机 / 数据结构 / <b>排序算法</b></span>
+            </div>
+            <div class="detail-body">
+              <div class="detail-h">主定理 Master Theorem</div>
+              <div class="detail-mastery-row">
+                <div class="seg">
+                  <span class="opt">未学</span><span class="opt">薄弱</span><span class="opt on">学习中</span><span class="opt">已掌握</span>
+                </div>
+              </div>
+              <div class="detail-block"><span class="detail-label">背诵引子</span><div class="detail-q">主定理如何求解分治递归的复杂度？</div></div>
+              <div class="detail-block">
+                <span class="detail-label">答案</span>
+                <div class="detail-summary">对递推式 <b>T(n) = aT(n/b) + f(n)</b>，比较 f(n) 与 n<sup>log<sub>b</sub>a</sup> 的大小，分三种情形：
+                  <span class="formula">T(n) = Θ(n<sup>log<sub>b</sub>a</sup>) 当 f(n) = O(n<sup>log<sub>b</sub>a−ε</sup>)</span>
+                </div>
+              </div>
+              <div class="detail-block">
+                <span class="detail-label">关联知识点</span>
+                <div><span class="edge-chip"><span class="et">前置</span>递归</span><span class="edge-chip"><span class="et">前置</span>渐进记号</span><span class="edge-chip"><span class="et">相关</span>归并排序</span></div>
+              </div>
+              <div class="detail-block">
+                <span class="detail-label">掌握度轨迹</span>
+                <div class="timeline">
+                  <div class="tl-row"><span class="tl-dot">●</span><span>8/10 19:32　未学 → 薄弱（首次接触）</span></div>
+                  <div class="tl-row"><span class="tl-dot">●</span><span>8/12 09:24　薄弱 → 学习中（背诵后判定）</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="detail-actions">
+              <div class="da primary">💬 问 AI 深度交流</div>
+              <div class="da ghost">▶ 背诵</div>
+              <div class="da ghost">✎ 编辑</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-notes">
+        <div class="item"><h4>数据全来自 engine</h4><span class="lab">Topic / Category.pathOf / TopicEdge / MasteryRepository.timeline</span>，无新增后端。</div>
+        <div class="item"><h4>公式渲染</h4>答案用 <span class="lab">MarkdownLatex</span>（flutter_markdown + flutter_math_fork）渲染，408 / 数学公式正常显示。</div>
+        <div class="item"><h4>三操作</h4><span class="lab">问 AI 深度交流</span>（弹聊天面板）· <span class="lab">背诵</span>（进复习流）· <span class="lab">编辑</span>（updateSummary）。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 复习流 showcase ===== -->
+  <section class="showcase">
+    <div class="sh-title">复习流 · 今日待复习</div>
+    <p class="sh-sub">FSRS 算好今天该复习哪些（due ≤ 今日），按逾期度 / 稳定性排序，每日上限 20 张，超出顺延。翻面卡 + 四档自评，全程离线零成本。</p>
+    <div class="sc-layout">
+      <div class="phone-cell">
+        <div class="phone-tag">复习 · /review</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+            <div class="review-topbar">
+              <span class="back">‹</span>
+              <span class="rv-progress">今日复习 · <b>2 / 5</b></span>
+            </div>
+            <div class="review-track">
+              <div class="review-card">
+                <div class="rc-label">背诵引子 · 先主动回忆</div>
+                <div class="rc-q">主定理如何求解分治递归 T(n)=aT(n/b)+f(n) 的复杂度？</div>
+                <div class="rc-hint">先在脑里回忆，再翻面看答案</div>
+                <div class="rc-flipped">
+                  <div class="rc-a-label">答案</div>
+                  <div class="rc-a">比较 f(n) 与 n<sup>log<sub>b</sub>a</sup>，分三种情形：
+                    <span class="formula">f(n) = O(n<sup>log<sub>b</sub>a−ε</sup>) ⇒ T(n) = Θ(n<sup>log<sub>b</sub>a</sup>)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="review-grade">
+              <div class="grade-btn g-again"><span class="gb-key">忘了</span><span class="gb-int">30 分钟内</span></div>
+              <div class="grade-btn g-hard"><span class="gb-key">困难</span><span class="gb-int">1 天</span></div>
+              <div class="grade-btn g-good"><span class="gb-key">良好</span><span class="gb-int">3 天</span></div>
+              <div class="grade-btn"><span class="gb-key">简单</span><span class="gb-int">8 天</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-notes">
+        <div class="item"><h4>四档 → FSRS</h4><span class="lab">忘了 / 困难 / 良好 / 简单</span> 更新稳定性 S 与难度 D，按钮上的间隔即预估下次 due，所见即所得。</div>
+        <div class="item"><h4>队列控制</h4>每日复习上限 20、新卡上限 5（<code>kDailyReviewCap / kDailyNewCardCap</code>），额度用尽顺延，不会雪崩。</div>
+        <div class="item"><h4>掌握度派生</h4>薄弱 / 学习中 / 已掌握从 S 派生（S&lt;1 → 薄弱，≥21 → 已掌握），非静态标签。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 聊天 showcase ===== -->
+  <section class="showcase">
+    <div class="sh-title">问 AI · 全屏对话页</div>
+    <p class="sh-sub">今日页「问 AI」单入口进入后的全屏对话界面（root navigator 承载，<strong>全屏盖住底部导航</strong>）。空态提供拍照 / 相册 / 直接输入三个入口；聊天中可随时加图（加图按钮弹 chooser）。返回后聊天历史保留（全局 currentChatProvider），AppBar「刷新」按钮可手动新对话。</p>
+    <div class="sc-layout" style="grid-template-columns: 1fr 1fr;">
+      <div class="phone-cell">
+        <div class="phone-tag">空态 · 首次进入</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+            <div class="appbar"><span class="ab-ic">‹</span>问 AI</div>
+            <div class="screen-body" style="overflow-y:auto;">
+              <div style="text-align:center; padding:22px 16px 0;">
+                <div style="font-size:30px; color:var(--primary); line-height:1;">✦</div>
+                <div style="font-family:'Noto Serif SC',Georgia,serif; font-weight:700; font-size:16px; color:var(--on-surface); margin-top:8px;">问 AI</div>
+                <div style="font-size:11px; color:var(--on-surface-var); margin-top:4px;">拍照问一道题，或直接输入你的疑问</div>
+              </div>
+              <div style="padding:14px 18px 0;">
+                <div class="btn-block"><span class="bi">📷</span>拍照</div>
+                <div class="btn-block"><span class="bi">🖼</span>从相册选择</div>
+                <div class="btn-block"><span class="bi">✎</span>直接输入文字</div>
+              </div>
+            </div>
+            <div class="chat-input">
+              <span class="ci-attach">🖼</span>
+              <div class="ci-field">补充说明（可选）</div>
+              <button class="ci-send">✒</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-cell">
+        <div class="phone-tag">聊天态 · 历史已累计</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="status-bar"><span>9:24</span><span>●●● 100%</span></div>
+            <div class="appbar"><span class="ab-ic">‹</span>问 AI<span style="margin-left:auto; font-size:14px; color:var(--on-surface-var);">↻</span></div>
+            <div class="chat-thread" style="padding:10px 12px 0;">
+              <div class="msg-user">分析这道题的时间复杂度<div class="att">🖼 408 真题照片</div></div>
+              <div class="msg-ai">这段代码是<b>双嵌套循环</b>：外层 i 从 1 倍增，内层跑到 n。总复杂度为
+                <span class="formula">T(n) = O(n · log n)</span>
+                属<b>对数线性</b>阶。
+              </div>
+              <div class="topic-card"><span class="tc-ic">📝</span><span class="tc-title">渐进时间复杂度</span><span class="tc-meta"><span class="tc-status s-learn">学习中</span><span>›</span></span></div>
+              <div class="topic-card"><span class="tc-ic">📝</span><span class="tc-title">主定理 Master Theorem</span><span class="tc-meta"><span class="tc-new">新</span><span>›</span></span></div>
+            </div>
+            <div class="chat-input"><span class="ci-attach">🖼</span><div class="ci-field">追问…</div><button class="ci-send">✒</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sc-notes" style="margin-top:18px;">
+      <div class="item"><h4>入口合并</h4>今日页只留一个「问 AI」导航行，<code>context.push('/ai')</code> 进入全屏对话页。拍照 / 相册 / 直接聊三个入口移入对话页空态引导（避免首页三按钮太奇怪）。</div>
+      <div class="item"><h4>聊天中加图</h4>输入行左侧「加图」按钮（<code>Icons.add_photo_alternate_outlined</code>）→ 弹 chooser → 选拍照 / 相册 → <code>pickImageForAi</code> → 推 <code>/crop</code> 框选 → 设为待附图缩略（带移除按钮）。</div>
+      <div class="item"><h4>会话保留</h4>会话状态在全局 <code>currentChatProvider</code>（StateNotifierProvider），页面 dispose 不触发 clear。返回今日页后再进入，聊天历史仍在（历史上非空时输入框提示「追问…」、按钮「发送」）。</div>
+      <div class="item"><h4>其他入口</h4>分享冷启动（app.dart）和知识点详情页深度交流（topic_detail_page）也走同一全屏页（<code>showAiPanel</code> 签名不变，内部统一改为 push）。</div>
+      <div class="item"><h4>公式渲染 / 知识点卡片</h4>同前：AI 回复用 Markdown + LaTeX；<code>save_topic</code> 渲染为可点击卡片，新 → 朱砂「新」，已存在 → 掌握度标签。</div>
+    </div>
+  </section>
+
+  <footer class="colophon"><span>— Study Buddy · 纸感学术主题 · 今日 / 知识 / 设置 —</span></footer>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+
+  /* ===== 主题切换（顶部） ===== */
+  var tbtns = document.querySelectorAll('.theme-toggle button');
+  function applyTheme(set) {
+    tbtns.forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.set === set ? 'true' : 'false'); });
+    if (set === 'system') { root.removeAttribute('data-theme'); } else { root.setAttribute('data-theme', set); }
+    try { localStorage.setItem('sb-ui-theme', set); } catch (e) {}
+  }
+  var saved = 'system';
+  try { saved = localStorage.getItem('sb-ui-theme') || 'system'; } catch (e) {}
+  applyTheme(saved);
+  tbtns.forEach(function (b) { b.addEventListener('click', function () { applyTheme(b.dataset.set); }); });
+
+  /* ===== 主手机：3 Tab 切换 ===== */
+  var tabs = document.querySelectorAll('.tabbar .tab');
+  var panes = { today: document.getElementById('pane-today'), knowledge: document.getElementById('pane-knowledge'), settings: document.getElementById('pane-settings') };
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      Object.keys(panes).forEach(function (k) { panes[k].classList.remove('active'); });
+      panes[tab.dataset.tab].classList.add('active');
+      closeSheets();
+    });
+  });
+
+  /* ===== 底部 Sheet（手机内） ===== */
+  var mask = document.getElementById('sheetMask');
+  function closeSheets() {
+    document.querySelectorAll('.sheet').forEach(function (s) { s.classList.remove('show'); });
+    mask.classList.remove('show');
+  }
+  document.querySelectorAll('.setting-row[data-sheet]').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var sheet = document.getElementById('sheet-' + row.dataset.sheet);
+      if (!sheet) return;
+      closeSheets();
+      sheet.classList.add('show');
+      mask.classList.add('show');
+    });
+  });
+  mask.addEventListener('click', closeSheets);
+
+  /* LLM 保存 → 状态变已配置 */
+  document.getElementById('llmSave').addEventListener('click', function () {
+    var v = document.getElementById('llmValue');
+    v.textContent = '已配置';
+    v.classList.remove('badge-off');
+    v.classList.add('badge-ok');
+    closeSheets();
+  });
+
+  /* 主题 Sheet 选项（主手机内，仅演示） */
+  document.querySelectorAll('.opt-row[data-theme-opt]').forEach(function (opt) {
+    opt.addEventListener('click', function () {
+      var set = opt.dataset.themeOpt;
+      document.querySelectorAll('.opt-row[data-theme-opt] .o-check').forEach(function (c) { c.textContent = ''; });
+      opt.querySelector('.o-check').textContent = '✓';
+      var label = { system: '跟随系统', light: '浅色', dark: '深色' }[set];
+      document.getElementById('themeValue').textContent = label;
+      applyTheme(set);
+      closeSheets();
+    });
+  });
+})();
+</script>
+</body>
+</html>
