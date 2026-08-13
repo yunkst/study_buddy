@@ -57,6 +57,8 @@ dependencies:
   markdown: ^7.3.1
   study_engine:
     path: ../packages/study_engine
+  gal: ^2.3.3
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
