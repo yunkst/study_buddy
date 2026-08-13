@@ -3,7 +3,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 10;
+const int kCurrentDbVersion = 11;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -55,6 +55,9 @@ Future<void> migrateDatabase(
           break;
         case 10:
           _v10(batch);
+          break;
+        case 11:
+          _v11(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -426,4 +429,10 @@ void _v10(Batch batch) {
       updated_at INTEGER NOT NULL
     )
   ''');
+}
+
+/// v11：chat_session 增加可空 topic_id —— 知识点专属教学会话关联（NULL=主线普通会话）。
+/// 仅增列，不改既有行；空库/升级均幂等。
+void _v11(Batch batch) {
+  batch.execute('ALTER TABLE chat_session ADD COLUMN topic_id INTEGER');
 }

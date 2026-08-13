@@ -6,13 +6,14 @@ class ChatRepository {
   final StudyDatabase _db;
   ChatRepository(this._db);
 
-  Future<int> createSession(String scenarioId, String title) async {
+  Future<int> createSession(String scenarioId, String title, {int? topicId}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     return _db.db.insert('chat_session', {
       'scenario_id': scenarioId,
       'title': title,
       'created_at': now,
       'updated_at': now,
+      if (topicId != null) 'topic_id': topicId,
     });
   }
 
@@ -65,11 +66,31 @@ class ChatRepository {
   }
 
   /// 最近更新的某场景会话（用于 App 重启续聊）。无则返回 null。
-  Future<ChatSession?> latestSession(String scenarioId) async {
+  ///
+  /// [mainlineOnly] 为 true（默认）时只取 topic_id IS NULL 的主线会话，
+  /// 避免把知识点教学会话误当主线恢复；false 时取任意会话。
+  Future<ChatSession?> latestSession(String scenarioId,
+      {bool mainlineOnly = true}) async {
     final rows = await _db.db.query(
       'chat_session',
-      where: 'scenario_id = ?',
+      where: mainlineOnly
+          ? 'scenario_id = ? AND topic_id IS NULL'
+          : 'scenario_id = ?',
       whereArgs: [scenarioId],
+      orderBy: 'updated_at DESC, id DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return ChatSession.fromMap(rows.first);
+  }
+
+  /// 某知识点的专属教学会话（scenario_id='study_plan' 且 topic_id=?）。
+  /// 命中即复用（每 topic 至多一条），未命中返回 null。
+  Future<ChatSession?> findTeachingSession(int topicId) async {
+    final rows = await _db.db.query(
+      'chat_session',
+      where: 'scenario_id = ? AND topic_id = ?',
+      whereArgs: ['study_plan', topicId],
       orderBy: 'updated_at DESC, id DESC',
       limit: 1,
     );
