@@ -21,6 +21,16 @@ abstract class AgentScenario {
   List<Map<String, dynamic>> get tools;
   String buildSystemPrompt(AgentScenarioContext ctx);
 
+  /// 构造「发给 LLM 的消息列表」（hermes compose_user_api_content 思路）。
+  ///
+  /// 返回新列表（不改 [base]），AgentLoop 在注入 system prompt 后调用一次。
+  /// 场景实现可对"当前轮用户消息"（base 里 role==user 的最后一条）stamp
+  /// ChatMessage.apiContent——把记忆/上下文等瞬时注入拼到 API 副本上，
+  /// 而 [base] 里的 content 保持干净（存储/UI 用）。
+  /// 默认实现原样返回，无注入场景（及测试 fake）无需实现。
+  List<ChatMessage> composeApiMessages(List<ChatMessage> base, AgentScenarioContext ctx) =>
+      base;
+
   /// 执行工具，返回给 LLM 的文本结果。
   Future<String> executeTool(
     String name,

@@ -3,7 +3,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../logging/logger_sink.dart';
 
 /// 当前数据库版本号。每加一张表/字段 +1。
-const int kCurrentDbVersion = 9;
+const int kCurrentDbVersion = 10;
 
 /// 执行迁移：按版本号顺序升级。from==0 表示全新建库。
 ///
@@ -52,6 +52,9 @@ Future<void> migrateDatabase(
           break;
         case 9:
           _v9(batch);
+          break;
+        case 10:
+          _v10(batch);
           break;
         default:
           throw StateError('未知数据库版本: $v');
@@ -409,4 +412,18 @@ void _v9(Batch batch) {
   batch.execute(
     "UPDATE chat_session SET scenario_id = 'study_plan' WHERE scenario_id IN ('study', 'plan')",
   );
+}
+
+/// v10：system prompt 运行时覆盖表。只增不改既有表。
+/// prompt_override：scenario_id 为主键，存该场景的完整 system prompt 覆盖内容
+/// （App 层 DbPromptResolver 读取；设置页可编辑，不发版即可调 prompt）。
+/// 空库/升级均幂等（新表，无数据迁移）。
+void _v10(Batch batch) {
+  batch.execute('''
+    CREATE TABLE prompt_override (
+      scenario_id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  ''');
 }

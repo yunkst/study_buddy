@@ -43,7 +43,7 @@ class LlmProvider {
         '${config.apiUrl.replaceAll(RegExp(r'/+$'), '')}/chat/completions');
     final body = <String, Object?>{
       'model': config.model,
-      'messages': messages.map((m) => m.toJson()).toList(),
+      'messages': messages.map((m) => m.toJson(forApi: true)).toList(),
       'stream': true,
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': 'auto',

@@ -28,6 +28,7 @@ class _FakeScenario implements AgentScenario {
   @override String get displayName => 'Fake';
   @override List<Map<String, dynamic>> get tools => AgentTools.studyTools;
   @override String buildSystemPrompt(AgentScenarioContext ctx) => 'sys';
+  @override List<ChatMessage> composeApiMessages(List<ChatMessage> base, AgentScenarioContext ctx) => base;
   @override Future<String> executeTool(String name, Map<String, dynamic> args,
       {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async {
     executed.add(name);
@@ -272,6 +273,7 @@ class _RecordingScenario implements AgentScenario {
     promptBuilt = true;
     return 'sys-prompt';
   }
+  @override List<ChatMessage> composeApiMessages(List<ChatMessage> base, AgentScenarioContext ctx) => base;
   @override Future<String> executeTool(String name, Map<String, dynamic> args,
       {void Function(String p)? onProgress, String? toolCallId, AgentScenarioContext? context}) async => '{}';
   @override Future<String?> onNoToolCalls(List<ChatMessage> messages) async => null;

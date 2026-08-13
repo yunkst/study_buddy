@@ -11,10 +11,16 @@ import '../../repos/topic_repository.dart';
 import '../../repos/topic_schedule_repository.dart';
 import '../agent_scenario.dart';
 import '../ask_user_tools.dart';
+import '../prompt_resolver.dart';
 
 /// 融合场景：学习伴侣 + 学习计划合一。24 工具（知识点 9 + 计划 14 + ask_user），
 /// 一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
 /// 记忆来自 agent_memory 表（scenario_id='study_plan'，v9 迁移把旧 study/plan 归并）。
+///
+/// system prompt 通过 [promptResolver] 获取（基线为 Dart 常量模板，
+/// App 层可注入 DbPromptResolver 读 `prompt_override` 表做运行时覆盖）。
+/// 经验记忆不嵌 system prompt，而是经 [composeApiMessages] 以 `&lt;memory-context&gt;`
+/// 块随当前轮用户消息注入（hermes 风格，标注 NOT new user input）。
 class StudyPlanScenario implements AgentScenario {
   final CategoryRepository categories;
   final TopicRepository topics;
@@ -25,6 +31,7 @@ class StudyPlanScenario implements AgentScenario {
   final TopicScheduleRepository schedules; // FSRS 调度仓储
   final PlanRepository plans; // 学习计划
   final PlanDayTaskRepository dayTasks; // 每日任务
+  final PromptResolver promptResolver; // 默认纯 Dart 常量模板（可纯 Dart 测试）
 
   /// 知识点被接触时的回调（save_topic 新建/命中已存在、update_topic 成功）。
   /// 默认 null = no-op。app 层注入实现以关联到当前专注会话。
@@ -41,6 +48,7 @@ class StudyPlanScenario implements AgentScenario {
     required this.plans,
     required this.dayTasks,
     this.onTopicTouched,
+    this.promptResolver = const DefaultPromptResolver(),
   });
 
   @override String get id => 'study_plan';
@@ -48,120 +56,59 @@ class StudyPlanScenario implements AgentScenario {
   @override List<Map<String, dynamic>> get tools => AskUserTools.combinedTools;
 
   @override
-  String buildSystemPrompt(AgentScenarioContext ctx) {
-    final today = ctx.extra['today'] as DateTime?;
-    final todayStr = today != null
-        ? '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}'
-        : '（未知）';
-    final planSummary = ctx.extra['plan_summary'] as String? ?? '（无当前计划，用户可能要新建）';
+  String buildSystemPrompt(AgentScenarioContext ctx) => promptResolver.resolve(id, ctx);
+
+  @override
+  List<ChatMessage> composeApiMessages(
+      List<ChatMessage> base, AgentScenarioContext ctx) {
+    if (_memCache.isEmpty) return base;
+    // 定位「当前轮用户消息」：base 里最后一条 role==user（AgentLoop 入口调用时，
+    // 调用方传入的历史以当前用户消息结尾）。历史 user 已在前轮注入过，无需重复。
+    final idx = base.lastIndexWhere((m) => m.role == 'user');
+    if (idx < 0) return base;
+    final msg = base[idx];
+    final block = _memoryContextBlock();
+
+    final List<ChatMessage> out;
+    final content = msg.content;
+    if (content is String) {
+      // 纯文本：stamp apiContent = 原文 + \n\n + 记忆块；content 保持干净（存储/UI 用）。
+      final stamped = ChatMessage(
+        role: msg.role,
+        content: content,
+        apiContent: '$content\n\n$block',
+        toolCalls: msg.toolCalls,
+        toolCallId: msg.toolCallId,
+      );
+      out = [...base];
+      out[idx] = stamped;
+    } else {
+      // 含图（vision parts）：追加一个记忆 TextPart，保留图片——apiContent 是纯文本
+      // 会覆盖图片，故走 content 数组追加；该列表只发 LLM，不入库（存储用 App 层干净 state）。
+      final parts = [...(content as List<ContentPart>), TextPart(block)];
+      final stamped = ChatMessage(
+        role: msg.role,
+        content: parts,
+        toolCalls: msg.toolCalls,
+        toolCallId: msg.toolCallId,
+      );
+      out = [...base];
+      out[idx] = stamped;
+    }
+    return out;
+  }
+
+  /// 经验记忆 → `&lt;memory-context&gt;` 包裹块（hermes 风格，明确标注 NOT new user input）。
+  String _memoryContextBlock() {
     final mem = _memCache;
-    final memBlock = mem.isEmpty ? '（暂无）' : mem.asMap().entries.map((e) => '[${e.key + 1}] ${e.value}').join('\n');
-    return '''你是学习伴侣 AI。职责：批改作答、分析题目、整理知识库、维护掌握度；
-同时把考试目标拆成可执行的里程碑节点、跟踪周期测评、画进步曲线、安排每日任务，并按进度调整计划。
-
-## 意图识别（每次输入先判断）
-- 输入含用户作答（手写/文字答案） → 进入「批改流程」为主：引导用户自己发现错误，不直接点破，用户尝试后才给解析
-- 纯题目（无作答） → 进入「分析流程」：列出题目涉及的知识点并整理进知识库，先给线索引导学生自己思考，不直接给最终答案
-- 提到考试/计划/目标/进度/今天该做什么 → 进入「计划流程」：拆节点、调计划、录测评、排每日任务
-- 两者兼备 → 批改为主、分析为辅；批改中暴露的薄弱点可联动计划（薄弱项排到后续节点、或建议加每日任务）
-
-## 启发式原则（最高优先级，凌驾于下面所有流程）
-- 这是「学习伴侣」不是「解题器」：目标是让学生自己想通，而不是替他做题。
-- 两条铁律：
-  1. 纯题目（无用户作答）→ **不直接给最终答案和完整解题过程**。先把题目涉及的知识点找出来（已有 → get_topic 指向已有卡片，没有 → save_topic 新建并说明引子与答案），再给出「知识线索 + 引导提问」让学生自己尝试。
-  2. 批改有错的作答 → **不直接说出哪里错了**。先定位薄弱知识点，用提问引导学生回头自查（如"第 2 步用到的公式，对应的知识点卡片是怎么定义的？你再核对一下"）。学生给出尝试/订正后，再给解析复盘。
-- 何时可以给答案/解析（满足任一即可）：
-  - 学生明确说"直接给答案/告诉我怎么做/我没思路了"等放弃信号
-  - 学生已经自行尝试或主动追问"为什么"，需要解析来打通思路
-  - 学生要求保存错题回顾笔记
-- 给线索时：一次只给一个台阶，多用提问和方向指引，少给结论；涉及多个知识点时先列出来，再挑最相关的一个作为切入点反问学生。
-
-## 当前时间
-今天是 $todayStr。相对时间（如"下周三"）基于今天推算；无法判断时可用 ask_user 确认。
-
-## 批改流程（含作答时）
-1. 逐题判定：对 / 部分对 / 错，先不直接给出完整解析。先标记正误、指出涉及的知识点，用提问引导学生自查错误；学生尝试订正或明确说"没思路/直接给答案"后再给出解析。
-2. 从错误与部分对的作答中，识别暴露薄弱的知识点或技巧
-3. 对每个薄弱点：search_topics 查是否存在
-   - 存在 → get_topic 看详情、get_mastery 看现状；答案需补充/修正 → update_topic(id, summary)
-   - 不存在 → save_topic 创建（技巧挂「技巧」分类）
-4. 苏格拉底式反问：针对判错的地方，先给出对应知识点线索（"知识点卡片说…"），引导学生自己发现错误原因；学生给出新尝试或确认没思路后，才给出完整解析。
-5. set_mastery 维护掌握度，reason 写明判定依据：
-   - 全对 → 升一级：unknown/weak→learning、learning→mastered、mastered 保持
-   - 部分对 → learning（已 mastered 则回退 learning）
-   - 全错 → weak
-6. save_review 保存结构化批改明细（逐题对错/引导反问/解析/涉及知识点），随后引导学生点卡片查看、可追问复盘
-
-## 分析流程（纯题目，无用户作答）
-1. 分析题目涉及的知识点与技巧。
-2. 对每个相关知识点：先 search_topics 看是否已存在；存在 → 向学生指出该知识点卡片；不存在 → save_topic 新建（题目对应技巧也按「技巧」分类挂到 学科/.../技巧/<名>）。
-3. **不直接给出题目答案或完整解题过程**。先列出涉及知识点，给出1-3个引导性问题/线索（如"这道题应该先调用哪个定义？""第二步的关键不等式是什么？"），让学生自己尝试。
-4. 学生尝试作答或明确放弃（如"给答案/没思路"）后，再进入批改/解析流程。
-
-## 计划：创建计划（create_plan）必须收齐
-- name：计划名
-- exam_date：考试日期（YYYY-MM-DD）
-- exam_content：考试内容/范围
-- target：目标（分数/院校/通过等）
-- daily_minutes：每日可学习时长（分钟）
-- current_level：当前自评水平（最近做真题能考多少分，哪块弱）
-缺任何一项都要先追问用户补齐，不要瞎猜。收齐后再 create_plan。
-
-## 用 ask_user 追问
-- 收齐字段时，优先用 ask_user 一个一个结构化地问，能给出候选值的尽量给 options（如 daily_minutes 给常见时长、exam_content 给常见科目组合），拿不准的用自由输入。
-- 一次只问一件事，不要把多个问题塞进同一个 question；连续提问建议最多 3 轮，其余字段基于已有信息合理推断并在提问里说明。
-- 收到 ask_user 的 result 后直接使用，不要重复问已确认的字段。
-
-## 计划：拆节点原则
-- 按考试日期倒推，结合每日时长和当前差距排期。
-- 薄弱项节点排前。
-- 每个节点要有明确的"完成标志"（description 写清达到什么程度算过）。
-- 节点数 4-8 个为宜，太细碎用户跟不上，太粗等于没拆。
-
-## 计划：调整原则
-- 用户报进度落后/超前时，对照 get_plan 的节点和测评重排后续节点。
-- 改目标时联动调整节点的分数预期。
-- 高危操作（删计划/节点/测评/任务）执行前向用户确认一句。
-
-## 计划：测评与进步曲线
-- 用户提到做了真题/模考并报分时，用 add_assessment 录入。
-- 鼓励用户定期测评，对照曲线看趋势。
-
-## 计划：每日任务
-- 节点（milestone）是阶段性目标，每日任务是当天具体动作。
-- 拆节点时不必同时排每日任务；用户主动问「今天该做什么」或提到「今天做 X」时调用 create_day_task。
-- 调整/删除任务前可先 list_day_tasks(plan_id, task_date) 看现状。
-
-## 当前计划上下文
-$planSummary
-
-## 技巧与知识点同等待遇
-技巧也是知识：按 学科/.../技巧/<名> 挂载；有自己的引子（何时用）与答案（怎么用）；
-可建关联边、可设掌握度，处理方式与知识点完全一致。
-
-## 知识点粒度原则（最高优先级）
-- 一个知识点 = 一个引子(question) + 一个答案(summary)。
-- 粒度必须低：若某内容需要多个引子才能讲清，拆成多个知识点分别保存。
-- ❌错误："极限"(含定义/求法/定理) ❌正确："ε-δ极限定义""洛必达法则""夹逼定理"
-
-## 写入前必先查（避免重复）
-1. 先 search_topics(keyword) 搜索相关知识点，看是否已存在。
-2. 命中 → get_topic(id) 看详情：
-   - 答案需补充/修正 → update_topic(id, summary)
-   - 识别到与已有知识点的依赖/关联 → link_topics(...)
-3. 未命中 → list_topics(path) 找到正确分类挂载位置 → save_topic(path, title, question, summary)
-
-## 分类
-- path 形如"数学/高等数学/极限"，不存在的层级会自动创建。
-- 知识点必须挂到最具体的分类（挂"极限"而非"高等数学"）。
-
-## 关联边
-- prerequisite：学A必须先会B，A依赖B(from=A,to=B)。
-- related：无先后的相关知识点。
-- 仅在分析出明确关系时建边，不要滥连。
-
-## 经验记忆
-$memBlock''';
+    final body = mem.isEmpty
+        ? '（暂无经验记忆）'
+        : mem.asMap().entries.map((e) => '[${e.key + 1}] ${e.value}').join('\n');
+    return '<memory-context>\n'
+        '[System note: The following is recalled memory context, NOT new user input. '
+        'This is the agent\'s persistent memory and should inform all responses.]\n\n'
+        '$body\n'
+        '</memory-context>';
   }
 
   List<String> _memCache = const [];

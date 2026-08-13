@@ -3,6 +3,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../services/llm_logger/llm_logger.dart';
 import '../services/logger_service.dart';
+import '../services/prompt_resolver_db.dart';
 import 'database_provider.dart';
 import 'focus_session_provider.dart';
 
@@ -72,6 +73,9 @@ class AgentSession {
       llmSink: LlmLogger.instance,
       logger: LoggerService.instance,
     );
+    // system prompt 覆盖预取：DbPromptResolver 需要同步查表，故在 async run 里
+    // 先读 `prompt_override` 表到内存 Map（无覆盖则走引擎默认模板）。
+    final overrides = await _loadPromptOverrides(db);
     final scenario = StudyPlanScenario(
       categories: categories,
       topics: topics,
@@ -82,6 +86,7 @@ class AgentSession {
       schedules: TopicScheduleRepository(db),
       plans: plans,
       dayTasks: dayTasks,
+      promptResolver: DbPromptResolver((sid) => overrides[sid]),
       onTopicTouched: (topicId) async {
         // 仅专注会话进行中才关联；非专注期 no-op
         final sessionId = _ref.read(focusSessionProvider).sessionId;
@@ -105,6 +110,18 @@ class AgentSession {
       completeAskUser: loop.completeAskUser,
       abortAskUser: loop.abortAskUser,
     );
+  }
+
+  /// 预取所有场景的 system prompt 覆盖（scenario_id → content）。
+  /// 无覆盖的返回空 Map（走引擎默认模板）。设置页编辑后下次 run() 自动生效。
+  Future<Map<String, String>> _loadPromptOverrides(StudyDatabase db) async {
+    final repo = PromptOverrideRepository(db);
+    final result = <String, String>{};
+    for (final sid in const ['study_plan']) {
+      final content = await repo.get(sid);
+      if (content != null) result[sid] = content;
+    }
+    return result;
   }
 }
 

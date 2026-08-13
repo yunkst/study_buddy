@@ -114,14 +114,24 @@ class AgentLoop {
     logger.log(LoggerLevel.info, 'Agent 开始',
         category: 'ai', traceId: traceId, tags: const ['agent-start']);
     final msgs = [...messages];
+    // 先填充经验记忆缓存（无论调用方是否已传 system 都调）：
+    // 阶段 1 起记忆不再进 system prompt，而是经 composeApiMessages 注入
+    // 当前轮用户消息——因此 getMemories 必须在每次 run 早期执行。
+    await scenario.getMemories();
     // 注入场景 system prompt（含 context 动态信息）。调用方已传 system 则跳过。
     if (msgs.isEmpty || msgs.first.role != 'system') {
-      await scenario.getMemories(); // 填充经验记忆缓存，供 buildSystemPrompt 使用
       final sysPrompt = scenario.buildSystemPrompt(
         context ?? const AgentScenarioContext(),
       );
       msgs.insert(0, ChatMessage(role: 'system', content: sysPrompt));
     }
+    // 交给场景构造「发给 LLM 的消息」（记忆等注入到当前用户消息的 apiContent）。
+    // 返回新列表；默认实现原样返回。
+    final composed = scenario.composeApiMessages(msgs, context ?? const AgentScenarioContext());
+    final finalMsgs = List<ChatMessage>.unmodifiable(composed);
+    msgs
+      ..clear()
+      ..addAll(finalMsgs);
     var round = 0;
     try {
       while (round < maxRounds) {

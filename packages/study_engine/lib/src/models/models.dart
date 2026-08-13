@@ -291,22 +291,36 @@ class ImageUrlPart extends ContentPart {
 }
 
 /// 对话消息。content 既可纯文本，也可为 ContentPart 列表（vision）。
+///
+/// [apiContent] 是「发送给 LLM 的旁车内容」（hermes api_content 思路）：
+/// 非空时，发给 LLM 用 [apiContent]，而存储/UI 用 [content]。用于把记忆、
+/// 插件上下文等瞬时注入拼到当前轮用户消息上，同时保持持久化内容干净。
+/// apiContent 只存在内存里（由 AgentLoop 每轮现场 stamp），永不落库。
 class ChatMessage {
   final String role;
   final Object content; // String 或 List<ContentPart>
+  final String? apiContent; // 非空时发给 LLM 用这份，存储/UI 仍用 content
   final List<ToolCall>? toolCalls;
   final String? toolCallId;
   const ChatMessage({
     required this.role,
     required this.content,
+    this.apiContent,
     this.toolCalls,
     this.toolCallId,
   });
 
   /// 序列化为 OpenAI 兼容 JSON 结构（含 vision content 数组）。
-  Map<String, Object?> toJson() {
+  ///
+  /// [forApi] 为 true 时表示发给 LLM：content 字段优先取 [apiContent]（无则回退 content）。
+  /// 默认（forApi=false，即存储/日志路径）始终用 [content]，不写 apiContent——
+  /// 保证落库与 UI 显示的永远是干净原文，注入内容只出现在发给模型的那一份。
+  Map<String, Object?> toJson({bool forApi = false}) {
+    final api = forApi ? apiContent : null;
     Object jsonContent;
-    if (content is String) {
+    if (api != null) {
+      jsonContent = api;
+    } else if (content is String) {
       jsonContent = content as String;
     } else {
       final parts = content as List<ContentPart>;
@@ -318,6 +332,76 @@ class ChatMessage {
     }
     if (toolCallId != null) m['tool_call_id'] = toolCallId;
     return m;
+  }
+
+  /// 从 OpenAI 兼容 JSON 结构反序列化（toJson(forApi:false) 的逆过程）。
+  /// content 字段支持 String（纯文本）或 List（vision parts）。
+  /// [apiContent] 不参与序列化，重建时为 null——它是内存瞬时态。
+  factory ChatMessage.fromJson(Map<String, Object?> json) {
+    final role = json['role'] as String;
+    final content = _contentFromJson(json['content']);
+    final toolCallsRaw = json['tool_calls'] as List?;
+    final toolCalls = toolCallsRaw
+        ?.map((e) => _toolCallFromJson(e as Map<String, Object?>))
+        .toList();
+    return ChatMessage(
+      role: role,
+      content: content,
+      toolCalls: toolCalls,
+      toolCallId: json['tool_call_id'] as String?,
+    );
+  }
+
+  /// 从 chat_message 表行反序列化。content/tool_calls 列存的是 JSON 文本
+  /// （addMessage 时 jsonEncode 的结果），需各自 jsonDecode 一层。
+  factory ChatMessage.fromDb(Map<String, Object?> row) {
+    final contentRaw = row['content'] as String;
+    final content = _contentFromJson(jsonDecode(contentRaw));
+    final toolCallsRaw = row['tool_calls'] as String?;
+    final toolCalls = toolCallsRaw == null
+        ? null
+        : (jsonDecode(toolCallsRaw) as List)
+            .map((e) => _toolCallFromJson(e as Map<String, Object?>))
+            .toList();
+    return ChatMessage(
+      role: row['role'] as String,
+      content: content,
+      toolCalls: toolCalls,
+      toolCallId: row['tool_call_id'] as String?,
+    );
+  }
+
+  /// content 的 JSON 值 → 引擎对象（String 或 ContentPart 列表）。
+  static Object _contentFromJson(Object? raw) {
+    if (raw is String) return raw;
+    if (raw is List) {
+      return raw.map((e) => _partFromJson(e as Map<String, Object?>)).toList();
+    }
+    return '';
+  }
+
+  static ContentPart _partFromJson(Map<String, Object?> j) {
+    switch (j['type']) {
+      case 'text':
+        return TextPart(j['text'] as String? ?? '');
+      case 'image_url':
+        final img = j['image_url'] as Map<String, Object?>?;
+        return ImageUrlPart(
+          img?['url'] as String? ?? '',
+          detail: img?['detail'] as String?,
+        );
+      default:
+        throw FormatException('未知 content part type: ${j['type']}');
+    }
+  }
+
+  static ToolCall _toolCallFromJson(Map<String, Object?> j) {
+    final fn = j['function'] as Map<String, Object?>? ?? const {};
+    return ToolCall(
+      id: j['id'] as String? ?? '',
+      name: fn['name'] as String? ?? '',
+      arguments: fn['arguments'] as String? ?? '',
+    );
   }
 
   static Map<String, Object?> _partToJson(ContentPart p) {
