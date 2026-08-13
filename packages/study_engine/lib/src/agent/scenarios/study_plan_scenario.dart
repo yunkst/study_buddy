@@ -16,7 +16,7 @@ import '../plan_tools.dart';
 import '../prompt_resolver.dart';
 import '../tool_definition.dart';
 
-/// 融合场景：学习伴侣 + 学习计划合一。24 工具（知识点 9 + 计划 14 + ask_user），
+/// 融合场景：学习伴侣 + 学习计划合一。26 工具（知识点 11 + 计划 14 + ask_user），
 /// 一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
 /// 记忆来自 agent_memory 表（scenario_id='study_plan'，v9 迁移把旧 study/plan 归并）。
 ///
@@ -58,7 +58,7 @@ class StudyPlanScenario implements AgentScenario {
   @override String get displayName => '学习伴侣';
   @override List<Map<String, dynamic>> get tools => AskUserTools.combinedTools;
 
-  /// 工具定义表（24 个：知识点 9 + 计划 14 + ask_user）。
+  /// 工具定义表（26 个：知识点 11 + 计划 14 + ask_user）。
   /// schema 复用现有 const Map（AskUserTools.combinedTools 同源），execute 复用
   /// 下方私有实现方法；[executeTool] 按 id 查表分发。
   late final List<ToolDefinition> _defs = [
@@ -82,6 +82,8 @@ class StudyPlanScenario implements AgentScenario {
     _tool(AgentTools.studyTools[7], (a, _) => _getMastery(a['topic_id'] as int)),
     _tool(AgentTools.studyTools[8],
         (a, ctx) => _saveReview(a, ctx.scenarioContext as AgentScenarioContext?)),
+    _tool(AgentTools.studyTools[9], (a, _) => _deleteTopic(a)),
+    _tool(AgentTools.studyTools[10], (a, _) => _deleteCategory(a)),
     // —— 学习计划 ——
     _tool(PlanTools.planTools[0], (a, _) => _createPlan(a)),
     _tool(PlanTools.planTools[1], (a, _) => _getPlan(a['plan_id'] as int)),
@@ -389,6 +391,58 @@ class StudyPlanScenario implements AgentScenario {
     final sessionId = ctx?.extra['chat_session_id'] as int?;
     final id = await reviews.save(chatSessionId: sessionId, summary: summary, items: items);
     return '已保存批改(共 ${items.length} 题,review_id=$id)';
+  }
+
+  /// 删除知识点：id 与 title 二选一，id 优先。删后 FK CASCADE 自动清掌握度/调度/边。
+  /// 校验：二者都缺 → 拒绝；id/title 均无法定位 → 返回未找到。
+  Future<String> _deleteTopic(Map<String, dynamic> args) async {
+    final id = _asInt(args['id']);
+    final title = args['title'] as String?;
+    if (id == null && (title == null || title.trim().isEmpty)) {
+      return jsonEncode({'ok': false, 'deleted': false, 'msg': '需传入 id 或 title 之一'});
+    }
+    int targetId;
+    if (id != null) {
+      final t = await topics.findById(id);
+      if (t == null) {
+        return jsonEncode({'ok': false, 'deleted': false, 'msg': '知识点 id=$id 不存在'});
+      }
+      targetId = id;
+    } else {
+      final t = await topics.findByTitle(title!.trim());
+      if (t == null) {
+        return jsonEncode({'ok': false, 'deleted': false, 'msg': '知识点「$title」不存在'});
+      }
+      targetId = t.id!;
+    }
+    final affected = await topics.delete(targetId);
+    await onTopicTouched?.call(targetId);
+    return jsonEncode({
+      'ok': affected > 0,
+      'deleted': affected > 0,
+      'msg': affected > 0 ? '已删除知识点(id=$targetId)，关联掌握度/调度/图谱边一并清除' : '未删除',
+    });
+  }
+
+  /// 删除分类子树：按 path 解析到末端分类，删整棵子树（后代分类 + 各层知识点）。
+  /// path 不存在 → 返回未找到，不报错。
+  Future<String> _deleteCategory(Map<String, dynamic> args) async {
+    final pathStr = args['path'] as String;
+    final segments = pathStr.split('/').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    if (segments.isEmpty) {
+      return jsonEncode({'ok': false, 'msg': 'path 不能为空'});
+    }
+    final cat = await categories.findByPath(segments);
+    if (cat == null) {
+      return jsonEncode({'ok': false, 'msg': '分类路径不存在: $pathStr'});
+    }
+    final result = await categories.deleteSubtree(cat.id!);
+    return jsonEncode({
+      'ok': true,
+      'deleted_categories': result.categories,
+      'deleted_topics': result.topics,
+      'msg': '已删除分类「$pathStr」及其下 ${result.categories} 个分类、${result.topics} 个知识点',
+    });
   }
 
   /// 宽松 int 解析：容忍 LLM 把数字序列化成字符串或 num（国产 OpenAI 兼容端点常见）。

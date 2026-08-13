@@ -48,6 +48,15 @@ void main() {
     expect(prompt, contains('每日任务'));
     expect(prompt, contains('add_assessment'));
   });
+
+  test('提示词含删除原则段（高危、ask_user 确认）', () async {
+    final prompt = await _prompt();
+    expect(prompt, contains('删除原则'));
+    expect(prompt, contains('delete_topic'));
+    expect(prompt, contains('delete_category'));
+    expect(prompt, contains('ask_user'));
+    expect(prompt, contains('不可逆'));
+  });
 }
 
 Future<String> _prompt() async {
