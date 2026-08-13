@@ -142,8 +142,6 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
 
   /// 根：只显示顶级分类入口（下钻后才有知识点列表）。
   Widget _buildRootCategories() {
-    final theme = Theme.of(context);
-    final rule = theme.extension<PaperColors>()?.ruleSoft;
     final childrenAsync = ref.watch(categoryChildrenProvider(null));
     return childrenAsync.when(
       loading: () => const _LoadingBusy(),
@@ -156,31 +154,7 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
           children: [
             for (final c in categories)
-              InkWell(
-                key: ValueKey('cat-${c.id}'),
-                onTap: c.id == null ? null : () => _enterCategory(c.id),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: rule ?? theme.colorScheme.outlineVariant, width: 0.6),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.folder_outlined, size: 22, color: theme.colorScheme.onSurfaceVariant),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          c.name,
-                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant, size: 20),
-                    ],
-                  ),
-                ),
-              ),
+              _CategoryRow(category: c, onTap: c.id == null ? null : () => _enterCategory(c.id)),
             const SizedBox(height: 24),
           ],
         );
@@ -188,11 +162,25 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
     );
   }
 
-  /// 已选中分类：顶部「返回上级」+ 该分类直接挂载的知识点。
+  /// 已选中分类：顶部「返回上级」+ 子分类入口 + 该分类直接挂载的知识点。
+  ///
+  /// 支持无限层下钻：分类可逐级进入（数学 → 高等数学 → 极限…），
+  /// 知识点挂在任意深度都能通过浏览到达（修复 agent 按嵌套 path 建知识点
+  /// 后浏览不到的问题）。子分类与直挂知识点皆空时才提示空态。
   Widget _buildSelectedCategory(int categoryId) {
     final theme = Theme.of(context);
     final rule = theme.extension<PaperColors>()?.ruleSoft;
+    final childrenAsync = ref.watch(categoryChildrenProvider(categoryId));
     final topicsAsync = ref.watch(topicsInCategoryProvider(categoryId));
+    final hasChildren = childrenAsync.maybeWhen(
+      data: (c) => c.isNotEmpty,
+      orElse: () => false,
+    );
+    final hasTopics = topicsAsync.maybeWhen(
+      data: (t) => t.isNotEmpty,
+      orElse: () => false,
+    );
+    final showEmpty = !hasChildren && !hasTopics;
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       children: [
@@ -223,8 +211,25 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
           ),
         ),
         const SizedBox(height: 4),
+        ..._categorySection(childrenAsync),
+        if (showEmpty) ...[
+          const SizedBox(height: 24),
+          _EmptyHint('该分类暂无知识点'),
+        ],
         ..._topicSection(topicsAsync),
         const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  /// 当前分类的直接子分类入口（可继续下钻）。
+  List<Widget> _categorySection(AsyncValue<List<Category>> childrenAsync) {
+    return childrenAsync.when(
+      loading: () => const [SizedBox(height: 16), _LoadingBusy(compact: true)],
+      error: (e, _) => [_Error(message: '加载分类失败: $e')],
+      data: (children) => [
+        for (final c in children)
+          _CategoryRow(category: c, onTap: () => _enterCategory(c.id)),
       ],
     );
   }
@@ -233,19 +238,53 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
     return topicsAsync.when(
       loading: () => const [SizedBox(height: 40), _LoadingBusy(compact: true)],
       error: (e, _) => [_Error(message: '加载知识点失败: $e')],
-      data: (topics) {
-        if (topics.isEmpty) {
-          return const [SizedBox(height: 24), _EmptyHint('该分类暂无知识点')];
-        }
-        return [
-          for (final t in topics)
-            _TopicRow(
-              key: ValueKey('topic-${t.id}'),
-              topicId: t.id!,
-              title: t.title,
+      data: (topics) => [
+        for (final t in topics)
+          _TopicRow(
+            key: ValueKey('topic-${t.id}'),
+            topicId: t.id!,
+            title: t.title,
+          ),
+      ],
+    );
+  }
+}
+
+/// 分类行：文件夹图标 + 名称 + 右箭头，点按进入该分类（下钻）。
+class _CategoryRow extends StatelessWidget {
+  const _CategoryRow({required this.category, required this.onTap});
+
+  final Category category;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rule = theme.extension<PaperColors>()?.ruleSoft;
+    return InkWell(
+      key: ValueKey('cat-${category.id}'),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: rule ?? theme.colorScheme.outlineVariant, width: 0.6),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.folder_outlined, size: 22, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                category.name,
+                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
             ),
-        ];
-      },
+            Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant, size: 20),
+          ],
+        ),
+      ),
     );
   }
 }
