@@ -75,7 +75,7 @@ void main() {
     addTearDown(container.dispose);
 
     await pumpPanel(tester, container: container, screenshot: screenshot);
-    await tester.tap(find.text('开始分析'));
+    await tester.tap(find.byTooltip('发送'));
     await tester.pump();
 
     // 模拟一轮 save_review 工具调用。
