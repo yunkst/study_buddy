@@ -57,8 +57,8 @@ class AgentTools {
         'properties': {
           'path': {'type': 'string', 'description': '分类路径，如"数学/高等数学/极限"'},
           'title': {'type': 'string', 'description': '知识点标题，应简短且唯一可识别'},
-          'question': {'type': 'string', 'description': '背诵引子，如"如何求0/0型极限?"'},
-          'summary': {'type': 'string', 'description': '答案本体，背诵揭晓时展示的完整内容'},
+          'question': {'type': 'string', 'description': '背诵引子，如"如何求0/0型极限?"。会被渲染展示，支持 Markdown 与 LaTeX 公式（行内 \$...\$、块级 \$\$...\$\$）。'},
+          'summary': {'type': 'string', 'description': '答案本体，背诵揭晓时展示的完整内容。会被渲染展示（知识点详情/对话同样式），支持 Markdown（标题/列表/加粗/表格/代码块）与 LaTeX 公式（行内 \$...\$、块级 \$\$...\$\$，如 \$\\lim_{x\\to0}\\frac{\\sin x}{x}=1\$）。'},
         },
         'required': ['path', 'title', 'question', 'summary'],
       },
@@ -74,7 +74,7 @@ class AgentTools {
         'type': 'object',
         'properties': {
           'id': {'type': 'integer', 'description': '知识点 id'},
-          'summary': {'type': 'string', 'description': '新的答案本体'},
+          'summary': {'type': 'string', 'description': '新的答案本体。会被渲染展示，支持 Markdown 与 LaTeX 公式（行内 \$...\$、块级 \$\$...\$\$）。'},
         },
         'required': ['id', 'summary'],
       },
