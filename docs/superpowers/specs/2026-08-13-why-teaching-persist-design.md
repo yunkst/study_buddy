@@ -67,8 +67,10 @@ ALTER TABLE chat_session ADD COLUMN topic_id INTEGER;
 
 **`ChatSessionNotifier` 改造**：
 
-- 构造参数加 `int? topicId`（实例身份：教学 or 主线）。`_initSession` 透传 topicId 给
-  `createSession`；`send` 透传 topicId 给 `AgentSession.run`。**删除**内存态 `_teachingTopicId`。
+- 内存态 `_teachingTopicId` 改为 `int? _topicId`（**可变实例字段**：`startTeaching(topicId)`
+  时设置、`clear()` 时重置——两个 provider 实例同构，且支持在不同知识点间切换教学）。
+  `_initSession` 透传 `_topicId` 给 `createSession`；`send` 透传 `_topicId` 给
+  `AgentSession.run`。**删除**旧 `_teachingTopicId`。
 - 主线实例 `hydrate()` 用过滤后的 `latestSession`。
 
 ### 2. 启动流程与等待态
@@ -175,7 +177,7 @@ onPressed: _teachingPhase == starting ? null : () async {
 |---|---|
 | `packages/study_engine/lib/src/db/database_migrations.dart` | v11：`chat_session` 加 `topic_id` |
 | `packages/study_engine/lib/src/repos/chat_repository.dart` | `createSession`+topicId；`latestSession` 过滤；`findTeachingSession` |
-| `study_buddy/lib/core/providers/chat_session_provider.dart` | 实例构造参数 `topicId`；删 `_teachingTopicId`；`startTeaching`；首个 token 信号；新增 `topicTeachingProvider` |
+| `study_buddy/lib/core/providers/chat_session_provider.dart` | `_teachingTopicId`→可变 `_topicId`；`startTeaching`；首个 token 信号；新增 `topicTeachingProvider` |
 | `study_buddy/lib/features/external_qbank/ai_panel_sheet.dart` | provider 切换（~10 处 `currentChatProvider`→`chatProvider`）；顶部知识卡；hydrate 区分；兜底启动 |
 | `study_buddy/lib/features/knowledge/topic_detail_page.dart` | 按钮 loading 态 + `startTeaching` + 条件跳转 |
 | 相关测试 4-5 个文件 | 按测试策略更新/新增 |
