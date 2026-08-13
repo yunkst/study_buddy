@@ -4,7 +4,7 @@ import '../../repos/agent_memory_repository.dart';
 import '../../repos/plan_day_task_repository.dart';
 import '../../repos/plan_repository.dart';
 import '../agent_scenario.dart';
-import '../plan_tools.dart';
+import '../ask_user_tools.dart';
 
 /// 学习计划场景：14 工具管理计划全生命周期（创建/调整/删除/测评/每日打卡），
 /// 记忆来自 agent_memory 表（scenario_id='plan'）。
@@ -21,7 +21,7 @@ class PlanScenario implements AgentScenario {
 
   @override String get id => 'plan';
   @override String get displayName => '学习计划';
-  @override List<Map<String, dynamic>> get tools => PlanTools.planTools;
+  @override List<Map<String, dynamic>> get tools => AskUserTools.planToolsWithAsk;
 
   @override
   String buildSystemPrompt(AgentScenarioContext ctx) {
@@ -45,6 +45,11 @@ class PlanScenario implements AgentScenario {
 - daily_minutes：每日可学习时长（分钟）
 - current_level：当前自评水平（最近做真题能考多少分，哪块弱）
 缺任何一项都要先追问用户补齐，不要瞎猜。收齐后再 create_plan。
+
+## 用 ask_user 追问
+- 收齐字段时，优先用 ask_user 一个一个结构化地问，能给出候选值的尽量给 options（如 daily_minutes 给常见时长、exam_content 给常见科目组合），拿不准的用自由输入。
+- 一次只问一件事；连续提问建议最多 3 轮，其余字段基于已有信息合理推断并在提问里说明。
+- 收到 ask_user 的 result 后直接使用，不要重复问已确认的字段。
 
 ## 拆节点原则
 - 按考试日期倒推，结合每日时长和当前差距排期。

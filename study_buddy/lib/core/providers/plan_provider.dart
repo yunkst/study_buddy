@@ -31,7 +31,8 @@ class PlanSession {
   final Ref _ref;
 
   /// 运行计划 agent。planId 为空时是"新建模式"，非空时注入该计划概要到 system prompt。
-  Future<Stream<AgentEvent>> run(
+  /// 返回会话句柄，UI 监听 handle.stream 并可在 AskUserRequestedEvent 后回灌答案。
+  Future<AgentSessionHandle> run(
     List<ChatMessage> messages, {
     int? planId,
     required DateTime today,
@@ -83,7 +84,11 @@ class PlanSession {
       tags: const ['session-start'],
       traceId: traceId,
     );
-    return loop.run(messages, context: ctx, traceId: traceId);
+    return AgentSessionHandle(
+      stream: loop.run(messages, context: ctx, traceId: traceId),
+      completeAskUser: loop.completeAskUser,
+      abortAskUser: loop.abortAskUser,
+    );
   }
 }
 

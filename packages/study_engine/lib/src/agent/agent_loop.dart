@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+
 import '../llm/llm_provider_core.dart';
 import '../logging/logger_sink.dart';
 import '../models/models.dart';
 import 'agent_event.dart';
 import 'agent_scenario.dart';
+import 'ask_user.dart';
 import 'context_compactor.dart';
 
 /// LLM 远程调用失败的重试策略。
@@ -38,6 +40,8 @@ class RetryConfig {
 /// ReAct 循环：流式调 LLM → 聚合工具调用 → 执行 → 观察结果 → 进入下一轮。
 /// 事件实时 yield（用纯 async*，确保流式增量立即吐出）。
 class AgentLoop {
+  /// abortAskUser 完成 completer 的哨兵值，标识“用户取消/会话中断”而非真实作答。
+  static const _askAbortedMarker = ' __ASK_ABORTED__';
   final LlmProvider llm;
   final AgentScenario scenario;
   final ContextCompactor compactor;
@@ -45,6 +49,16 @@ class AgentLoop {
   final LoggerSink logger;
   final RetryConfig retry;
   final Random _random;
+
+  // ---- ask_user 挂起句柄 ----
+  // AgentLoop 每次 run() 由 session 重新构造，completer 挂在这里避免跨轮串话。
+  // UI 通过 session 返回的 handle 调 [completeAskUser]/[abortAskUser] 喂答案/中止。
+
+  /// 当前 ask_user 等待用户作答的句柄。拦截 ask_user 时创建，答完/中止后清空。
+  Completer<String>? askUserCompleter;
+
+  /// 当前正在等待用户作答的请求（供 UI 显示）。触发时设置，作答/中止后置空。
+  AskUserRequest? pendingAskRequest;
 
   AgentLoop({
     required this.llm,
@@ -59,11 +73,35 @@ class AgentLoop {
         retry = retry ?? const RetryConfig(),
         _random = random ?? Random();
 
+  /// UI 调用：把用户答案喂给挂起的 ask_user 工具调用。
+  /// [answer] 是用户选中的 value 字符串（多选用", "分隔）。
+  void completeAskUser(String answer) {
+    final c = askUserCompleter;
+    if (c != null && !c.isCompleted) {
+      c.complete(answer);
+    }
+    pendingAskRequest = null;
+  }
+
+  /// 取消挂起的等待（流被取消/出错时调用，避免 completer 泄漏）。
+  /// 用哨兵值而非 completeError：在 async* 生成器 yield 期间同步调用 completeError
+  /// 会让错误逃逸成未处理的流错误，绕开内部 catch。哨兵由 [run] 识别为“用户取消”。
+  void abortAskUser(Object error) {
+    final c = askUserCompleter;
+    if (c != null && !c.isCompleted) {
+      c.complete(_askAbortedMarker);
+    }
+    pendingAskRequest = null;
+  }
+
   /// 运行 agent。messages 为初始消息（可选含 system）。返回实时事件流。
   /// 若调用方未传 system 消息，自动注入 scenario.buildSystemPrompt（含 context 动态信息）。
   Stream<AgentEvent> run(List<ChatMessage> messages,
       {AgentScenarioContext? context, String? traceId}) async* {
     yield AgentStartedEvent();
+    // 防御性重置上一轮的 ask_user 状态（正常路径已在答完/中止后清空）。
+    askUserCompleter = null;
+    pendingAskRequest = null;
     logger.log(LoggerLevel.info, 'Agent 开始',
         category: 'ai', traceId: traceId, tags: const ['agent-start']);
     final msgs = [...messages];
@@ -138,11 +176,37 @@ class AgentLoop {
           yield ToolCallStartEvent(tc.name, tc.id);
           final args = _parseArgs(tc.arguments);
           String result;
-          try {
-            result = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
-          } catch (e) {
-            result = '工具执行出错: $e';
+
+          // ask_user 特殊路径：拦下并挂起，等 UI 用户作答后把答案作为工具结果。
+          if (tc.name == 'ask_user') {
+            final request = _buildAskUserRequest(tc, args);
+            final completer = Completer<String>();
+            askUserCompleter = completer;
+            pendingAskRequest = request;
+            yield AskUserRequestedEvent(request);
+
+            final answer = await completer.future;
+            askUserCompleter = null;
+            pendingAskRequest = null;
+            if (identical(answer, _askAbortedMarker)) {
+              // 用户取消 / 会话中断：当作错误结果回填给 LLM。
+              result = '用户取消或会话中断';
+              yield ToolCallEndEvent(tc.name, result, tc.id);
+              final toolMsg = ChatMessage(role: 'tool', content: result, toolCallId: tc.id);
+              msgs.add(toolMsg);
+              roundNewMsgs.add(toolMsg);
+              continue;
+            }
+            result = answer;
+            yield AskUserAnsweredEvent(tc.id, result);
+          } else {
+            try {
+              result = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
+            } catch (e) {
+              result = '工具执行出错: $e';
+            }
           }
+
           yield ToolCallEndEvent(tc.name, result, tc.id);
           final toolMsg = ChatMessage(role: 'tool', content: result, toolCallId: tc.id);
           msgs.add(toolMsg);
@@ -172,6 +236,11 @@ class AgentLoop {
           stackTrace: st.toString(),
           tags: const ['agent-error']);
       yield AgentErrorEvent(e.toString());
+    } finally {
+      // 流任何路径终止都确保 ask_user 句柄不泄漏（例如用户关闭抽屉、LLM 网络异常）。
+      if (askUserCompleter != null && !askUserCompleter!.isCompleted) {
+        abortAskUser('Agent 流中断');
+      }
     }
   }
 
@@ -194,4 +263,52 @@ class AgentLoop {
     final jitter = retry.jitterMs <= 0 ? 0 : _random.nextInt(retry.jitterMs);
     return Duration(milliseconds: base + jitter);
   }
+
+  /// 把 ask_user 工具参数解析为 [AskUserRequest]（无 yield，纯构造）。
+  AskUserRequest _buildAskUserRequest(ToolCall tc, Map<String, dynamic> args) {
+    final options = ((args['options'] as List?) ?? const [])
+        .map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          return AskUserOption(
+            label: m['label'] as String,
+            value: m['value'] as String,
+            description: m['description'] as String?,
+          );
+        })
+        .toList();
+    return AskUserRequest(
+      question: (args['question'] as String?) ?? '',
+      header: args['header'] as String?,
+      options: options,
+      multiSelect: (args['multi_select'] as bool?) ?? false,
+      toolCallId: tc.id,
+    );
+  }
+}
+
+/// 一次 agent 会话的句柄：持有事件流，并向 UI 暴露 ask_user 的喂答案/中止能力。
+/// 由 session provider 的 run() 返回；UI 监听 [stream] 的同时，可在
+/// [AskUserRequestedEvent] 到达后调用 [completeAskUser] 把用户答案回灌。
+///
+/// 用回调而非直接持有 AgentLoop：生产代码由 session 把回调接到 loop 上，
+/// 测试/假实现可零成本构造（不需要真实 AgentLoop/LlmProvider）。
+class AgentSessionHandle {
+  /// agent 事件流（实时增量）。
+  final Stream<AgentEvent> stream;
+
+  final void Function(String)? _completeAskUser;
+  final void Function(Object)? _abortAskUser;
+
+  AgentSessionHandle({
+    required this.stream,
+    void Function(String)? completeAskUser,
+    void Function(Object)? abortAskUser,
+  })  : _completeAskUser = completeAskUser,
+        _abortAskUser = abortAskUser;
+
+  /// 把用户答案喂给挂起的 ask_user 工具调用。answer 为 value 字符串（多选用", "分隔）。
+  void completeAskUser(String answer) => _completeAskUser?.call(answer);
+
+  /// 中止挂起的 ask_user 等待（用户取消/关闭面板时调用）。
+  void abortAskUser(Object error) => _abortAskUser?.call(error);
 }

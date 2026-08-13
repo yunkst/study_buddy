@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/plan_provider.dart';
+import '../../core/widgets/ask_user_card.dart';
 
 /// 弹出计划 AI 对话。planId 为空=新建模式，非空=调整模式。
 /// 新建模式下 create_plan 成功后跳转 /plan/:id。
@@ -37,9 +38,15 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
   String? _errorText;
   int? _createdPlanId;
   StreamSubscription<AgentEvent>? _sub;
+  /// 当前轮 agent 会话句柄，供 _respondToAsk 回灌 ask_user 答案。
+  AgentSessionHandle? _handle;
+  /// 当前等待用户作答的提问（agent 挂起时非空）。
+  AskUserRequest? _pendingAsk;
 
   @override
   void dispose() {
+    _handle?.abortAskUser('会话已关闭');
+    _handle = null;
     _sub?.cancel();
     _inputCtrl.dispose();
     super.dispose();
@@ -63,9 +70,10 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
       // 启动新流前取消旧订阅，避免流事件串进同一 _aiText/_toolEvents 与双重 onDone
       await _sub?.cancel();
       final session = ref.read(planSessionProvider);
-      final stream = await session.run(messages, planId: widget.planId, today: DateTime.now());
+      final handle = await session.run(messages, planId: widget.planId, today: DateTime.now());
+      _handle = handle;
       if (!mounted) return;
-      _sub = stream.listen(
+      _sub = handle.stream.listen(
         (event) {
           if (!mounted) return;
           setState(() {
@@ -96,6 +104,13 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               case AgentStartedEvent():
                 // no-op：保持 _busy=true，"思考中"禁用态在 Done/Error 前持续有效
                 break;
+              case AskUserRequestedEvent(:final request):
+                // agent 挂起等用户作答：渲染提问卡片（不清 _busy，仍"思考中"）。
+                _pendingAsk = request;
+                break;
+              case AskUserAnsweredEvent(:final answer):
+                _toolEvents.add('← ask_user 已作答：$answer');
+                break;
               case AgentDoneEvent(:final finalText):
                 // finalText==null 表示达到 maxRounds。
                 // 非 null 时把纯文本轮的最终回答并入 _history，供下一轮多轮引用
@@ -103,6 +118,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 if (finalText != null) {
                   _history.add(ChatMessage(role: 'assistant', content: finalText));
                 }
+                _pendingAsk = null;
                 _busy = false;
                 break;
               case AgentRoundEndEvent(:final newMessages):
@@ -110,6 +126,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 _history.addAll(newMessages);
                 break;
               case AgentErrorEvent(:final message):
+                _pendingAsk = null;
                 _errorText = message;
                 _busy = false;
                 break;
@@ -118,11 +135,12 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
         },
         onError: (e) {
           if (!mounted) return;
-          setState(() { _errorText = '$e'; _busy = false; });
+          setState(() { _pendingAsk = null; _errorText = '$e'; _busy = false; });
         },
         onDone: () {
           if (!mounted) return;
-          setState(() => _busy = false);
+          _handle = null;
+          setState(() { _pendingAsk = null; _busy = false; });
           // 新建成功 → 跳详情页
           if (_createdPlanId != null) {
             Navigator.of(context).pop();
@@ -132,8 +150,54 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() { _errorText = '$e'; _busy = false; });
+      setState(() { _pendingAsk = null; _errorText = '$e'; _busy = false; });
     }
+  }
+
+  /// 回答当前待处理的 ask_user 提问：答案经 handle 回灌挂起的 agent。
+  void _respondToAsk(String answer) {
+    if (_pendingAsk == null) return;
+    _handle?.completeAskUser(answer);
+    setState(() => _pendingAsk = null);
+  }
+
+  // ---- 输入区语义：按 _pendingAsk 切换（agent 挂起提问 vs 正常对话）----
+
+  /// 输入框可编辑：busy 禁用；pendingAsk 含选项须点上方选项（禁用自由输入）。
+  bool get _inputEnabled {
+    if (_busy) return false;
+    if (_pendingAsk != null && !_pendingAsk!.isFreeInput) return false;
+    return true;
+  }
+
+  /// 提交按钮是否可用：busy 或 pendingAsk 含选项时禁用。
+  bool get _onInputSubmitButtonEnabled {
+    if (_busy) return false;
+    if (_pendingAsk != null && !_pendingAsk!.isFreeInput) return false;
+    return true;
+  }
+
+  String get _inputButtonLabel {
+    if (_busy) return '思考中...';
+    if (_pendingAsk != null) {
+      return _pendingAsk!.isFreeInput ? '提交答案' : '请选择上方选项';
+    }
+    return '发送';
+  }
+
+  /// 提交：pendingAsk 自由输入模式回灌答案；否则正常发起 agent 一轮。
+  void _onInputSubmit() {
+    if (_busy) return;
+    if (_pendingAsk != null) {
+      if (_pendingAsk!.isFreeInput) {
+        final text = _inputCtrl.text.trim();
+        if (text.isEmpty) return;
+        _inputCtrl.clear();
+        _respondToAsk(text);
+      }
+      return;
+    }
+    _runAgent();
   }
 
   @override
@@ -164,20 +228,27 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _inputCtrl,
-              enabled: !_busy,
-              decoration: const InputDecoration(
-                labelText: '消息',
-                border: OutlineInputBorder(),
+              enabled: !_busy && _inputEnabled,
+              decoration: InputDecoration(
+                labelText: _pendingAsk != null
+                    ? (_pendingAsk!.isFreeInput ? '输入答案' : '请选择上方选项')
+                    : '消息',
+                border: const OutlineInputBorder(),
                 isDense: true,
               ),
               maxLines: 2,
-              onSubmitted: (_) => _runAgent(),
+              onSubmitted: (_) => _onInputSubmit(),
             ),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: _busy ? null : _runAgent,
-              child: Text(_busy ? '思考中...' : '发送'),
+              onPressed: _onInputSubmitButtonEnabled ? _onInputSubmit : null,
+              child: Text(_inputButtonLabel),
             ),
+            // ask_user 提问卡片：agent 挂起等用户作答。
+            if (_pendingAsk != null) ...[
+              const SizedBox(height: 12),
+              AskUserCard(request: _pendingAsk!, onSubmit: _respondToAsk),
+            ],
             const SizedBox(height: 16),
             if (_errorText != null)
               Container(

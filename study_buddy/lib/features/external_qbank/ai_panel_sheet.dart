@@ -22,6 +22,7 @@ import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/captured_image.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
+import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/markdown_latex.dart';
 import 'saved_topic_capsule.dart';
 
@@ -98,7 +99,52 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     await ref.read(currentChatProvider.notifier).send(text, image: image);
   }
 
-  /// 选图 → /crop 框选 → 设为待附图（首轮入口与追问轮加图共用）。
+  // ---- 输入区语义：按 pendingAsk 切换（agent 挂起提问 vs 正常对话）----
+
+  /// 输入框是否可编辑：busy 禁用；pendingAsk 含选项时须点上方选项（禁用自由输入）；
+  /// pendingAsk 自由输入模式可编辑；正常对话可编辑。
+  bool _inputEnabled(ChatSessionState state) {
+    if (state.busy) return false;
+    if (state.pendingAsk != null && !state.pendingAsk!.isFreeInput) return false;
+    return true;
+  }
+
+  String _inputHint(ChatSessionState state) {
+    if (state.pendingAsk != null) {
+      return state.pendingAsk!.isFreeInput ? '请输入答案' : '请选择上方选项';
+    }
+    return _firstSent ? '追问...' : '补充说明（可选）';
+  }
+
+  /// 输入行提交回调；返回 null 表示禁用（busy 或 pendingAsk 含选项须点选项卡）。
+  VoidCallback? _onInputSubmit(ChatSessionState state) {
+    if (state.busy) return null;
+    if (state.pendingAsk != null) {
+      if (state.pendingAsk!.isFreeInput) {
+        return () => _submitFreeAnswer();
+      }
+      return null; // 含选项：须点 AskUserCard 里的选项
+    }
+    return _send;
+  }
+
+  /// 自由输入模式提交：把输入框文本作为答案回灌挂起的 agent。
+  void _submitFreeAnswer() {
+    final text = _inputCtrl.text.trim();
+    if (text.isEmpty) return;
+    _inputCtrl.clear();
+    ref.read(currentChatProvider.notifier).respondToAsk(text);
+  }
+
+  String _inputButtonLabel(ChatSessionState state) {
+    if (state.busy) return '分析中...';
+    if (state.pendingAsk != null) {
+      return state.pendingAsk!.isFreeInput ? '提交答案' : '请选择上方选项';
+    }
+    return _firstSent ? '发送' : '开始分析';
+  }
+
+  /// 追问轮加图：Sheet 选拍照/相册 → pickImageForAi → setState 更新 _pendingImage。
   ///
   /// 取消拍照/裁剪（返回 null）则不追加图。
   Future<void> _attachCroppedImage({required bool fromCamera}) async {
@@ -201,6 +247,14 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                       colorScheme: colorScheme,
                       theme: theme,
                     ),
+                  // ask_user 提问卡片：agent 挂起等用户作答。
+                  if (state.pendingAsk != null)
+                    AskUserCard(
+                      request: state.pendingAsk!,
+                      onSubmit: (answer) => ref
+                          .read(currentChatProvider.notifier)
+                          .respondToAsk(answer),
+                    ),
                   // 首轮未发送时显示拍立得截图预览
                   if (!_firstSent && _pendingImage != null)
                     _Polaroid(
@@ -259,26 +313,31 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                   child: TextField(
                     controller: _inputCtrl,
                     focusNode: _inputFocus,
-                    enabled: !state.busy,
+                    // pendingAsk 含选项时禁用自由输入（须点上方选项）；自由输入
+                    // 模式或正常模式可输入。
+                    enabled: !state.busy && _inputEnabled(state),
                     decoration: InputDecoration(
-                      // 派生：历史非空 → 追问；首轮 → 补充说明（可选）。
-                      hintText: hasHistory ? '追问...' : '补充说明（可选）',
+                      hintText: _inputHint(state),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
-                    onSubmitted: (_) => _send(),
+                    onSubmitted: (_) => _onInputSubmit(state),
                   ),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.icon(
-                  onPressed: state.busy ? null : _send,
+                  onPressed: _onInputSubmit(state) == null
+                      ? null
+                      : () => _onInputSubmit(state)!(),
                   icon: Icon(
-                    state.busy ? Icons.hourglass_top : Icons.edit_note,
+                    state.busy
+                        ? Icons.hourglass_top
+                        : (state.pendingAsk != null
+                            ? Icons.check
+                            : Icons.edit_note),
                     size: 18,
                   ),
-                  label: Text(state.busy
-                      ? '分析中...'
-                      : (hasHistory ? '发送' : '开始分析')),
+                  label: Text(_inputButtonLabel(state)),
                 ),
               ],
             ),
