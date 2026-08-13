@@ -54,12 +54,12 @@ class SettingsPage extends ConsumerWidget {
             _NavRow(
               icon: Icons.article_outlined,
               label: '应用日志',
-              onTap: () => context.go('/logs/app'),
+              onTap: () => context.push('/logs/app'),
             ),
             _NavRow(
               icon: Icons.smart_toy_outlined,
               label: 'LLM 调用日志',
-              onTap: () => context.go('/logs/llm'),
+              onTap: () => context.push('/logs/llm'),
             ),
             const SizedBox(height: 32),
           ],

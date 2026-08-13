@@ -93,7 +93,7 @@ class _LlmLogViewerPageState extends State<LlmLogViewerPage> {
                     final color =
                         ok ? theme.colorScheme.tertiary : theme.colorScheme.primary;
                     return InkWell(
-                      onTap: () => context.go('/logs/llm/${r.id}'),
+                      onTap: () => context.push('/logs/llm/${r.id}'),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 10),
