@@ -3,24 +3,28 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
 
+/// 辅助：构造一条 token 量明确的消息（content = tag + 填充，约 (len/4) token）。
+ChatMessage _msg(String role, String tag, {int pad = 40}) =>
+    ChatMessage(role: role, content: '$tag${'x' * pad}');
+
 /// 上下文压缩（compactAsync 摘要回填）与工具输出截断测试。
 void main() {
   group('ContextCompactor.compactAsync', () {
     test('未注入 summarize 时等价同步 compact（纯硬截断）', () async {
-      const c = ContextCompactor(threshold: 5, keepRecent: 2);
+      // 每条 user ≈ 11 token；6 条 ≈ 66 + sys。trigger=30 触发，target=22 留约 2 条。
+      const c = ContextCompactor(triggerTokens: 30, targetTokens: 22);
       final msgs = [
-        const ChatMessage(role: 'system', content: 'sys'),
-        for (var i = 0; i < 6; i++) ChatMessage(role: 'user', content: 'm$i'),
+        _msg('system', 'sys'),
+        for (var i = 0; i < 6; i++) _msg('user', 'm$i'),
       ];
       final out = await c.compactAsync(msgs);
-      // 保留 system + 最近 2 条
-      expect(out.first.content, 'sys');
-      expect(out, hasLength(3));
-      expect(out.last.content, 'm5');
+      expect((out.first.content as String).startsWith('sys'), isTrue);
+      expect(out.length, lessThan(msgs.length));
+      expect((out.last.content as String).startsWith('m5'), isTrue);
     });
 
     test('不超阈值返回同一引用', () async {
-      const c = ContextCompactor(threshold: 100, keepRecent: 2);
+      const c = ContextCompactor(triggerTokens: 100000, targetTokens: 10);
       final msgs = [
         const ChatMessage(role: 'system', content: 'sys'),
         const ChatMessage(role: 'user', content: 'hi'),
@@ -30,46 +34,42 @@ void main() {
 
     test('注入 summarize：中间轮次摘要回填为一条 system 消息', () async {
       final c = ContextCompactor(
-        threshold: 5,
-        keepRecent: 2,
+        triggerTokens: 30,
+        targetTokens: 22,
         summarize: (dropped) async {
-          // 断言被丢弃的是中间消息（非 system、非最近 2 条）
-          expect(dropped.map((m) => m.content), containsAll(['m1', 'm2', 'm3']));
+          // 断言被丢弃的是中间消息（非 system、非最近保留区）
+          final contents = dropped.map((m) => m.content as String).toList();
+          expect(contents.any((s) => s.startsWith('sys')), isFalse);
+          expect(contents.any((s) => s.startsWith('m5')), isFalse);
+          expect(contents.any((s) => s.startsWith('m0')), isTrue); // 确有丢弃
           return const ChatMessage(role: 'system', content: '【摘要】已保存知识点 id=42');
         },
       );
       final msgs = [
-        const ChatMessage(role: 'system', content: 'sys'),
-        const ChatMessage(role: 'user', content: 'm0'),
-        const ChatMessage(role: 'user', content: 'm1'),
-        const ChatMessage(role: 'user', content: 'm2'),
-        const ChatMessage(role: 'user', content: 'm3'),
-        const ChatMessage(role: 'user', content: 'm4'),
-        const ChatMessage(role: 'user', content: 'm5'),
+        _msg('system', 'sys'),
+        for (var i = 0; i < 6; i++) _msg('user', 'm$i'),
       ];
       final out = await c.compactAsync(msgs);
-      // system + 摘要 + 最近 2 条
-      expect(out, hasLength(4));
-      expect(out[0].content, 'sys');
-      expect(out[1].content, contains('已保存知识点 id=42'));
-      expect(out[2].content, 'm4');
-      expect(out[3].content, 'm5');
+      // system + 摘要 + 最近保留区
+      expect((out.first.content as String).startsWith('sys'), isTrue);
+      expect(out.any((m) => (m.content as String) == '【摘要】已保存知识点 id=42'), isTrue);
+      expect((out.last.content as String).startsWith('m5'), isTrue);
     });
 
     test('摘要抛错时 fallback 硬截断，不阻断', () async {
       final c = ContextCompactor(
-        threshold: 5,
-        keepRecent: 2,
+        triggerTokens: 30,
+        targetTokens: 22,
         summarize: (_) async => throw Exception('LLM 挂了'),
       );
       final msgs = [
-        const ChatMessage(role: 'system', content: 'sys'),
-        for (var i = 0; i < 6; i++) ChatMessage(role: 'user', content: 'm$i'),
+        _msg('system', 'sys'),
+        for (var i = 0; i < 6; i++) _msg('user', 'm$i'),
       ];
       final out = await c.compactAsync(msgs);
-      expect(out.first.content, 'sys');
-      expect(out, hasLength(3)); // 硬截断结果
-      expect(out.last.content, 'm5');
+      expect((out.first.content as String).startsWith('sys'), isTrue);
+      expect(out.length, lessThan(msgs.length)); // 硬截断结果
+      expect((out.last.content as String).startsWith('m5'), isTrue);
     });
   });
 
