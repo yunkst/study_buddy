@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers/plan_provider.dart';
 import 'assessment_entry_sheet.dart';
+import 'day_task_calendar.dart';
 import 'plan_chat_sheet.dart';
 import 'progress_chart.dart';
 
@@ -139,6 +140,10 @@ class PlanDetailPage extends ConsumerWidget {
                   ),
                 );
               }),
+              const SizedBox(height: 16),
+              const Text('每日任务', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              DayTaskCalendar(planId: planId),
             ],
           );
         },

@@ -129,3 +129,54 @@ class Assessment {
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 }
+
+/// 每日打卡任务。挂在某 plan 下，绑定一个具体本地日历日。
+/// task_date 存本地零点 millis（见 PlanDayTaskRepository）。
+class PlanDayTask {
+  final int? id;
+  final int planId;
+  final DateTime taskDate;
+  final String title;
+  final int sortOrder;
+  final String status; // 'pending' | 'done'
+  final DateTime? doneAt;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const PlanDayTask({
+    this.id,
+    required this.planId,
+    required this.taskDate,
+    required this.title,
+    this.sortOrder = 0,
+    this.status = 'pending',
+    this.doneAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory PlanDayTask.fromMap(Map<String, Object?> m) => PlanDayTask(
+        id: m['id'] as int?,
+        planId: m['plan_id'] as int,
+        taskDate: DateTime.fromMillisecondsSinceEpoch(m['task_date'] as int),
+        title: m['title'] as String,
+        sortOrder: (m['sort_order'] as int?) ?? 0,
+        status: m['status'] as String,
+        doneAt: m['done_at'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(m['done_at'] as int),
+        createdAt: DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(m['updated_at'] as int),
+      );
+
+  Map<String, Object?> toMap() => {
+        if (id != null) 'id': id,
+        'plan_id': planId,
+        'task_date': taskDate.millisecondsSinceEpoch,
+        'title': title,
+        'sort_order': sortOrder,
+        'status': status,
+        if (doneAt != null) 'done_at': doneAt!.millisecondsSinceEpoch,
+        'created_at': createdAt.millisecondsSinceEpoch,
+        'updated_at': updatedAt.millisecondsSinceEpoch,
+      };
+}

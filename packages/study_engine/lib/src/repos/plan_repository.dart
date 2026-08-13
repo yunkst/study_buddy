@@ -85,6 +85,9 @@ class PlanRepository {
     return rows.isEmpty ? null : Assessment.fromMap(rows.first);
   }
 
+  /// 删除一条测评记录（不影响其他测评）。
+  Future<void> deleteAssessment(int id) => _db.db.delete('assessment', where: 'id = ?', whereArgs: [id]);
+
   // ===== 聚合 =====
   Future<PlanDetail> getPlanDetail(int planId) async {
     final plan = await findPlanById(planId);

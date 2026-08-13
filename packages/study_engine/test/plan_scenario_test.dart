@@ -15,6 +15,7 @@ void main() {
   PlanScenario newScenario(StudyDatabase sdb) => PlanScenario(
         plans: PlanRepository(sdb),
         memories: AgentMemoryRepository(sdb),
+        dayTasks: PlanDayTaskRepository(sdb),
       );
 
   test('_extractScore 不把日期/时长误判为分数', () async {
