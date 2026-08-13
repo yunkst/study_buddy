@@ -123,4 +123,40 @@ void main() {
     expect(find.text('该分类暂无知识点'), findsNothing);
     await drainTimers(tester);
   });
+
+  /// 点进「数学」再下钻到「高等数学」，返回上级后应停留在「数学」而非回根。
+  Future<void> enterCalc(WidgetTester tester) async {
+    await tester.tap(find.text('高等数学'));
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('下钻两级后「返回上级」回到父级而非根', (tester) async {
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWith((ref) async => sdb),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpKnowledgePage(tester, container);
+    await enterMath(tester);
+    await enterCalc(tester);
+
+    // 已在「高等数学」，应能看到其知识点。
+    expect(find.text('ε-δ 极限定义'), findsOneWidget);
+
+    // 点击「返回上级」。
+    await tester.tap(find.text('返回上级'));
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // 应回到父级「数学」：能看到其子分类入口「高等数学」，
+    // 但看不到根级另一分类（若回到根则只剩顶级分类、看不到 ε-δ 极限定义的归类）。
+    // 关键断言：仍在「数学」下 → 「高等数学」子分类入口可见。
+    expect(find.text('高等数学'), findsOneWidget);
+    await drainTimers(tester);
+  });
 }

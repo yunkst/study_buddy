@@ -9,6 +9,7 @@ import '../services/logger_service.dart';
 import '../services/prompt_resolver_db.dart';
 import 'database_provider.dart';
 import 'focus_session_provider.dart';
+import '../../features/knowledge/knowledge_providers.dart';
 
 /// APP 层 agent 调用入口：构造 StudyPlanScenario + AgentLoop 并返回事件流。
 ///
@@ -111,6 +112,9 @@ class AgentSession {
       dayTasks: dayTasks,
       promptResolver: DbPromptResolver((sid) => overrides[sid]),
       onTopicTouched: (topicId) async {
+        // agent 写库（save_topic/update_topic 等）后作废知识 Tab 缓存，
+        // 否则已浏览过知识页的用户切回看不到新增知识点。
+        invalidateKnowledgeCache(_ref.container);
         // 仅专注会话进行中才关联；非专注期 no-op
         final sessionId = _ref.read(focusSessionProvider).sessionId;
         if (sessionId == null) return;
