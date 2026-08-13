@@ -23,6 +23,7 @@ import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/update/app_update_service.dart';
 import '../../core/update/models/update_check_result.dart';
+import '../../core/update/ui/app_update_dialog.dart';
 
 /// 设置页：分组设置行（外观 / 系统 / 诊断）。
 class SettingsPage extends ConsumerWidget {
@@ -44,6 +45,7 @@ class SettingsPage extends ConsumerWidget {
             const SizedBox(height: 8),
             const _LlmConfigRow(),
             const _VersionRow(),
+            const _PreviewChannelRow(),
             const _AboutRow(),
             const SizedBox(height: 32),
             const _SectionLabel(text: '诊断'),
@@ -401,16 +403,18 @@ class _VersionRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(currentVersionProvider).value ?? '';
     return _NavRow(
       icon: Icons.system_update_alt_outlined,
       label: '版本更新',
-      value: '0.1.0-preview.6',
+      value: version,
       onTap: () => _checkForUpdate(context, ref),
     );
   }
 
-  /// 触发更新检查：forceCheck 忽略 1 小时频率限制，结果以 SnackBar 反馈。
-  /// 与首页一致，先读预览通道开关，再按通道查 GitHub（避免 preview 版本被跳过）。
+  /// 触发更新检查：forceCheck 忽略 1 小时频率限制。
+  /// 先读预览通道开关，再按通道查 GitHub（避免 preview 版本被跳过）；
+  /// 有新版本弹下载对话框，无新版本以 SnackBar 反馈。
   Future<void> _checkForUpdate(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final service = ref.read(appUpdateServiceProvider);
@@ -422,9 +426,19 @@ class _VersionRow extends ConsumerWidget {
     if (!context.mounted) return;
     switch (result) {
       case AppUpdateAvailable(:final version):
-        messenger.showSnackBar(
-          SnackBar(content: Text('发现新版本 v${version.version}')),
-        );
+        // forceCheck 下版本相同也会返回 Available，用 hasNewVersion 区分：
+        // 真新版本 → 弹下载/安装对话框；相同版本 → 提示已最新。
+        final current = (await service.getCurrentVersion()).version;
+        if (!context.mounted) return;
+        if (service.hasNewVersion(current, version.version)) {
+          await showAppUpdateDialog(
+            context,
+            version: version,
+            updateService: service,
+          );
+        } else {
+          messenger.showSnackBar(const SnackBar(content: Text('已是最新版本')));
+        }
       case AppUpdateUpToDate():
         messenger.showSnackBar(const SnackBar(content: Text('已是最新版本')));
       case AppUpdateCheckFailed(:final reason):
@@ -439,16 +453,111 @@ class _AboutRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(currentVersionProvider).value ?? '';
     return _NavRow(
       icon: Icons.info_outline,
       label: '关于',
       onTap: () => showAboutDialog(
         context: context,
         applicationName: 'Study Buddy',
-        applicationVersion: '0.1.0-preview.6',
+        applicationVersion: version,
         applicationLegalese: '© Study Buddy',
       ),
     );
+  }
+}
+
+/// 开关设置行：左 icon + 标题，右侧 Switch。
+/// 与 _NavRow 同款视觉（icon + 标题 + 下沿细分隔线），右侧以 Switch 替代 chevron。
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: theme.extension<PaperColors>()!.ruleSoft,
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+/// 预览版下载开关行：开启后检查更新走 preview 通道，可下载预览版 APK。
+/// 打开时先弹「非常不稳定」提醒，用户确认后才真正开启；关闭直接生效。
+class _PreviewChannelRow extends ConsumerWidget {
+  const _PreviewChannelRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(previewChannelProvider).value ?? false;
+    return _SwitchRow(
+      icon: Icons.science_outlined,
+      label: '预览版下载',
+      value: enabled,
+      onChanged: (v) => _onChanged(context, ref, v),
+    );
+  }
+
+  Future<void> _onChanged(BuildContext context, WidgetRef ref, bool v) async {
+    final notifier = ref.read(previewChannelProvider.notifier);
+    if (!v) {
+      await notifier.set(false); // 关闭直接生效，无需确认
+      return;
+    }
+    // 打开：先提醒预览版非常不稳定，确认后才开启。
+    // Switch 受控于 provider，取消时未写 state，视觉不会闪亮。
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('开启预览版下载'),
+        content: const Text(
+          '预览版包含最新功能，但非常不稳定，可能包含 Bug 甚至崩溃，仅建议测试用途。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('再想想'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('继续开启'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await notifier.set(true);
+    }
   }
 }
 
