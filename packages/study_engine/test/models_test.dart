@@ -7,6 +7,26 @@ void main() {
     expect(m.toJson(), {'role': 'user', 'content': '你好'});
   });
 
+  test('仅工具调用的空内容 assistant：forApi 归一化为 null，存储路径保留空串', () {
+    final m = ChatMessage(
+      role: 'assistant',
+      content: '',
+      toolCalls: [const ToolCall(id: 'call_1', name: 'list_topics', arguments: '{}')],
+    );
+    // 发给 LLM：空 content → null（k3 等端点拒绝 content:""，见 400 text content is empty）
+    final api = m.toJson(forApi: true);
+    expect(api['content'], isNull);
+    expect(api['role'], 'assistant');
+    expect((api['tool_calls'] as List).first['function']['name'], 'list_topics');
+    // 存储/UI 路径不受影响：仍如实写空串，保证 fromJson 往返稳定
+    expect(m.toJson(), {'role': 'assistant', 'content': '', 'tool_calls': isNotNull});
+  });
+
+  test('forApi 下非空文本不受空内容归一化影响', () {
+    final m = const ChatMessage(role: 'assistant', content: '好的，我来查一下');
+    expect(m.toJson(forApi: true)['content'], '好的，我来查一下');
+  });
+
   test('vision ChatMessage 序列化为 content parts 数组', () {
     final m = ChatMessage(
       role: 'user',
