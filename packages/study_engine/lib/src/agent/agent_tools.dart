@@ -1,4 +1,4 @@
-/// Agent 工具 schema（OpenAI function calling）。知识点体系 8 个工具。
+/// Agent 工具 schema（OpenAI function calling）。知识点体系 11 个工具（含删除）。
 class AgentTools {
   AgentTools._();
 
@@ -51,14 +51,14 @@ class AgentTools {
     'type': 'function',
     'function': {
       'name': 'save_topic',
-      'description': '保存一个细粒度知识点。知识点的粒度必须低：一个引子对应一个知识点，若内容需要多个引子才能讲清，应拆成多个知识点分别保存。学科/模块/章节不存在的会自动创建。title 全库唯一，重复会被拒绝。返回 JSON {id, is_new, msg}：is_new=true 表示新建成功并返回新 id；is_new=false 表示该知识点已存在（id 为已有记录 id），此时如需补充答案请改用 update_topic；path 为空时 id=null。',
+      'description': '保存一个细粒度、普遍性的知识点。知识点的粒度必须低：一个引子对应一个知识点，若内容需要多个引子才能讲清，应拆成多个知识点分别保存。**内容必须是脱离具体题目的通用规律，而非某道题本身**：question/summary/title 一律抽象成一般情形，不得出现题目的具体数字、专有量、选项、答案或题干原文。学科/模块/章节不存在的会自动创建。title 全库唯一，重复会被拒绝。返回 JSON {id, is_new, msg}：is_new=true 表示新建成功并返回新 id；is_new=false 表示该知识点已存在（id 为已有记录 id），此时如需补充答案请改用 update_topic；path 为空时 id=null。',
       'parameters': {
         'type': 'object',
         'properties': {
           'path': {'type': 'string', 'description': '分类路径，如"数学/高等数学/极限"'},
-          'title': {'type': 'string', 'description': '知识点标题，应简短且唯一可识别'},
-          'question': {'type': 'string', 'description': '背诵引子，如"如何求0/0型极限?"'},
-          'summary': {'type': 'string', 'description': '答案本体，背诵揭晓时展示的完整内容'},
+          'title': {'type': 'string', 'description': '知识点标题，应简短、唯一可识别，且用一般概念命名（如"洛必达法则"），不要照搬题干'},
+          'question': {'type': 'string', 'description': '背诵引子，用一般化提问（如"如何求0/0型未定式极限?"）。禁止复述原题、抄录题干数值或选项'},
+          'summary': {'type': 'string', 'description': '答案本体（通用规律/方法/定义）。必须是对该类问题的通用解法或原理，绝不抄录某道题的具体答案或带具体数字的解题过程'},
         },
         'required': ['path', 'title', 'question', 'summary'],
       },
@@ -161,6 +161,41 @@ class AgentTools {
     },
   };
 
+  static const deleteTopic = {
+    'type': 'function',
+    'function': {
+      'name': 'delete_topic',
+      'description': '删除一个知识点（高危、不可逆）。关联的掌握度日志/复习调度/知识图谱边会一并清除。'
+          '删除前必须先用 search_topics/get_topic 确认目标，并通过 ask_user 向用户确认后再调用。'
+          '二选一传入 id（精确）或 title（精确匹配全库唯一标题）。返回 JSON {ok, deleted, msg}。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'integer', 'description': '要删除的知识点 id（与 title 二选一，优先用 id）'},
+          'title': {'type': 'string', 'description': '要删除的知识点标题（精确全名，与 id 二选一）'},
+        },
+      },
+    },
+  };
+
+  static const deleteCategory = {
+    'type': 'function',
+    'function': {
+      'name': 'delete_category',
+      'description': '删除一个分类及其整棵子树（高危、不可逆）：含其全部后代分类、各层直挂知识点，'
+          '以及知识点关联的掌握度/调度/图谱边。删除前必须先用 list_topics 浏览确认范围，'
+          '明确告知用户「将删除 X 及其下 N 个子分类、M 个知识点」，并通过 ask_user 确认后再调用。'
+          '按 path 精确匹配到末端分类。返回 JSON {ok, deleted_categories, deleted_topics, msg}。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '分类路径，如"数学/高等数学"，删除该路径末端分类的整棵子树'},
+        },
+        'required': ['path'],
+      },
+    },
+  };
+
   static const studyTools = [
     listTopics,
     searchTopics,
@@ -171,5 +206,7 @@ class AgentTools {
     setMastery,
     getMastery,
     saveReview,
+    deleteTopic,
+    deleteCategory,
   ];
 }

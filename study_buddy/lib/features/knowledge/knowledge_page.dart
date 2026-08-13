@@ -57,6 +57,83 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
     setState(() => _selectedCategoryId = id);
   }
 
+  /// 长按分类：先预览子树影响范围 → 二次确认弹窗 → 确认后删除 → SnackBar。
+  ///
+  /// 预览与删除都跑真实 isolate（sqflite_ffi），在测试里会被 runAsync 包起来。
+  Future<void> _confirmDeleteCategory(Category category) async {
+    final id = category.id;
+    if (id == null) return;
+    final preview = await ref.read(previewCategoryDeleteProvider(id).future);
+    if (!mounted) return;
+    final impact = preview.topics == 0
+        ? '及其下 ${preview.categories - 1} 个子分类'
+        : '及其下 ${preview.categories - 1} 个子分类、${preview.topics} 个知识点';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除「${category.name}」'),
+        content: Text(
+          '将删除该分类$impact，关联的掌握度/复习记录/图谱边一并清除。\n\n此操作不可撤销，是否继续？',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await ref.read(deleteCategoryActionProvider(id))();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已删除「${category.name}」(${result.categories} 个分类, ${result.topics} 个知识点)')),
+      );
+      // 若删除的是当前所在分类，回到上一级（parent_id 未读，简化：回根）
+      if (_selectedCategoryId == id) {
+        _enterCategory(null);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败: $e')));
+    }
+  }
+
+  /// 长按知识点：二次确认 → 删除 → SnackBar。
+  Future<void> _confirmDeleteTopic(int topicId, String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除「$title」'),
+        content: const Text(
+          '关联的掌握度/复习记录/图谱边一并清除。\n\n此操作不可撤销，是否继续？',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(deleteTopicActionProvider(topicId))();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已删除「$title」')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final searching = _keyword.isNotEmpty;
@@ -124,6 +201,7 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
                 key: ValueKey('search-${item.id}'),
                 topicId: item.id,
                 title: item.title,
+                onLongPress: () => _confirmDeleteTopic(item.id, item.title),
               ),
             const SizedBox(height: 24),
           ],
@@ -154,7 +232,11 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
           children: [
             for (final c in categories)
-              _CategoryRow(category: c, onTap: c.id == null ? null : () => _enterCategory(c.id)),
+              _CategoryRow(
+                category: c,
+                onTap: c.id == null ? null : () => _enterCategory(c.id),
+                onLongPress: c.id == null ? null : () => _confirmDeleteCategory(c),
+              ),
             const SizedBox(height: 24),
           ],
         );
@@ -229,7 +311,11 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
       error: (e, _) => [_Error(message: '加载分类失败: $e')],
       data: (children) => [
         for (final c in children)
-          _CategoryRow(category: c, onTap: () => _enterCategory(c.id)),
+          _CategoryRow(
+            category: c,
+            onTap: () => _enterCategory(c.id),
+            onLongPress: () => _confirmDeleteCategory(c),
+          ),
       ],
     );
   }
@@ -244,18 +330,20 @@ class _KnowledgePageState extends ConsumerState<KnowledgePage> {
             key: ValueKey('topic-${t.id}'),
             topicId: t.id!,
             title: t.title,
+            onLongPress: () => _confirmDeleteTopic(t.id!, t.title),
           ),
       ],
     );
   }
 }
 
-/// 分类行：文件夹图标 + 名称 + 右箭头，点按进入该分类（下钻）。
+/// 分类行：文件夹图标 + 名称 + 右箭头，点按进入该分类（下钻），长按弹出删除确认。
 class _CategoryRow extends StatelessWidget {
-  const _CategoryRow({required this.category, required this.onTap});
+  const _CategoryRow({required this.category, this.onTap, this.onLongPress});
 
   final Category category;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -264,6 +352,7 @@ class _CategoryRow extends StatelessWidget {
     return InkWell(
       key: ValueKey('cat-${category.id}'),
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
@@ -289,12 +378,18 @@ class _CategoryRow extends StatelessWidget {
   }
 }
 
-/// 知识行：标题 + 掌握度标签 + 下次复习时间提示，点按进详情。
+/// 知识行：标题 + 掌握度标签 + 下次复习时间提示，点按进详情，长按弹出删除确认。
 class _TopicRow extends ConsumerWidget {
-  const _TopicRow({super.key, required this.topicId, required this.title});
+  const _TopicRow({
+    super.key,
+    required this.topicId,
+    required this.title,
+    this.onLongPress,
+  });
 
   final int topicId;
   final String title;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -305,6 +400,7 @@ class _TopicRow extends ConsumerWidget {
 
     return InkWell(
       onTap: () => context.push('/topic/$topicId'),
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(

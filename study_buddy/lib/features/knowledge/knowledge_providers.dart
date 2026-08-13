@@ -35,3 +35,45 @@ final masteryOfProvider = FutureProvider.family<MasteryStatus, int>((ref, topicI
   final s = await repo.findByTopic(topicId);
   return MasteryFromSchedule.fromSchedule(s);
 });
+
+/// 预览删除分类子树的影响范围（仅统计，不删）。
+///
+/// 参数：categoryId；返回 [DeletedSubtree]。供长按确认弹窗展示。
+final previewCategoryDeleteProvider =
+    FutureProvider.family<DeletedSubtree, int>((ref, categoryId) async {
+  final db = await ref.read(databaseProvider.future);
+  return CategoryRepository(db).previewSubtree(categoryId);
+});
+
+/// 删除单知识点的动作（family key = topicId）。
+///
+/// 调用后 invalidate 相关 provider（mastery、所属分类的知识列表、搜索结果），
+/// 使 UI 重建刷新。
+final deleteTopicActionProvider =
+    Provider.family<Future<void> Function(), int>((ref, topicId) {
+  return () async {
+    final db = await ref.read(databaseProvider.future);
+    await TopicRepository(db).delete(topicId);
+    // 刷新：知识点当前掌握度（该 topicId 失效）、该分类下知识列表、搜索结果。
+    // topicsInCategoryProvider 不知道原 categoryId，全 family invalidate 让所有缓存失效。
+    ref.invalidate(masteryOfProvider(topicId));
+    ref.invalidate(topicsInCategoryProvider);
+    ref.invalidate(topicSearchProvider);
+  };
+});
+
+/// 删除分类子树的动作（family key = categoryId）。
+///
+/// 事务内删子树 + 全部分支知识点；FK CASCADE 清理 mastery/edge/schedule/focus。
+/// 调用后 invalidate 分类树与全知识列表，使 UI 重建刷新。
+final deleteCategoryActionProvider =
+    Provider.family<Future<DeletedSubtree> Function(), int>((ref, categoryId) {
+  return () async {
+    final db = await ref.read(databaseProvider.future);
+    final result = await CategoryRepository(db).deleteSubtree(categoryId);
+    ref.invalidate(categoryChildrenProvider);
+    ref.invalidate(topicsInCategoryProvider);
+    ref.invalidate(topicSearchProvider);
+    return result;
+  };
+});

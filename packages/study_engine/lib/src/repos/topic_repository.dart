@@ -65,4 +65,13 @@ class TopicRepository {
     await _db.db.update('topic', {'summary': summary, 'updated_at': DateTime.now().millisecondsSinceEpoch},
         where: 'id = ?', whereArgs: [id]);
   }
+
+  /// 删除单个知识点，返回受影响行数（0 表示该 id 不存在）。
+  ///
+  /// 外键级联（PRAGMA foreign_keys = ON）会自动清理 mastery_log / topic_edge /
+  /// topic_schedule / focus_session_topic——无需在此手动删依赖。review.items 是
+  /// JSON 快照无 FK，删后旧批改里的 topic_id 会悬空（详情页已有兜底）。
+  Future<int> delete(int id) async {
+    return _db.db.delete('topic', where: 'id = ?', whereArgs: [id]);
+  }
 }
