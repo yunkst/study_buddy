@@ -7,62 +7,11 @@ import 'package:study_engine/study_engine.dart';
 import '../services/logger_service.dart';
 import 'agent_session_provider.dart';
 import 'captured_image.dart';
+import 'chat_session_reducer.dart';
+import 'chat_session_state.dart';
 import 'database_provider.dart';
 
-/// 工具调用轨迹条目（UI 渲染用）。
-class ToolEvent {
-  final String name;
-  final String result; // '进行中...' 或实际结果摘要
-  const ToolEvent(this.name, this.result);
-}
-
-/// 当前会话状态。messages 持有完整多轮历史。
-/// [sessionId] 对应 chat_session 表（持久化/续聊用），null 表示尚未建会话。
-class ChatSessionState {
-  final List<ChatMessage> messages; // 完整多轮历史
-  final String streamingText; // 当前轮 LLM 流式增量累积
-  final List<ToolEvent> toolEvents; // 当前轮工具轨迹
-  final bool busy; // agent 运行中
-  final AskUserRequest? pendingAsk; // 当前等待用户作答的提问，非空时输入区切语义
-  final String? error;
-  final int? sessionId; // 当前持久化会话 id（null=新会话）
-
-  const ChatSessionState({
-    this.messages = const [],
-    this.streamingText = '',
-    this.toolEvents = const [],
-    this.busy = false,
-    this.pendingAsk,
-    this.error,
-    this.sessionId,
-  });
-
-  ChatSessionState copyWith({
-    List<ChatMessage>? messages,
-    String? streamingText,
-    List<ToolEvent>? toolEvents,
-    bool? busy,
-    Object? pendingAsk = _sentinel,
-    String? error,
-    int? sessionId,
-  }) {
-    return ChatSessionState(
-      messages: messages ?? this.messages,
-      streamingText: streamingText ?? this.streamingText,
-      toolEvents: toolEvents ?? this.toolEvents,
-      busy: busy ?? this.busy,
-      pendingAsk: identical(pendingAsk, _sentinel)
-          ? this.pendingAsk
-          : pendingAsk as AskUserRequest?,
-      error: error,
-      sessionId: sessionId ?? this.sessionId,
-    );
-  }
-
-  static const _sentinel = Object();
-
-  static const initial = ChatSessionState();
-}
+export 'chat_session_state.dart'; // ChatSessionState/ToolEvent 原定义处 re-export
 
 /// 多轮会话状态管理：持有完整消息历史，每轮 send 喂给 AgentSession.run。
 /// 每轮持久化到 chat_session/chat_message（App 重启后 hydrate 续聊）。
@@ -249,80 +198,21 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
 
   void _onEvent(AgentEvent event) {
     if (!mounted) return;
-    switch (event) {
-      case AgentStartedEvent():
-        break;
-      case TextDeltaEvent(:final delta):
-        state = state.copyWith(streamingText: state.streamingText + delta);
-      case ToolCallStartEvent(:final name):
-        state = state.copyWith(
-          toolEvents: [...state.toolEvents, ToolEvent(name, '进行中...')],
-        );
-      case ToolCallEndEvent(:final name, :final result):
-        final updated = state.toolEvents.map((e) {
-          if (e.name == name && e.result == '进行中...') {
-            return ToolEvent(name, result);
-          }
-          return e;
-        }).toList();
-        state = state.copyWith(toolEvents: updated);
-      case ToolProgressEvent(:final progress):
-        state = state.copyWith(
-          toolEvents: [...state.toolEvents, ToolEvent('·', progress)],
-        );
-      case CompactionEvent():
-        state = state.copyWith(
-          toolEvents: [...state.toolEvents, const ToolEvent('·', '上下文已压缩')],
-        );
-      case RetryEvent(:final attempt):
-        // LLM 调用失败重试：本轮已部分累积的 streamingText 会被丢弃并由 LLM 重新生成，
-        // 故先清空，避免新旧增量拼接出乱码；同时给用户一个「正在重连」的可见提示。
-        state = state.copyWith(
-          streamingText: '',
-          error: null,
-          toolEvents: [...state.toolEvents, ToolEvent('·', '网络抖动，重试第 $attempt 次…')],
-        );
-      case AgentRoundEndEvent(:final newMessages):
-        // 逐轮回填合法消息序列（assistant + tool 消息）
-        state = state.copyWith(
-          messages: [...state.messages, ...newMessages],
-          streamingText: '', // 本轮文本已落入 assistant 消息；清空以便下一轮独立累积
-        );
-        // 持久化本轮 assistant+tool（content 均为纯文本，无需剥图）
-        _enqueuePersist(newMessages);
-      case AskUserRequestedEvent(:final request):
-        // busy 保持 true（agent 仍在运行，只是挂起等用户）；UI 据此切输入区语义。
-        state = state.copyWith(pendingAsk: request);
-      case AskUserAnsweredEvent():
-        // UI 已在 respondToAsk 里清 pendingAsk；此处仅确保状态一致。
-        break;
-      case AgentDoneEvent(:final finalText):
-        // finalText==null 表示达到 maxRounds
-        if (finalText == null) {
-          state = state.copyWith(
-            busy: false,
-            error: '已达最大轮数',
-            streamingText: '',
-          );
-        } else {
-          // C1 修复：纯文本轮的最终回答经 AgentDoneEvent(finalText) 追加进 messages，
-          // 下一轮 send 时它会成为 run 入参的一部分（多轮上下文）。
-          final doneMsg = ChatMessage(role: 'assistant', content: finalText);
-          state = state.copyWith(
-            messages: [...state.messages, doneMsg],
-            busy: false,
-            streamingText: '',
-          );
-          _enqueuePersist([doneMsg]); // 持久化纯文本轮回答
-        }
-      case AgentErrorEvent(:final message):
-        _onError(message);
+    // 状态变更交给纯函数（事件处理单一事实来源）；副作用（持久化）在此单独做。
+    state = chatSessionReducer(state, event);
+    if (event is AgentRoundEndEvent) {
+      // 持久化本轮 assistant+tool（content 均为纯文本，无需剥图）
+      _enqueuePersist(event.newMessages);
+    } else if (event is AgentDoneEvent && event.finalText != null) {
+      // 持久化纯文本轮回答（与 reducer 追加的 assistant 消息一致）
+      _enqueuePersist(
+          [ChatMessage(role: 'assistant', content: event.finalText!)]);
     }
   }
 
   void _onError(String msg) {
     if (!mounted) return;
-    // 清 pendingAsk：错误后提问卡片不再有效（handle 已不可用），残留会让输入区锁死。
+    // 流 onError 回调（非事件）：与 AgentErrorEvent 同样清 pendingAsk + 报错。
     state = state.copyWith(busy: false, error: msg, pendingAsk: null);
   }
 
