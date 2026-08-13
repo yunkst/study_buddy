@@ -192,4 +192,28 @@ void main() {
     expect(caught, isArgumentError);
     src.dispose();
   });
+
+  testWidgets('downsampleToRgba 等比降采样到长边 maxSide', (tester) async {
+    final src = await _makeTestImage(width: 200, height: 100, tester: tester);
+    final out = await tester.runAsync(
+      () => downsampleToRgba(source: src, maxSide: 50),
+    );
+    // 长边 50，原图 200×100 → 缩放 0.25 → 50×25。
+    expect(out!.width, 50);
+    expect(out.height, 25);
+    expect(out.rgba.length, 50 * 25 * 4);
+    src.dispose();
+  });
+
+  testWidgets('downsampleToRgba 对小图不放大（长边已 < maxSide）', (tester) async {
+    final src = await _makeTestImage(width: 40, height: 30, tester: tester);
+    final out = await tester.runAsync(
+      () => downsampleToRgba(source: src, maxSide: 320),
+    );
+    // 原图长边 40 < 320，scale 被 cap 到 1.0，维持原尺寸不放大。
+    expect(out!.width, 40);
+    expect(out.height, 30);
+    expect(out.rgba.length, out.width * out.height * 4);
+    src.dispose();
+  });
 }
