@@ -9,6 +9,7 @@ import 'agent_event.dart';
 import 'agent_scenario.dart';
 import 'ask_user.dart';
 import 'context_compactor.dart';
+import 'tool_output_truncator.dart';
 
 /// LLM 远程调用失败的重试策略。
 ///
@@ -54,6 +55,7 @@ class AgentLoop {
   final LoggerSink logger;
   final RetryConfig retry;
   final Random _random;
+  final String? toolTmpDir; // 非空时超长工具输出落此目录；null=不截断（测试默认）
 
   // ---- ask_user 挂起句柄 ----
   // AgentLoop 每次 run() 由 session 重新构造，completer 挂在这里避免跨轮串话。
@@ -76,6 +78,7 @@ class AgentLoop {
     this.maxRounds = 50,
     RetryConfig? retry,
     Random? random,
+    this.toolTmpDir,
   })  : logger = logger ?? const NullLoggerSink(),
         compactor = compactor ?? const ContextCompactor(),
         retry = retry ?? const RetryConfig(),
@@ -220,7 +223,10 @@ class AgentLoop {
             yield AskUserAnsweredEvent(tc.id, result);
           } else {
             try {
-              result = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
+              final raw = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
+              // 超长工具输出落临时文件（opencode 风格），给 LLM 保留可追溯指针；
+              // toolTmpDir 为 null（测试默认）时不截断。
+              result = truncateToolOutput(raw, tmpDir: toolTmpDir);
             } catch (e) {
               result = '工具执行出错: $e';
             }
@@ -234,7 +240,7 @@ class AgentLoop {
         yield AgentRoundEndEvent(roundNewMsgs);
 
         if (compactor.needsCompaction(msgs)) {
-          final compacted = compactor.compact(msgs);
+          final compacted = await compactor.compactAsync(msgs);
           msgs
             ..clear()
             ..addAll(compacted);

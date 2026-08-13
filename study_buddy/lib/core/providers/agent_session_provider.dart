@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../services/llm_logger/llm_logger.dart';
@@ -95,7 +98,17 @@ class AgentSession {
         await focusRepo.linkTopic(sessionId, topicId);
       },
     );
-    final loop = AgentLoop(llm: llm, scenario: scenario, logger: LoggerService.instance);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: scenario,
+      logger: LoggerService.instance,
+      // 上下文压缩：丢弃中间轮次前用 LLM 摘要回填（代替纯硬截断），避免长对话失忆。
+      compactor: ContextCompactor(
+        summarize: (dropped) => _summarizeDropped(llm, dropped),
+      ),
+      // 超长工具输出落临时文件（opencode 风格），保留可追溯指针。
+      toolTmpDir: (await _resolveTmpDir())?.path,
+    );
     LoggerService.instance.i('Agent 会话开始', category: LogCategory.ai, tags: const ['session-start'], traceId: traceId);
     return AgentSessionHandle(
       stream: loop.run(
@@ -122,6 +135,55 @@ class AgentSession {
       if (content != null) result[sid] = content;
     }
     return result;
+  }
+
+  static Directory? _tmpDirCache;
+
+  /// 系统临时目录（超长工具输出落盘用）。获取失败返回 null（不截断）。
+  Future<Directory?> _resolveTmpDir() async {
+    final cached = _tmpDirCache;
+    if (cached != null) return cached;
+    try {
+      _tmpDirCache = await getTemporaryDirectory();
+    } catch (_) {
+      _tmpDirCache = null;
+    }
+    return _tmpDirCache;
+  }
+
+  /// 把被压缩丢弃的中间轮次摘要成一条 system 消息（LLM 调用）。
+  /// 抛错由 [ContextCompactor.compactAsync] 捕获并 fallback 硬截断。
+  Future<ChatMessage> _summarizeDropped(LlmProvider llm, List<ChatMessage> dropped) async {
+    final text = await completeText(
+      llm,
+      system: '你是对话压缩助手。把用户与学习伴侣 AI 的较早对话压缩成中文摘要，'
+          '保留关键结论与数据：创建/更新的知识点 id 与标题、计划/节点/任务的 id、'
+          '掌握度判定、批改结果。不要编造，输出 3-5 句。',
+      user: '以下是较早轮次（将被压缩掉）:\n\n${_renderDropped(dropped)}',
+    );
+    return ChatMessage(role: 'system', content: '【对话历史摘要】$text');
+  }
+
+  /// 消息列表 → 压缩输入文本（content 兼容 String 与 vision parts）。
+  String _renderDropped(List<ChatMessage> msgs) {
+    final buf = StringBuffer();
+    for (final m in msgs) {
+      final content = switch (m.content) {
+        String s => s,
+        List<ContentPart> parts =>
+          parts.whereType<TextPart>().map((p) => p.text).join('\n'),
+        _ => '',
+      };
+      if (m.toolCalls != null) {
+        final calls = m.toolCalls!.map((t) => '${t.name}(${t.arguments})').join('; ');
+        buf.writeln('[assistant tool_calls] $calls');
+      } else if (m.toolCallId != null) {
+        buf.writeln('[tool result ${m.toolCallId}] $content');
+      } else {
+        buf.writeln('[${m.role}] $content');
+      }
+    }
+    return buf.toString();
   }
 }
 
