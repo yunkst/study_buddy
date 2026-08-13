@@ -105,6 +105,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
         _onEvent,
         onError: (Object e, StackTrace _) {
           _onError('$e');
+          _handle = null;
           if (!done.isCompleted) done.complete();
         },
         onDone: () {
@@ -202,7 +203,8 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
 
   void _onError(String msg) {
     if (!mounted) return;
-    state = state.copyWith(busy: false, error: msg);
+    // 清 pendingAsk：错误后提问卡片不再有效（handle 已不可用），残留会让输入区锁死。
+    state = state.copyWith(busy: false, error: msg, pendingAsk: null);
   }
 
   /// 回答当前待处理的 ask_user 提问。[answer] 是用户选中的 value 字符串（多选用", "分隔）。

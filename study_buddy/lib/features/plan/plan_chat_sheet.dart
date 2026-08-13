@@ -7,6 +7,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/plan_provider.dart';
 import '../../core/widgets/ask_user_card.dart';
+import '../../core/widgets/ask_user_input_semantics.dart';
 
 /// 弹出计划 AI 对话。planId 为空=新建模式，非空=调整模式。
 /// 新建模式下 create_plan 成功后跳转 /plan/:id。
@@ -99,6 +100,9 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 _toolEvents.add('· 上下文已压缩');
                 break;
               case RetryEvent(:final attempt):
+                // 与 chat_session_provider 对齐：重试前丢弃本轮已部分累积的流式文本，
+                // 避免新旧 LLM 输出拼接出乱码。
+                _aiText.clear();
                 _toolEvents.add('· 重试第 $attempt 次');
                 break;
               case AgentStartedEvent():
@@ -120,10 +124,16 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 }
                 _pendingAsk = null;
                 _busy = false;
+                // maxRounds 截断时给用户可见提示，与 chat 侧的 _ErrorPanel 对齐。
+                if (finalText == null) {
+                  _errorText = '已达最大轮数';
+                }
                 break;
               case AgentRoundEndEvent(:final newMessages):
                 // 本轮新增的 assistant/tool 消息全部并入历史，供下一轮引用
                 _history.addAll(newMessages);
+                // 与 chat_session_provider 对齐：每轮 streamingText 独立，不跨轮累积。
+                _aiText.clear();
                 break;
               case AgentErrorEvent(:final message):
                 _pendingAsk = null;
@@ -135,6 +145,7 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
         },
         onError: (e) {
           if (!mounted) return;
+          _handle = null;
           setState(() { _pendingAsk = null; _errorText = '$e'; _busy = false; });
         },
         onDone: () {
@@ -161,29 +172,15 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
     setState(() => _pendingAsk = null);
   }
 
-  // ---- 输入区语义：按 _pendingAsk 切换（agent 挂起提问 vs 正常对话）----
+  // 输入区语义判定委托给共享的 AskUserInputSemantics（与 ai_panel_sheet 共用），
+  // 仅保留 sheet 自身的提交行为（_onInputSubmit）。
 
-  /// 输入框可编辑：busy 禁用；pendingAsk 含选项须点上方选项（禁用自由输入）。
-  bool get _inputEnabled {
-    if (_busy) return false;
-    if (_pendingAsk != null && !_pendingAsk!.isFreeInput) return false;
-    return true;
-  }
-
-  /// 提交按钮是否可用：busy 或 pendingAsk 含选项时禁用。
-  bool get _onInputSubmitButtonEnabled {
-    if (_busy) return false;
-    if (_pendingAsk != null && !_pendingAsk!.isFreeInput) return false;
-    return true;
-  }
-
-  String get _inputButtonLabel {
-    if (_busy) return '思考中...';
-    if (_pendingAsk != null) {
-      return _pendingAsk!.isFreeInput ? '提交答案' : '请选择上方选项';
-    }
-    return '发送';
-  }
+  /// 构造当前输入区语义。plan 无首轮/追问差异，firstSent 固定 true。
+  AskUserInputSemantics get _semantics => AskUserInputSemantics(
+        busy: _busy,
+        pendingAsk: _pendingAsk,
+        firstSent: true,
+      );
 
   /// 提交：pendingAsk 自由输入模式回灌答案；否则正常发起 agent 一轮。
   void _onInputSubmit() {
@@ -226,23 +223,29 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _inputCtrl,
-              enabled: !_busy && _inputEnabled,
-              decoration: InputDecoration(
-                labelText: _pendingAsk != null
-                    ? (_pendingAsk!.isFreeInput ? '输入答案' : '请选择上方选项')
-                    : '消息',
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-              maxLines: 2,
-              onSubmitted: (_) => _onInputSubmit(),
-            ),
+            Builder(builder: (ctx) {
+              final s = _semantics;
+              return TextField(
+                controller: _inputCtrl,
+                enabled: s.inputEnabled,
+                decoration: InputDecoration(
+                  labelText: _pendingAsk != null
+                      ? (_pendingAsk!.isFreeInput ? '输入答案' : '请选择上方选项')
+                      : '消息',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 2,
+                onSubmitted: (_) => _onInputSubmit(),
+              );
+            }),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: _onInputSubmitButtonEnabled ? _onInputSubmit : null,
-              child: Text(_inputButtonLabel),
+              onPressed: _semantics.inputEnabled ? _onInputSubmit : null,
+              child: Text(_semantics.currentButtonLabel(
+                planSheetOverride: '发送',
+                busyOverride: '思考中...',
+              )),
             ),
             // ask_user 提问卡片：agent 挂起等用户作答。
             if (_pendingAsk != null) ...[

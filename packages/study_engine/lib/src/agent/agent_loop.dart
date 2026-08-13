@@ -41,7 +41,12 @@ class RetryConfig {
 /// 事件实时 yield（用纯 async*，确保流式增量立即吐出）。
 class AgentLoop {
   /// abortAskUser 完成 completer 的哨兵值，标识“用户取消/会话中断”而非真实作答。
-  static const _askAbortedMarker = ' __ASK_ABORTED__';
+  /// abortAskUser 完成 completer 的哨兵对象，标识“用户取消/会话中断”而非真实作答。
+  ///
+  /// 用唯一 `Object()` 实例而非字符串：`run` 用 `identical` 判等，真实用户答案
+  /// （[completeAskUser] 的 String）是不同类型/实例，永不会被误判为取消——无隐含
+  /// “答案不得等于某字符串”的约束。completer 类型因此升为 `Completer<Object?>`。
+  static final _askAbortedMarker = Object();
   final LlmProvider llm;
   final AgentScenario scenario;
   final ContextCompactor compactor;
@@ -55,7 +60,10 @@ class AgentLoop {
   // UI 通过 session 返回的 handle 调 [completeAskUser]/[abortAskUser] 喂答案/中止。
 
   /// 当前 ask_user 等待用户作答的句柄。拦截 ask_user 时创建，答完/中止后清空。
-  Completer<String>? askUserCompleter;
+  ///
+  /// 类型为 `Object?`：正常作答完成一个 String（用户答案），中止完成
+  /// [_askAbortedMarker]（唯一 Object 实例）。[run] 用 `identical` 区分。
+  Completer<Object?>? askUserCompleter;
 
   /// 当前正在等待用户作答的请求（供 UI 显示）。触发时设置，作答/中止后置空。
   AskUserRequest? pendingAskRequest;
@@ -84,8 +92,9 @@ class AgentLoop {
   }
 
   /// 取消挂起的等待（流被取消/出错时调用，避免 completer 泄漏）。
-  /// 用哨兵值而非 completeError：在 async* 生成器 yield 期间同步调用 completeError
-  /// 会让错误逃逸成未处理的流错误，绕开内部 catch。哨兵由 [run] 识别为“用户取消”。
+  /// 用 sentinel 对象而非 completeError：在 async* 生成器 yield 期间同步调用
+  /// completeError 会让错误逃逸成未处理的流错误，绕开内部 catch。
+  /// sentinel 是唯一 Object 实例，[run] 用 `identical` 判别。
   void abortAskUser(Object error) {
     final c = askUserCompleter;
     if (c != null && !c.isCompleted) {
@@ -180,7 +189,7 @@ class AgentLoop {
           // ask_user 特殊路径：拦下并挂起，等 UI 用户作答后把答案作为工具结果。
           if (tc.name == 'ask_user') {
             final request = _buildAskUserRequest(tc, args);
-            final completer = Completer<String>();
+            final completer = Completer<Object?>();
             askUserCompleter = completer;
             pendingAskRequest = request;
             yield AskUserRequestedEvent(request);
@@ -197,7 +206,7 @@ class AgentLoop {
               roundNewMsgs.add(toolMsg);
               continue;
             }
-            result = answer;
+            result = answer as String;
             yield AskUserAnsweredEvent(tc.id, result);
           } else {
             try {
@@ -259,9 +268,14 @@ class AgentLoop {
     final exp = attempt - 1 < 0 ? 0 : attempt - 1;
     // 防止 1 << exp 在极端配置下溢出，封顶 30 位（~1e9 ms）。
     final shift = exp > 30 ? 30 : exp;
+    // 先把 base clamp 到 24h，再加 jitter：避免 base + jitter 直接相加溢出 int64。
+    // 24h 远超任何合理重试间隔。
+    const maxMs = 24 * 60 * 60 * 1000;
     final base = retry.baseDelayMs * (1 << shift);
+    final cappedBase = base > maxMs ? maxMs : base;
     final jitter = retry.jitterMs <= 0 ? 0 : _random.nextInt(retry.jitterMs);
-    return Duration(milliseconds: base + jitter);
+    final ms = cappedBase + jitter > maxMs ? maxMs : cappedBase + jitter;
+    return Duration(milliseconds: ms);
   }
 
   /// 把 ask_user 工具参数解析为 [AskUserRequest]（无 yield，纯构造）。
