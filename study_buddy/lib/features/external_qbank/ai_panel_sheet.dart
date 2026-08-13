@@ -99,7 +99,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (topicId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ref.read(currentChatProvider.notifier).startTopicTeaching(topicId);
+          ref.read(currentChatProvider.notifier).startTeaching(topicId);
         }
       });
     }

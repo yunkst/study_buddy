@@ -11,7 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
+import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/database_provider.dart';
+import '../../core/services/logger_service.dart';
 import '../../core/theme/paper_extension.dart';
 import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/markdown_latex.dart';
@@ -49,6 +51,9 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
   /// 重建 build 不会重新发查询，页面会一直显示旧 summary）。
   late Future<_TopicDetail> _detailFuture;
 
+  /// 教学启动阶段：idle=未启动；starting=等待 AI 首个 token（按钮 loading，防重复点击）。
+  bool _teachingStarting = false;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +76,23 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
       edges: edges,
       timeline: timeline,
     );
+  }
+
+  /// 【为什么？】入口：先启动教学（恢复历史 或 等 AI 首个 token），再跳转 AI 页。
+  /// 等待期间按钮变「正在思考怎么和你解释..」；失败恢复按钮并提示，不跳转。
+  Future<void> _startTeaching() async {
+    if (_teachingStarting) return;
+    setState(() => _teachingStarting = true);
+    try {
+      await ref.read(topicTeachingProvider.notifier).startTeaching(widget.topicId);
+      if (!mounted) return;
+      await showAiPanel(context, topicId: widget.topicId);
+    } catch (e) {
+      LoggerService.instance.w('教学启动失败: $e',
+          category: LogCategory.ai, tags: const ['teaching-start']);
+    } finally {
+      if (mounted) setState(() => _teachingStarting = false);
+    }
   }
 
   /// 编辑答案：简单 AlertDialog + TextFormField（预填 summary）→ updateSummary →
@@ -167,11 +189,17 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
                 const SizedBox(height: 16),
                 FilledButton.tonalIcon(
                   key: const ValueKey('why-button'),
-                  onPressed: () => showAiPanel(context, topicId: widget.topicId),
-                  icon: const Icon(Icons.emoji_objects_outlined),
-                  label: const Text(
-                    '为什么？',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  onPressed: _teachingStarting ? null : _startTeaching,
+                  icon: _teachingStarting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.emoji_objects_outlined),
+                  label: Text(
+                    _teachingStarting ? '正在思考怎么和你解释..' : '为什么？',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700),
                   ),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
