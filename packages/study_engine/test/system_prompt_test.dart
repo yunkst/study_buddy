@@ -32,6 +32,14 @@ void main() {
     expect(prompt, contains('mastered'));
   });
 
+  test('提示词含启发式原则段（不直接给答案，引导自查）', () async {
+    final prompt = await _prompt();
+    expect(prompt, contains('启发式原则'));
+    expect(prompt, contains('不直接给最终答案'));
+    expect(prompt, contains('不直接说出哪里错了'));
+    expect(prompt, contains('引导'));
+  });
+
   test('提示词含计划流程段（create_plan/拆节点/每日任务）', () async {
     final prompt = await _prompt();
     expect(prompt, contains('计划：创建计划'));
