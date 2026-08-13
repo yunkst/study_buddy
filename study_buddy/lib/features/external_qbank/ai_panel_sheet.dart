@@ -967,7 +967,6 @@ class _EmptyState extends StatelessWidget {
             '问 AI',
             textAlign: TextAlign.center,
             style: theme.textTheme.headlineSmall?.copyWith(
-              fontFamily: 'NotoSerifSC',
               fontWeight: FontWeight.w700,
               color: cs.onSurface,
             ),
@@ -984,9 +983,9 @@ class _EmptyState extends StatelessWidget {
           FilledButton.tonalIcon(
             onPressed: onCamera,
             icon: const Icon(Icons.photo_camera_outlined),
-            label: const Text(
+            label: Text(
               '拍照',
-              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
@@ -996,9 +995,9 @@ class _EmptyState extends StatelessWidget {
           FilledButton.tonalIcon(
             onPressed: onGallery,
             icon: const Icon(Icons.photo_library_outlined),
-            label: const Text(
+            label: Text(
               '从相册选择',
-              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
@@ -1008,9 +1007,9 @@ class _EmptyState extends StatelessWidget {
           FilledButton.tonalIcon(
             onPressed: onInput,
             icon: const Icon(Icons.edit_note),
-            label: const Text(
+            label: Text(
               '直接输入文字',
-              style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
@@ -1128,14 +1127,15 @@ class _ReviewItemTile extends StatelessWidget {
   final ReviewItem item;
 
   /// 徽标:correct→墨绿✓、partial→朱砂◐、wrong→朱砂✗。
-  ({String label, Color color}) _badge() {
+  /// 状态语义色走主题 token(tertiary=成功/墨绿、error=危险/朱砂)。
+  ({String label, Color color, Color onColor}) _badge(ColorScheme cs) {
     switch (item.verdict) {
       case 'correct':
-        return (label: '✓', color: const Color(0xFF2E7D32));
+        return (label: '✓', color: cs.tertiary, onColor: cs.onTertiary);
       case 'partial':
-        return (label: '◐', color: const Color(0xFFC62828));
+        return (label: '◐', color: cs.error, onColor: cs.onError);
       default:
-        return (label: '✗', color: const Color(0xFFC62828));
+        return (label: '✗', color: cs.error, onColor: cs.onError);
     }
   }
 
@@ -1143,7 +1143,7 @@ class _ReviewItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final paper = Theme.of(context).extension<PaperColors>();
     final cs = Theme.of(context).colorScheme;
-    final badge = _badge();
+    final badge = _badge(cs);
     final topicText = item.topicIds.isEmpty
         ? null
         : '涉及知识点: ${item.topicIds.join(', ')}';
@@ -1170,7 +1170,7 @@ class _ReviewItemTile extends StatelessWidget {
                   child: Text(
                     badge.label,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: badge.onColor,
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),

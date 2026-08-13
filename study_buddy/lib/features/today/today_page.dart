@@ -125,8 +125,7 @@ class _SectionLabel extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontFamily: 'NotoSerifSC',
+        style: theme.textTheme.headlineSmall?.copyWith(
           fontWeight: FontWeight.w700,
           letterSpacing: 2,
         ),
@@ -262,8 +261,8 @@ class _NavRow extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontFamily: 'NotoSerifSC',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontSize: 14,
                       fontWeight: FontWeight.w700,
                     ),
                   ),

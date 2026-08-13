@@ -179,8 +179,8 @@ class _AppLogViewerPageState extends State<AppLogViewerPage> {
                                   overflow: expanded
                                       ? TextOverflow.visible
                                       : TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall
-                                      ?.copyWith(fontFamily: 'NotoSerifSC')),
+                                  style: theme.textTheme.headlineSmall
+                                      ?.copyWith(fontSize: 12)),
                               if (expanded && log.stackTrace != null) ...[
                                 const SizedBox(height: 6),
                                 Container(

@@ -37,6 +37,7 @@ class _ShareSheetBodyState extends ConsumerState<_ShareSheetBody> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final dataAsync = ref.watch(shareCardDataProvider);
     // AI 总结按需：仅当数据就绪且用户点了分享才触发，触发生成。
     final data = dataAsync.value;
@@ -48,19 +49,19 @@ class _ShareSheetBodyState extends ConsumerState<_ShareSheetBody> {
       child: SafeArea(
         child: Container(
           constraints: const BoxConstraints(maxHeight: 520),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF5F0E6), // 纸面底
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          decoration: BoxDecoration(
+            color: cs.surface, // 纸面底
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 8),
               // 顶部把手
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Color(0xFFD9CFB8), borderRadius: BorderRadius.circular(2))),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 16),
-              const Text('分享今日学习',
-                  style: TextStyle(fontFamily: 'NotoSerifSC', fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF2C2620))),
+              Text('分享今日学习',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 17, color: cs.onSurface)),
               const SizedBox(height: 12),
               Expanded(
                 child: dataAsync.when(
@@ -86,13 +87,13 @@ class _ShareSheetBodyState extends ConsumerState<_ShareSheetBody> {
                   child: FilledButton(
                     onPressed: _sharing ? null : () => _doShare(context, data),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFB8472D),
+                      backgroundColor: cs.primary,
                       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                     ),
                     child: _sharing
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('保存到相册并分享小红书',
-                            style: TextStyle(fontSize: 15, fontFamily: 'NotoSansSC')),
+                        ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
+                        : Text('保存到相册并分享小红书',
+                            style: Theme.of(context).textTheme.titleSmall),
                   ),
                 ),
               ),
