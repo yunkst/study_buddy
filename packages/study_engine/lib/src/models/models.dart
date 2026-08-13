@@ -315,9 +315,15 @@ class ChatMessage {
   /// [forApi] 为 true 时表示发给 LLM：content 字段优先取 [apiContent]（无则回退 content）。
   /// 默认（forApi=false，即存储/日志路径）始终用 [content]，不写 apiContent——
   /// 保证落库与 UI 显示的永远是干净原文，注入内容只出现在发给模型的那一份。
+  ///
+  /// 空内容归一化：当 [forApi] 为 true 且 content 解析后为空字符串时，输出 `null`。
+  /// 这是为了兼容 k3 等非标准端点——它们拒绝带 `content:""` 的 assistant 消息
+  /// （常见于「只调用工具、没有文本」的轮次），返回 400 `text content is empty`。
+  /// 协议本身允许 `content:null`，故这是更安全的发送形态。存储/UI 路径（forApi=false）
+  /// 不受影响，仍如实保留空串。详见 test/models_test.dart 的「空内容 forApi」用例。
   Map<String, Object?> toJson({bool forApi = false}) {
     final api = forApi ? apiContent : null;
-    Object jsonContent;
+    Object? jsonContent;
     if (api != null) {
       jsonContent = api;
     } else if (content is String) {
@@ -326,6 +332,7 @@ class ChatMessage {
       final parts = content as List<ContentPart>;
       jsonContent = parts.map(_partToJson).toList();
     }
+    if (forApi && jsonContent == '') jsonContent = null;
     final m = <String, Object?>{'role': role, 'content': jsonContent};
     if (toolCalls != null) {
       m['tool_calls'] = toolCalls!.map((t) => t.toJson()).toList();
