@@ -43,6 +43,7 @@ class PreviewChannelNotifier extends AsyncNotifier<bool> {
 }
 
 /// 当前安装版本（从 PackageInfo 读取；测试/异常环境兜底「未知」）。
+/// 供设置页「版本更新/关于」显示，避免版本号在 pubspec 与硬编码两处漂移。
 final currentVersionProvider = FutureProvider<String>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();

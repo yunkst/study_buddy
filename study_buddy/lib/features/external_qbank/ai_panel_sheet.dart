@@ -63,6 +63,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   @override
   void initState() {
     super.initState();
+    // 冷启动恢复最近会话（重启续聊）：幂等，无历史时静默降级为全新对话。
+    ref.read(currentChatProvider.notifier).hydrate();
     // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
     _pendingImage = widget.initialScreenshot;
     // 输入文本变化时重算发送按钮可用态（canSend 依赖 _inputCtrl.text）。

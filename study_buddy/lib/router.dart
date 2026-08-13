@@ -17,6 +17,7 @@ import 'features/logs/llm_log_viewer_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/plan/plan_detail_page.dart';
 import 'features/review/review_session_page.dart';
+import 'features/settings/prompt_editor_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/today/today_page.dart';
 
@@ -75,6 +76,12 @@ GoRouter buildRouter({bool showOnboarding = false}) {
               GoRoute(
                 path: '/settings',
                 builder: (_, __) => const SettingsPage(),
+                routes: [
+                  GoRoute(
+                    path: 'prompt',
+                    builder: (_, __) => const PromptEditorPage(),
+                  ),
+                ],
               ),
             ],
           ),

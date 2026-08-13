@@ -9,6 +9,7 @@ import 'agent_event.dart';
 import 'agent_scenario.dart';
 import 'ask_user.dart';
 import 'context_compactor.dart';
+import 'tool_output_truncator.dart';
 
 /// LLM 远程调用失败的重试策略。
 ///
@@ -54,6 +55,7 @@ class AgentLoop {
   final LoggerSink logger;
   final RetryConfig retry;
   final Random _random;
+  final String? toolTmpDir; // 非空时超长工具输出落此目录；null=不截断（测试默认）
 
   // ---- ask_user 挂起句柄 ----
   // AgentLoop 每次 run() 由 session 重新构造，completer 挂在这里避免跨轮串话。
@@ -76,6 +78,7 @@ class AgentLoop {
     this.maxRounds = 50,
     RetryConfig? retry,
     Random? random,
+    this.toolTmpDir,
   })  : logger = logger ?? const NullLoggerSink(),
         compactor = compactor ?? const ContextCompactor(),
         retry = retry ?? const RetryConfig(),
@@ -114,14 +117,24 @@ class AgentLoop {
     logger.log(LoggerLevel.info, 'Agent 开始',
         category: 'ai', traceId: traceId, tags: const ['agent-start']);
     final msgs = [...messages];
+    // 先填充经验记忆缓存（无论调用方是否已传 system 都调）：
+    // 阶段 1 起记忆不再进 system prompt，而是经 composeApiMessages 注入
+    // 当前轮用户消息——因此 getMemories 必须在每次 run 早期执行。
+    await scenario.getMemories();
     // 注入场景 system prompt（含 context 动态信息）。调用方已传 system 则跳过。
     if (msgs.isEmpty || msgs.first.role != 'system') {
-      await scenario.getMemories(); // 填充经验记忆缓存，供 buildSystemPrompt 使用
       final sysPrompt = scenario.buildSystemPrompt(
         context ?? const AgentScenarioContext(),
       );
       msgs.insert(0, ChatMessage(role: 'system', content: sysPrompt));
     }
+    // 交给场景构造「发给 LLM 的消息」（记忆等注入到当前用户消息的 apiContent）。
+    // 返回新列表；默认实现原样返回。
+    final composed = scenario.composeApiMessages(msgs, context ?? const AgentScenarioContext());
+    final finalMsgs = List<ChatMessage>.unmodifiable(composed);
+    msgs
+      ..clear()
+      ..addAll(finalMsgs);
     var round = 0;
     try {
       while (round < maxRounds) {
@@ -210,7 +223,10 @@ class AgentLoop {
             yield AskUserAnsweredEvent(tc.id, result);
           } else {
             try {
-              result = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
+              final raw = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
+              // 超长工具输出落临时文件（opencode 风格），给 LLM 保留可追溯指针；
+              // toolTmpDir 为 null（测试默认）时不截断。
+              result = truncateToolOutput(raw, tmpDir: toolTmpDir);
             } catch (e, st) {
               // 工具执行失败：结果回填给 LLM 继续对话，同时记 error 级日志供排障。
               logger.log(LoggerLevel.error, '工具执行失败: ${tc.name} — $e',
@@ -230,7 +246,7 @@ class AgentLoop {
         yield AgentRoundEndEvent(roundNewMsgs);
 
         if (compactor.needsCompaction(msgs)) {
-          final compacted = compactor.compact(msgs);
+          final compacted = await compactor.compactAsync(msgs);
           msgs
             ..clear()
             ..addAll(compacted);

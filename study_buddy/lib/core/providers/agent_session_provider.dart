@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../services/llm_logger/llm_logger.dart';
 import '../services/logger_service.dart';
+import '../services/prompt_resolver_db.dart';
 import 'database_provider.dart';
 import 'focus_session_provider.dart';
 
@@ -72,6 +76,9 @@ class AgentSession {
       llmSink: LlmLogger.instance,
       logger: LoggerService.instance,
     );
+    // system prompt 覆盖预取：DbPromptResolver 需要同步查表，故在 async run 里
+    // 先读 `prompt_override` 表到内存 Map（无覆盖则走引擎默认模板）。
+    final overrides = await _loadPromptOverrides(db);
     final scenario = StudyPlanScenario(
       categories: categories,
       topics: topics,
@@ -82,6 +89,7 @@ class AgentSession {
       schedules: TopicScheduleRepository(db),
       plans: plans,
       dayTasks: dayTasks,
+      promptResolver: DbPromptResolver((sid) => overrides[sid]),
       onTopicTouched: (topicId) async {
         // 仅专注会话进行中才关联；非专注期 no-op
         final sessionId = _ref.read(focusSessionProvider).sessionId;
@@ -90,7 +98,17 @@ class AgentSession {
         await focusRepo.linkTopic(sessionId, topicId);
       },
     );
-    final loop = AgentLoop(llm: llm, scenario: scenario, logger: LoggerService.instance);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: scenario,
+      logger: LoggerService.instance,
+      // 上下文压缩：丢弃中间轮次前用 LLM 摘要回填（代替纯硬截断），避免长对话失忆。
+      compactor: ContextCompactor(
+        summarize: (dropped) => _summarizeDropped(llm, dropped),
+      ),
+      // 超长工具输出落临时文件（opencode 风格），保留可追溯指针。
+      toolTmpDir: (await _resolveTmpDir())?.path,
+    );
     LoggerService.instance.i('Agent 会话开始', category: LogCategory.ai, tags: const ['session-start'], traceId: traceId);
     return AgentSessionHandle(
       stream: loop.run(
@@ -105,6 +123,67 @@ class AgentSession {
       completeAskUser: loop.completeAskUser,
       abortAskUser: loop.abortAskUser,
     );
+  }
+
+  /// 预取所有场景的 system prompt 覆盖（scenario_id → content）。
+  /// 无覆盖的返回空 Map（走引擎默认模板）。设置页编辑后下次 run() 自动生效。
+  Future<Map<String, String>> _loadPromptOverrides(StudyDatabase db) async {
+    final repo = PromptOverrideRepository(db);
+    final result = <String, String>{};
+    for (final sid in const ['study_plan']) {
+      final content = await repo.get(sid);
+      if (content != null) result[sid] = content;
+    }
+    return result;
+  }
+
+  static Directory? _tmpDirCache;
+
+  /// 系统临时目录（超长工具输出落盘用）。获取失败返回 null（不截断）。
+  Future<Directory?> _resolveTmpDir() async {
+    final cached = _tmpDirCache;
+    if (cached != null) return cached;
+    try {
+      _tmpDirCache = await getTemporaryDirectory();
+    } catch (_) {
+      _tmpDirCache = null;
+    }
+    return _tmpDirCache;
+  }
+
+  /// 把被压缩丢弃的中间轮次摘要成一条 system 消息（LLM 调用）。
+  /// 抛错由 [ContextCompactor.compactAsync] 捕获并 fallback 硬截断。
+  Future<ChatMessage> _summarizeDropped(LlmProvider llm, List<ChatMessage> dropped) async {
+    final text = await completeText(
+      llm,
+      system: '你是对话压缩助手。把用户与学习伴侣 AI 的较早对话压缩成中文摘要，'
+          '保留关键结论与数据：创建/更新的知识点 id 与标题、计划/节点/任务的 id、'
+          '掌握度判定、批改结果。不要编造，输出 3-5 句。',
+      user: '以下是较早轮次（将被压缩掉）:\n\n${_renderDropped(dropped)}',
+    );
+    return ChatMessage(role: 'system', content: '【对话历史摘要】$text');
+  }
+
+  /// 消息列表 → 压缩输入文本（content 兼容 String 与 vision parts）。
+  String _renderDropped(List<ChatMessage> msgs) {
+    final buf = StringBuffer();
+    for (final m in msgs) {
+      final content = switch (m.content) {
+        String s => s,
+        List<ContentPart> parts =>
+          parts.whereType<TextPart>().map((p) => p.text).join('\n'),
+        _ => '',
+      };
+      if (m.toolCalls != null) {
+        final calls = m.toolCalls!.map((t) => '${t.name}(${t.arguments})').join('; ');
+        buf.writeln('[assistant tool_calls] $calls');
+      } else if (m.toolCallId != null) {
+        buf.writeln('[tool result ${m.toolCallId}] $content');
+      } else {
+        buf.writeln('[${m.role}] $content');
+      }
+    }
+    return buf.toString();
   }
 }
 

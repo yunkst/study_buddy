@@ -44,6 +44,7 @@ class SettingsPage extends ConsumerWidget {
             const _SectionLabel(text: '系统'),
             const SizedBox(height: 8),
             const _LlmConfigRow(),
+            const _PromptRow(),
             const _VersionRow(),
             const _PreviewChannelRow(),
             const _AboutRow(),
@@ -175,6 +176,21 @@ class _LlmConfigRow extends ConsumerWidget {
       label: 'LLM 配置',
       value: configured ? '已配置' : '未配置',
       onTap: () => showLlmConfigSheet(context, ref),
+    );
+  }
+}
+
+/// 提示词入口行：点按进入「提示词设置」页（编辑 system prompt 运行时覆盖）。
+class _PromptRow extends ConsumerWidget {
+  const _PromptRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _NavRow(
+      icon: Icons.edit_note_outlined,
+      label: '提示词设置',
+      value: 'AI 行为规则',
+      onTap: () => context.go('/settings/prompt'),
     );
   }
 }
@@ -403,7 +419,9 @@ class _VersionRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final version = ref.watch(currentVersionProvider).value ?? '';
+    // 版本号运行时读取（package_info_plus），避免与 pubspec 硬编码漂移；
+    // FutureProvider 首帧未就绪时显示占位，就绪后自动刷新。
+    final version = ref.watch(currentVersionProvider).value ?? '…';
     return _NavRow(
       icon: Icons.system_update_alt_outlined,
       label: '版本更新',
@@ -453,7 +471,7 @@ class _AboutRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final version = ref.watch(currentVersionProvider).value ?? '';
+    final version = ref.watch(currentVersionProvider).value ?? '…';
     return _NavRow(
       icon: Icons.info_outline,
       label: '关于',
