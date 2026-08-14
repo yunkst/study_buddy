@@ -33,6 +33,9 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 提示词设置 / 预览版下载 / 应用日志 / LLM 调用日志 仅在开发者模式开启时展示。
+    // 关闭时连「诊断」分组小标题一并隐藏（该分组下仅此两项）。
+    final devMode = ref.watch(devModeProvider).value ?? false;
     return PaperScaffold(
       appBar: AppBar(title: const Text('设置')),
       body: SafeArea(
@@ -46,24 +49,26 @@ class SettingsPage extends ConsumerWidget {
             const _SectionLabel(text: '系统'),
             const SizedBox(height: 8),
             const _LlmConfigRow(),
-            const _PromptRow(),
+            if (devMode) const _PromptRow(),
             const _DailyReviewLimitRow(),
             const _VersionRow(),
-            const _PreviewChannelRow(),
+            if (devMode) const _PreviewChannelRow(),
             const _AboutRow(),
-            const SizedBox(height: 32),
-            const _SectionLabel(text: '诊断'),
-            const SizedBox(height: 8),
-            _NavRow(
-              icon: Icons.article_outlined,
-              label: '应用日志',
-              onTap: () => context.push('/logs/app'),
-            ),
-            _NavRow(
-              icon: Icons.smart_toy_outlined,
-              label: 'LLM 调用日志',
-              onTap: () => context.push('/logs/llm'),
-            ),
+            if (devMode) ...[
+              const SizedBox(height: 32),
+              const _SectionLabel(text: '诊断'),
+              const SizedBox(height: 8),
+              _NavRow(
+                icon: Icons.article_outlined,
+                label: '应用日志',
+                onTap: () => context.push('/logs/app'),
+              ),
+              _NavRow(
+                icon: Icons.smart_toy_outlined,
+                label: 'LLM 调用日志',
+                onTap: () => context.push('/logs/llm'),
+              ),
+            ],
             const SizedBox(height: 32),
             const _SectionLabel(text: '开发者'),
             const SizedBox(height: 8),

@@ -46,7 +46,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('设置页渲染外观/系统/诊断三个分组', (tester) async {
+  testWidgets('设置页渲染外观/系统两个分组(默认态)', (tester) async {
     await pumpSettings(tester);
     // 外观是首屏第一分组，直接可见。
     expect(find.text('外观'), findsOneWidget);
@@ -59,14 +59,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('系统'), findsOneWidget);
-    // 诊断在系统之下，继续滚动到可见后断言。
-    await tester.scrollUntilVisible(
-      find.text('诊断'),
-      200,
-      scrollable: find.byType(Scrollable),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('诊断'), findsOneWidget);
+    // 诊断分组仅在开发者模式开启时渲染，默认态不出现（由 devMode 开启用例覆盖）。
+    expect(find.text('诊断'), findsNothing);
   });
 
   testWidgets('设置页渲染系统分组三个入口(LLM配置/版本更新/关于)', (tester) async {
@@ -84,7 +78,17 @@ void main() {
     }
   });
 
-  testWidgets('设置页渲染诊断分组两个入口', (tester) async {
+  testWidgets('开发者模式关闭时,诊断分组与日志入口不渲染', (tester) async {
+    // 初始 devMode 关闭（setMockInitialValues 默认空），诊断分组整体隐藏。
+    await pumpSettings(tester);
+    expect(find.text('诊断'), findsNothing);
+    expect(find.text('应用日志'), findsNothing);
+    expect(find.text('LLM 调用日志'), findsNothing);
+  });
+
+  testWidgets('开启开发者模式后,诊断分组与两个日志入口出现', (tester) async {
+    // 通过 SharedPreferences 注入初始值，使 devModeProvider 首帧即为 true。
+    SharedPreferences.setMockInitialValues({'dev_mode_enabled': true});
     await pumpSettings(tester);
     await tester.scrollUntilVisible(
       find.text('LLM 调用日志'),
@@ -92,8 +96,30 @@ void main() {
       scrollable: find.byType(Scrollable),
     );
     await tester.pumpAndSettle();
+    expect(find.text('诊断'), findsOneWidget);
     expect(find.text('应用日志'), findsOneWidget);
     expect(find.text('LLM 调用日志'), findsOneWidget);
+  });
+
+  testWidgets('开发者模式关闭时,提示词设置与预览版下载不展示', (tester) async {
+    await pumpSettings(tester);
+    // 系统分组默认可见的行：LLM 配置、每日复习上限、版本更新、关于。
+    // 提示词设置、预览版下载受 dev mode 控制，默认不展示。
+    expect(find.text('提示词设置'), findsNothing);
+    expect(find.text('预览版下载'), findsNothing);
+  });
+
+  testWidgets('开启开发者模式后,提示词设置与预览版下载出现', (tester) async {
+    SharedPreferences.setMockInitialValues({'dev_mode_enabled': true});
+    await pumpSettings(tester);
+    await tester.scrollUntilVisible(
+      find.text('预览版下载'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('提示词设置'), findsOneWidget);
+    expect(find.text('预览版下载'), findsOneWidget);
   });
 
   testWidgets('点击 LLM 配置弹出底部表单四字段与保存按钮', (tester) async {
@@ -111,7 +137,21 @@ void main() {
     expect(find.text('保存'), findsOneWidget);
   });
 
+  /// 以 devMode 开启的初始值 pump 设置页（预览版下载等受控行依赖开发者模式）。
+  /// 传入额外偏好（如 app_update_preview_channel）时合并进去。
+  Future<void> pumpSettingsWithDevMode(
+    WidgetTester tester, {
+    Map<String, Object> extraPrefs = const {},
+  }) async {
+    SharedPreferences.setMockInitialValues({
+      'dev_mode_enabled': true,
+      ...extraPrefs,
+    });
+    await pumpSettings(tester);
+  }
+
   /// 滚动系统分组到「预览版下载」开关可见（ListView 懒构建）。
+  /// 前置条件：开发者模式已开启（预览版下载行受其控制）。
   Future<void> scrollToPreviewSwitch(WidgetTester tester) async {
     await tester.scrollUntilVisible(
       find.text('预览版下载'),
@@ -130,7 +170,7 @@ void main() {
       );
 
   testWidgets('设置页渲染预览版下载开关行', (tester) async {
-    await pumpSettings(tester);
+    await pumpSettingsWithDevMode(tester);
     await scrollToPreviewSwitch(tester);
     expect(find.text('预览版下载'), findsOneWidget);
     // 初始关闭。
@@ -138,7 +178,7 @@ void main() {
   });
 
   testWidgets('打开预览版开关先弹非常不稳定提醒,确认后开启', (tester) async {
-    await pumpSettings(tester);
+    await pumpSettingsWithDevMode(tester);
     await scrollToPreviewSwitch(tester);
 
     await tester.tap(previewOrDevSwitch('预览版下载'));
@@ -156,7 +196,7 @@ void main() {
   });
 
   testWidgets('打开预览版开关取消则保持关闭', (tester) async {
-    await pumpSettings(tester);
+    await pumpSettingsWithDevMode(tester);
     await scrollToPreviewSwitch(tester);
 
     await tester.tap(previewOrDevSwitch('预览版下载'));
@@ -169,8 +209,10 @@ void main() {
   });
 
   testWidgets('已开启预览版时点开关直接关闭,无提醒', (tester) async {
-    SharedPreferences.setMockInitialValues({'app_update_preview_channel': true});
-    await pumpSettings(tester);
+    await pumpSettingsWithDevMode(
+      tester,
+      extraPrefs: {'app_update_preview_channel': true},
+    );
     await scrollToPreviewSwitch(tester);
     expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isTrue);
 
@@ -205,7 +247,11 @@ void main() {
 
     await tester.tap(previewOrDevSwitch('开发者模式'));
     await tester.pumpAndSettle();
-    // 开发者模式不同于预览版下载，不需要确认弹窗，直接开启。
+    // 开发者模式不同于预览版下载，不需要确认弹窗。
+    expect(find.text('开启预览版下载'), findsNothing);
+    // 开启后列表插入诊断分组，「开发者」行被推离视口并懒回收，
+    // 需重新滚动到可见再读 Switch 值。
+    await scrollToDevSwitch(tester);
     expect(tester.widget<Switch>(previewOrDevSwitch('开发者模式')).value, isTrue);
   });
 }
