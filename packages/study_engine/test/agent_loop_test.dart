@@ -330,6 +330,99 @@ void main() {
     expect(toolMsg.content, isA<String>());
     expect((toolMsg.content as String).toLowerCase(), anyOf(contains('illegal'), contains('args'), contains('json')));
   });
+
+  test('P0: 聚合结果中含空 id ToolCall 时,assistant 与 tool 消息 id 成对且非空', () async {
+    // LLM 返回 2 个 tool_call:一个空 id 一个正常 id。P0 归一化后:
+    // assistant 的 tool_calls[].id 全部非空且互不相同,每条都有对应 tool 消息。
+    final llm = _FakeLlm([
+      const [
+        LlmStreamChunk(
+          textDelta: '',
+          toolCalls: [
+            ToolCall(id: '', name: 'link_topics', arguments: '{"from":8,"to":9,"type":"related"}'),
+            ToolCall(id: 'tool_a', name: 'query_topics', arguments: '{}'),
+          ],
+        ),
+      ],
+      const [LlmStreamChunk(textDelta: 'done')],
+    ]);
+    final scenario = _FakeScenario();
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+
+    final roundEnds = events.whereType<AgentRoundEndEvent>().toList();
+    expect(roundEnds, hasLength(1));
+    final newMsgs = roundEnds.single.newMessages;
+
+    // assistant 消息
+    final assistant = newMsgs.firstWhere((m) => m.role == 'assistant');
+    final assistantIds = assistant.toolCalls!.map((t) => t.id).toList();
+    expect(assistantIds.every((id) => id.isNotEmpty), isTrue,
+        reason: 'assistant.tool_calls[].id 必须全部非空(空 id 应被归一化为占位)');
+    expect(assistantIds.toSet(), hasLength(2), reason: '两个调用 id 互不相同');
+
+    // tool 消息
+    final toolMsgs = newMsgs.where((m) => m.role == 'tool').toList();
+    expect(toolMsgs, hasLength(2), reason: '2 个工具调用 → 2 条 tool 消息(含参数非法回灌)');
+    final toolIds = toolMsgs.map((m) => m.toolCallId).toList();
+    expect(toolIds.every((id) => id != null && id.isNotEmpty), isTrue,
+        reason: 'tool 消息 tool_call_id 必须全部非空');
+    // 成对性:assistant 的每个 id 都有一条对应 tool 消息
+    for (final id in assistantIds) {
+      expect(toolIds.contains(id), isTrue,
+          reason: 'assistant id $id 必须有对应 tool 消息');
+    }
+    // 空 id 的那个调用被分配了 call_recovered_N 占位
+    expect(assistantIds, contains(startsWith('call_recovered_')));
+  });
+
+  test('重试分类: LLM 返回 400 语义错误时不重试,立即 AgentErrorEvent', () async {
+    final llm = _AlwaysHttpErrorLlm(statusCode: 400);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), isEmpty,
+        reason: '400 语义错误不应触发任何重试(重试同样是坏请求)');
+    expect(events.last, isA<AgentErrorEvent>());
+  });
+
+  test('重试分类: 422 语义错误同样不重试', () async {
+    final llm = _AlwaysHttpErrorLlm(statusCode: 422);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), isEmpty);
+    expect(events.last, isA<AgentErrorEvent>());
+  });
+
+  test('重试分类: 5xx 网络错误仍重试(回归,不破坏瞬态重试)', () async {
+    final llm = _FailingThenOkLlm(
+      failTimes: 1,
+      okChunks: const [LlmStreamChunk(textDelta: 'ok')],
+      errors: [LlmHttpException(500, 'server')],
+    );
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), hasLength(1));
+    expect(events.last, isA<AgentDoneEvent>());
+  });
 }
 
 /// 记录是否被调用的 scenario。
@@ -479,4 +572,20 @@ class _FixedRandom implements Random {
   double nextDouble() => 0.0;
   @override
   int nextInt(int max) => 0;
+}
+
+/// 每次调用都抛 LlmHttpException(statusCode)：模拟网关 4xx 语义错误。
+class _AlwaysHttpErrorLlm extends LlmProvider {
+  _AlwaysHttpErrorLlm({required this.statusCode}) : super(config: LlmConfig(
+            name: '', apiUrl: '', apiKey: '', model: '', createdAt: DateTime(2026)));
+  final int statusCode;
+
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+    String? traceId,
+  }) async* {
+    throw LlmHttpException(statusCode, '{"error":{"message":"tool_call_id  is not found"}}');
+  }
 }

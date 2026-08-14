@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:test/test.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -215,5 +217,75 @@ void main() {
   test('SaveTopicResult.toJson shape', () {
     final r = SaveTopicResult(id: 9, isNew: true, message: '已保存');
     expect(r.toJson(), {'id': 9, 'is_new': true, 'msg': '已保存'});
+  });
+
+  test('fromDbSanitized: 历史 toolCallId=null 的 tool 消息分配占位 id', () {
+    final row = {
+      'id': 1,
+      'chat_id': 1,
+      'role': 'tool',
+      'content': '"ok"',
+      'tool_calls': null,
+      'tool_call_id': null,
+      'api_content': null,
+      'created_at': 0,
+    };
+    var n = 0;
+    String gen() => 'call_recovered_${n++}';
+    final m = ChatMessage.fromDbSanitized(row, idGenerator: gen);
+    expect(m.toolCallId, 'call_recovered_0',
+        reason: 'tool 消息 tool_call_id 缺失时应补占位(否则网关判 not found)');
+  });
+
+  test('fromDbSanitized: user 消息 toolCallId=null 保持 null(不补占位)', () {
+    final row = {
+      'id': 1,
+      'chat_id': 1,
+      'role': 'user',
+      'content': '"hi"',
+      'tool_calls': null,
+      'tool_call_id': null,
+      'api_content': null,
+      'created_at': 0,
+    };
+    final m = ChatMessage.fromDbSanitized(row, idGenerator: () => 'call_recovered_0');
+    expect(m.toolCallId, isNull);
+  });
+
+  test('fromDbSanitized: 非空 toolCallId 保持不变', () {
+    final row = {
+      'id': 1,
+      'chat_id': 1,
+      'role': 'tool',
+      'content': '"ok"',
+      'tool_calls': null,
+      'tool_call_id': 'call_abc',
+      'api_content': null,
+      'created_at': 0,
+    };
+    final m = ChatMessage.fromDbSanitized(row, idGenerator: () => 'call_recovered_0');
+    expect(m.toolCallId, 'call_abc');
+  });
+
+  test('fromDbSanitized: assistant tool_calls 中 空id/非法args 项被剥离', () {
+    final row = {
+      'id': 1,
+      'chat_id': 1,
+      'role': 'assistant',
+      'content': '""', // 合法 JSON 空串
+      'tool_calls': jsonEncode([
+        {'id': 'c1', 'type': 'function', 'function': {'name': 'foo', 'arguments': '{}'}},
+        {'id': '', 'type': 'function', 'function': {'name': 'foo', 'arguments': '{}'}},
+        {'id': 'c2', 'type': 'function', 'function': {'name': 'foo', 'arguments': 'bad'}},
+      ]),
+      'tool_call_id': null,
+      'api_content': null,
+      'created_at': 0,
+    };
+    var n = 0;
+    String gen() => 'x${n++}';
+    final m = ChatMessage.fromDbSanitized(row, idGenerator: gen);
+    expect(m.toolCalls, hasLength(1));
+    expect(m.toolCalls!.single.id, 'c1');
   });
 }

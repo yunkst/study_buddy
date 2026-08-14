@@ -381,6 +381,65 @@ class ChatMessage {
     );
   }
 
+  /// 从 chat_message 行反序列化并**净化**坏字段（续聊加载专用）。
+  ///
+  /// 与 [fromDb] 区别：
+  /// 1) tool_calls 中 id 为空、name 为空、arguments 非法的项被剥离
+  ///    （防历史脏数据把坏 ToolCall 复活回 LLM）；
+  /// 2) tool 消息的 tool_call_id 为 null/空时，由 [idGenerator] 分配
+  ///    session-stable 占位 id（如 call_recovered_N），保证发出时不缺字段。
+  ///
+  /// 修复前落库的旧数据，此刻加载时自动修复；新数据 agent_loop 的
+  /// normalizeToolCallIds 已保证干净，本方法作为最后一道防线幂等。
+  factory ChatMessage.fromDbSanitized(
+    Map<String, Object?> row, {
+    required String Function() idGenerator,
+  }) {
+    final contentRaw = row['content'] as String;
+    final content = _contentFromJson(jsonDecode(contentRaw));
+
+    final toolCallsRaw = row['tool_calls'] as String?;
+    List<ToolCall>? toolCalls;
+    if (toolCallsRaw != null) {
+      final decoded = jsonDecode(toolCallsRaw) as List;
+      final clean = decoded
+          .map((e) => _toolCallFromJson(e as Map<String, Object?>))
+          .where((t) =>
+              t.id.isNotEmpty &&
+              t.name.isNotEmpty &&
+              _isValidJsonArgs(t.arguments))
+          .toList();
+      if (clean.isNotEmpty) toolCalls = clean;
+    }
+
+    final rawTcid = row['tool_call_id'] as String?;
+    // 仅 tool 消息的 tool_call_id 需要占位(缺失时网关判 not found);
+    // user/assistant 消息保持 null 原样,不污染。
+    final isTool = row['role'] == 'tool';
+    final toolCallId = (isTool && (rawTcid == null || rawTcid.isEmpty))
+        ? idGenerator()
+        : rawTcid;
+
+    return ChatMessage(
+      role: row['role'] as String,
+      content: content,
+      toolCalls: toolCalls,
+      toolCallId: toolCallId,
+    );
+  }
+
+  /// arguments 是否为可解析的 JSON 对象（净化用）。
+  static bool _isValidJsonArgs(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      final d = jsonDecode(trimmed);
+      return d is Map;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// content 的 JSON 值 → 引擎对象（String 或 ContentPart 列表）。
   static Object _contentFromJson(Object? raw) {
     if (raw is String) return raw;
@@ -432,6 +491,12 @@ class ToolCall {
   final String name;
   final String arguments; // 原始 JSON 字符串
   const ToolCall({required this.id, required this.name, required this.arguments});
+
+  ToolCall copyWith({String? id, String? name, String? arguments}) => ToolCall(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        arguments: arguments ?? this.arguments,
+      );
 
   Map<String, Object?> toJson() => {
         'id': id,

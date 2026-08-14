@@ -35,11 +35,16 @@ class ChatRepository {
 
   /// 批量追加一轮消息（同一事务），供 AgentRoundEndEvent 的 assistant+tool 批量落库。
   /// 顺序与传入一致（id 升序即时序），保证 tool 消息紧跟带 toolCalls 的 assistant。
+  /// 落库前净化：剥离 assistant 消息 tool_calls 中 id 空/args 非法的坏 ToolCall，
+  /// 防止历史/外部数据绕过 agent_loop 的归一化把坏 ToolCall 落库复活。
   Future<void> appendMessages(int sessionId, Iterable<ChatMessage> msgs) async {
     if (msgs.isEmpty) return;
+    final sanitized =
+        msgs.map(_sanitizeForStorage).whereType<ChatMessage>().toList();
+    if (sanitized.isEmpty) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     await _db.db.transaction((txn) async {
-      for (final m in msgs) {
+      for (final m in sanitized) {
         await txn.insert('chat_message', {
           'session_id': sessionId,
           'role': m.role,
@@ -54,7 +59,35 @@ class ChatRepository {
     });
   }
 
+  /// 落库前净化：剥离坏 ToolCall；整个 assistant 的 tool_calls 全坏则丢弃该消息。
+  ChatMessage? _sanitizeForStorage(ChatMessage m) {
+    if (m.toolCalls == null) return m;
+    final clean = m.toolCalls!.where(_isValidToolCallForStorage).toList();
+    if (clean.length == m.toolCalls!.length) return m;
+    if (clean.isEmpty) return null;
+    return ChatMessage(
+      role: m.role,
+      content: m.content,
+      toolCalls: clean,
+      apiContent: m.apiContent,
+    );
+  }
+
+  /// ToolCall 是否值得落库：id/name 非空，arguments 是可解析的 JSON 对象。
+  static bool _isValidToolCallForStorage(ToolCall t) {
+    if (t.id.isEmpty || t.name.isEmpty) return false;
+    final trimmed = t.arguments.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      return jsonDecode(trimmed) is Map;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 按 id 升序加载某会话的全部消息（id 升序即插入时序）。
+  /// 走 [ChatMessage.fromDbSanitized]：加载时自动修复历史脏数据
+  /// （坏 ToolCall 剥离 + tool_call_id 空值补 session-stable 占位）。
   Future<List<ChatMessage>> loadMessages(int sessionId) async {
     final rows = await _db.db.query(
       'chat_message',
@@ -62,7 +95,14 @@ class ChatRepository {
       whereArgs: [sessionId],
       orderBy: 'id ASC',
     );
-    return rows.map(ChatMessage.fromDb).toList();
+    // session-stable 占位 id 生成器：同一辅助逻辑内每次加载递增。
+    // 注意：assistant 与其多条 tool 消息间通过「role 连续配对」保持 toolCallId
+    // 与 toolCalls[].id 一致——占位 id 生成只补齐空值，不改变已配对 id。
+    var recoveredN = 0;
+    String nextId() => 'call_recovered_${recoveredN++}';
+    return rows
+        .map((r) => ChatMessage.fromDbSanitized(r, idGenerator: nextId))
+        .toList();
   }
 
   /// 最近更新的某场景会话（用于 App 重启续聊）。无则返回 null。
