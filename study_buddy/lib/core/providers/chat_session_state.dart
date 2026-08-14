@@ -20,6 +20,9 @@ class ChatSessionState {
   final AskUserRequest? pendingAsk; // 当前等待用户作答的提问，非空时输入区切语义
   final String? error;
   final int? sessionId; // 当前持久化会话 id（null=新会话）
+  /// 知识点教学模式的 topic id（详情页【为什么？】入口）；null=普通学习伴侣会话。
+  /// 供开发者模式面板识别「知识点教学上下文」是否被注入 system prompt。
+  final int? teachingTopicId;
 
   const ChatSessionState({
     this.messages = const [],
@@ -29,6 +32,7 @@ class ChatSessionState {
     this.pendingAsk,
     this.error,
     this.sessionId,
+    this.teachingTopicId,
   });
 
   ChatSessionState copyWith({
@@ -39,6 +43,7 @@ class ChatSessionState {
     Object? pendingAsk = _sentinel,
     String? error,
     int? sessionId,
+    Object? teachingTopicId = _sentinel,
   }) {
     return ChatSessionState(
       messages: messages ?? this.messages,
@@ -50,6 +55,9 @@ class ChatSessionState {
           : pendingAsk as AskUserRequest?,
       error: error,
       sessionId: sessionId ?? this.sessionId,
+      teachingTopicId: identical(teachingTopicId, _sentinel)
+          ? this.teachingTopicId
+          : teachingTopicId as int?,
     );
   }
 

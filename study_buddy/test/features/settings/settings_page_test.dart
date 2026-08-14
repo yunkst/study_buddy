@@ -51,25 +51,46 @@ void main() {
     // 外观是首屏第一分组，直接可见。
     expect(find.text('外观'), findsOneWidget);
     expect(find.text('主题模式'), findsOneWidget);
-    // 系统/诊断在 ListView 下方（懒构建），上滚后可看到。
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    // 系统在下方，滚动到可见后断言（懒构建）。
+    await tester.scrollUntilVisible(
+      find.text('系统'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
     await tester.pumpAndSettle();
     expect(find.text('系统'), findsOneWidget);
+    // 诊断在系统之下，继续滚动到可见后断言。
+    await tester.scrollUntilVisible(
+      find.text('诊断'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('诊断'), findsOneWidget);
   });
 
   testWidgets('设置页渲染系统分组三个入口(LLM配置/版本更新/关于)', (tester) async {
     await pumpSettings(tester);
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
-    await tester.pumpAndSettle();
-    expect(find.text('LLM 配置'), findsOneWidget);
-    expect(find.text('版本更新'), findsOneWidget);
-    expect(find.text('关于'), findsOneWidget);
+    // master 加了每日复盘限额行，系统分组更长；逐个滚动到可见再断言，
+    // 避免单个 scrollUntilVisible 把上方的目标滚出视口。
+    for (final t in ['LLM 配置', '版本更新', '关于']) {
+      await tester.scrollUntilVisible(
+        find.text(t),
+        200,
+        scrollable: find.byType(Scrollable),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(t), findsOneWidget);
+    }
   });
 
   testWidgets('设置页渲染诊断分组两个入口', (tester) async {
     await pumpSettings(tester);
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.scrollUntilVisible(
+      find.text('LLM 调用日志'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
     await tester.pumpAndSettle();
     expect(find.text('应用日志'), findsOneWidget);
     expect(find.text('LLM 调用日志'), findsOneWidget);
@@ -100,19 +121,27 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 指定设置行（按 label 文案定位）内的 Switch。
+  /// 设置页出现多个开关（预览版下载/开发者模式）后，find.byType(Switch) 会命中多个，
+  /// 必须按行限定。
+  Finder previewOrDevSwitch(String label) => find.descendant(
+        of: find.widgetWithText(Container, label),
+        matching: find.byType(Switch),
+      );
+
   testWidgets('设置页渲染预览版下载开关行', (tester) async {
     await pumpSettings(tester);
     await scrollToPreviewSwitch(tester);
     expect(find.text('预览版下载'), findsOneWidget);
     // 初始关闭。
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isFalse);
   });
 
   testWidgets('打开预览版开关先弹非常不稳定提醒,确认后开启', (tester) async {
     await pumpSettings(tester);
     await scrollToPreviewSwitch(tester);
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(previewOrDevSwitch('预览版下载'));
     await tester.pumpAndSettle();
     // 提醒对话框：标题 + 非常不稳定文案 + 两个按钮。
     expect(find.text('开启预览版下载'), findsOneWidget);
@@ -123,32 +152,60 @@ void main() {
     await tester.tap(find.text('继续开启'));
     await tester.pumpAndSettle();
     // 确认后开关开启。
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isTrue);
   });
 
   testWidgets('打开预览版开关取消则保持关闭', (tester) async {
     await pumpSettings(tester);
     await scrollToPreviewSwitch(tester);
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(previewOrDevSwitch('预览版下载'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('再想想'));
     await tester.pumpAndSettle();
     // 取消：对话框关闭，开关保持关闭。
     expect(find.text('开启预览版下载'), findsNothing);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isFalse);
   });
 
   testWidgets('已开启预览版时点开关直接关闭,无提醒', (tester) async {
     SharedPreferences.setMockInitialValues({'app_update_preview_channel': true});
     await pumpSettings(tester);
     await scrollToPreviewSwitch(tester);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isTrue);
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(previewOrDevSwitch('预览版下载'));
     await tester.pumpAndSettle();
     // 关闭无需确认，无提醒对话框，开关直接关闭。
     expect(find.text('开启预览版下载'), findsNothing);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(tester.widget<Switch>(previewOrDevSwitch('预览版下载')).value, isFalse);
+  });
+
+  /// 滚动到「开发者模式」开关可见（开发者分组在诊断分组之下，需继续下滚）。
+  Future<void> scrollToDevSwitch(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.text('开发者模式'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('设置页渲染开发者模式开关行（初始关闭）', (tester) async {
+    await pumpSettings(tester);
+    await scrollToDevSwitch(tester);
+    expect(find.text('开发者模式'), findsOneWidget);
+    // 初始关闭。
+    expect(tester.widget<Switch>(previewOrDevSwitch('开发者模式')).value, isFalse);
+  });
+
+  testWidgets('开启开发者模式开关立即生效（无确认弹窗）', (tester) async {
+    await pumpSettings(tester);
+    await scrollToDevSwitch(tester);
+
+    await tester.tap(previewOrDevSwitch('开发者模式'));
+    await tester.pumpAndSettle();
+    // 开发者模式不同于预览版下载，不需要确认弹窗，直接开启。
+    expect(tester.widget<Switch>(previewOrDevSwitch('开发者模式')).value, isTrue);
   });
 }

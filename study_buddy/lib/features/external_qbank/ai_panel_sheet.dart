@@ -21,6 +21,7 @@ import 'package:study_engine/study_engine.dart';
 import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
 import '../../core/providers/database_provider.dart';
+import '../../core/providers/dev_mode_provider.dart';
 import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/captured_image.dart';
 import '../../core/services/logger_service.dart';
@@ -236,6 +237,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(_chatProvider);
+    final devMode = ref.watch(devModeProvider).value ?? false;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     // 纸感扩展兜底：未装配 PaperColors 的上下文（如 widget 测试裸 MaterialApp）
@@ -290,8 +292,14 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               child: ListView(
                 controller: _scrollCtrl,
                 children: [
+                  // 开发者模式：顶部展示本轮隐式注入的上下文（system prompt 动态字段
+                  // + 随用户消息注入的经验记忆），调试 LLM 实际收到什么。
+                  if (devMode)
+                    _InjectedContextPanel(
+                      teachingTopicId: state.teachingTopicId,
+                    ),
                   ...state.messages
-                      .map((m) => _buildMessage(m, theme, state.messages)),
+                      .map((m) => _buildMessage(m, theme, state.messages, devMode)),
                   // 「AI 正在思考…」指示器：busy 且暂无流式文本/挂起提问时显示。
                   // 覆盖此前无反馈的几个时刻——发送后首 token 延迟、工具执行间隙、
                   // 多轮 ReAct 轮次切换空窗——消除「AI 卡住」的错觉。
@@ -300,6 +308,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                       state.pendingAsk == null)
                     _ThinkingIndicator(
                       toolEvents: state.toolEvents,
+                      devMode: devMode,
                       colorScheme: colorScheme,
                       theme: theme,
                     ),
@@ -308,6 +317,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     _AiNote(
                       text: state.streamingText,
                       toolEvents: state.toolEvents,
+                      devMode: devMode,
                       colorScheme: colorScheme,
                       theme: theme,
                     ),
@@ -419,8 +429,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   ///
   /// [allMessages] 为跨轮持久的全量消息列表,用于在 assistant 消息分支
   /// 提取 save_review 卡片所需 review_id(从同轮 tool 消息 content 解析)。
-  Widget _buildMessage(
-      ChatMessage msg, ThemeData theme, List<ChatMessage> allMessages) {
+  /// [devMode] 为开发者模式：tool 消息渲染可展开详情卡片（含参数/结果 JSON）。
+  Widget _buildMessage(ChatMessage msg, ThemeData theme,
+      List<ChatMessage> allMessages, bool devMode) {
     if (msg.role == 'user') {
       // 教学开场：系统代发的首条 user 消息（用户未接管前）渲染为居中引导横幅，
       // 而非用户气泡；用户自行发送消息后恢复普通气泡。
@@ -454,6 +465,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             _AiNote(
               text: text,
               toolEvents: const [],
+              devMode: devMode,
               colorScheme: theme.colorScheme,
               theme: theme,
             ),
@@ -464,13 +476,15 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     }
     if (msg.role == 'tool') {
       final content = _extractText(msg);
-      final name = _toolCallName(msg.toolCallId, allMessages);
+      final call = _toolCallById(msg.toolCallId, allMessages);
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: buildToolResultWidget(
-          name: name,
+          name: call?.name ?? '',
           result: content,
           line: '← $content',
+          arguments: call?.arguments,
+          devMode: devMode,
           colorScheme: theme.colorScheme,
           theme: theme,
         ),
@@ -479,20 +493,20 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     return const SizedBox.shrink();
   }
 
-  /// 在 assistant 消息的 toolCalls 中按 toolCallId 反查 tool name（供 tool 消息分支决策渲染）。
+  /// 在 assistant 消息的 toolCalls 中按 toolCallId 反查 ToolCall（工具名 + 参数）。
   ///
-  /// 与 [_reviewCardsFromToolCalls] 同模式:tool 消息本身不带 name,需回溯 assistant
-  /// 的 toolCalls 列表。未匹配返回空串（→ 回退普通轨迹行）。
-  String _toolCallName(String? toolCallId, List<ChatMessage> allMessages) {
-    if (toolCallId == null) return '';
+  /// 与 [_reviewCardsFromToolCalls] 同模式:tool 消息本身不带 name/arguments,
+  /// 需回溯 assistant 的 toolCalls 列表。未匹配返回 null（→ 回退普通轨迹行）。
+  ToolCall? _toolCallById(String? toolCallId, List<ChatMessage> allMessages) {
+    if (toolCallId == null) return null;
     for (final m in allMessages) {
       final tcs = m.toolCalls;
       if (tcs == null) continue;
       for (final tc in tcs) {
-        if (tc.id == toolCallId) return tc.name;
+        if (tc.id == toolCallId) return tc;
       }
     }
-    return '';
+    return null;
   }
 
   /// 从 assistant 消息的 toolCalls 提取 save_review 调用,渲染对应卡片列表。
@@ -820,16 +834,19 @@ class _AttachedImageGrid extends StatelessWidget {
 /// AI 回复容器：surfaceContainerLow 底 + Markdown/LaTeX 渲染。
 ///
 /// [toolEvents] 为当前轮流式工具轨迹（仅流式气泡传入；历史 assistant 消息传空）。
+/// [devMode] 开启时工具轨迹渲染为可展开详情卡片（流式期参数尚未产生，仅结果可见）。
 class _AiNote extends StatelessWidget {
   const _AiNote({
     required this.text,
     required this.toolEvents,
+    required this.devMode,
     required this.colorScheme,
     required this.theme,
   });
 
   final String text;
   final List<ToolEvent> toolEvents;
+  final bool devMode;
   final ColorScheme colorScheme;
   final ThemeData theme;
 
@@ -849,6 +866,7 @@ class _AiNote extends StatelessWidget {
                 name: e.name,
                 result: e.result,
                 line: '${e.name}: ${e.result}',
+                devMode: devMode,
                 colorScheme: colorScheme,
                 theme: theme,
               )),
@@ -875,14 +893,17 @@ class _AiNote extends StatelessWidget {
 ///
 /// [toolEvents] 在此期间（streamingText 为空，原 _AiNote 不渲染）一并展示，
 /// 让工具执行阶段的轨迹也可见，而非只在有流式文本时才浮现。
+/// [devMode] 开启时工具轨迹渲染为可展开详情卡片。
 class _ThinkingIndicator extends StatefulWidget {
   const _ThinkingIndicator({
     required this.toolEvents,
+    required this.devMode,
     required this.colorScheme,
     required this.theme,
   });
 
   final List<ToolEvent> toolEvents;
+  final bool devMode;
   final ColorScheme colorScheme;
   final ThemeData theme;
 
@@ -923,6 +944,7 @@ class _ThinkingIndicatorState extends State<_ThinkingIndicator>
                 name: e.name,
                 result: e.result,
                 line: '${e.name}: ${e.result}',
+                devMode: widget.devMode,
                 colorScheme: cs,
                 theme: widget.theme,
               )),
@@ -1075,12 +1097,18 @@ class _SendButton extends StatelessWidget {
 /// 工具结果渲染：当工具为 `save_topic` 且 [result] 是合法 `{id, is_new, msg}` JSON 时，
 /// 渲染可点击的 [SavedTopicCapsule]；否则（非 save_topic 或 JSON 解析失败）回退普通
 /// [ToolTraceLine]（[line] 为展示文案），保证解析失败不崩。
+///
+/// [devMode] 为开发者模式：非特例工具渲染可展开的 [_ToolCallDetailCard]（含
+/// 参数 [arguments] 与结果 [result]，均 pretty JSON），供调试工具输入输出。
+/// [arguments] 来自 assistant 消息的 ToolCall；流式轨迹阶段尚无参数（null）。
 Widget buildToolResultWidget({
   required String name,
   required String result,
   required String line,
   required ColorScheme colorScheme,
   required ThemeData theme,
+  String? arguments,
+  bool devMode = false,
 }) {
   if (name == 'save_topic') {
     try {
@@ -1097,7 +1125,175 @@ Widget buildToolResultWidget({
           category: LogCategory.ai, tags: const ['save-topic-result']);
     }
   }
+  if (devMode) {
+    return _ToolCallDetailCard(
+      name: name,
+      arguments: arguments,
+      result: result,
+      colorScheme: colorScheme,
+      theme: theme,
+    );
+  }
   return _ToolTraceLine(line: line, colorScheme: colorScheme, theme: theme);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：工具调用详情卡片（开发者模式）
+// ─────────────────────────────────────────────────────────────
+
+/// 工具调用详情卡片：开发者模式下替代普通轨迹行的可展开卡片。
+///
+/// 头行显示工具名 + 状态，点按展开「参数（arguments）」与「结果（result）」
+/// 两段，均为 pretty JSON（非 JSON 原样展示）。流式轨迹阶段 [arguments] 为
+/// null（本轮结束、assistant 消息落库后才回填参数）。
+class _ToolCallDetailCard extends StatefulWidget {
+  const _ToolCallDetailCard({
+    required this.name,
+    required this.arguments,
+    required this.result,
+    required this.colorScheme,
+    required this.theme,
+  });
+
+  final String name;
+  final String? arguments; // ToolCall.arguments 原始 JSON；null=流式轨迹（尚无参数）
+  final String result; // 工具返回文本（JSON 或纯文本）
+  final ColorScheme colorScheme;
+  final ThemeData theme;
+
+  @override
+  State<_ToolCallDetailCard> createState() => _ToolCallDetailCardState();
+}
+
+class _ToolCallDetailCardState extends State<_ToolCallDetailCard> {
+  bool _expanded = false;
+
+  /// 尝试 pretty JSON；解析失败原样返回（覆盖纯文本工具返回）。
+  String _pretty(String raw) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(jsonDecode(raw));
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final cs = widget.colorScheme;
+    final running = widget.result == '进行中...';
+    final label = widget.name.isEmpty ? '（工具）' : widget.name;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        border: Border.all(color: cs.outlineVariant, width: 0.5),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.code, size: 14, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    running ? '进行中…' : '✓',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: running ? cs.onSurfaceVariant : cs.tertiary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            Divider(height: 1, thickness: 0.5, color: cs.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '参数（arguments）',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _DevCodeBlock(
+                    text: widget.arguments == null
+                        ? '（流式轨迹，参数待本轮结束后可见）'
+                        : _pretty(widget.arguments!),
+                    theme: theme,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '结果（result）',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _DevCodeBlock(text: _pretty(widget.result), theme: theme),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 开发者模式代码块：surfaceContainerHighest 底 + 等宽小字 + 可选中复制。
+class _DevCodeBlock extends StatelessWidget {
+  const _DevCodeBlock({required this.text, required this.theme});
+  final String text;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: SelectableText(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontFamily: 'monospace',
+          fontSize: 11,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1141,6 +1337,217 @@ class _ToolTraceLine extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：已注入上下文面板（开发者模式）
+// ─────────────────────────────────────────────────────────────
+
+/// 已注入上下文面板：开发者模式下展示 LLM 每轮实际收到的「隐式注入」内容，
+/// 与用户可见的 messages 区分开。三部分：
+///   1. 今日日期（{{today}}，system prompt 动态字段）
+///   2. 经验记忆（`<memory-context>`，随用户消息注入，hermes 风格）
+///   3. 知识点教学上下文（{{topic_context}}，详情页【为什么？】入口时注入）
+///
+/// 默认折叠为一行，点按展开。数据从 `agent_memory` 表与 `topic` 表读取
+/// （与 agent_session_provider.run 的注入来源一致）。
+class _InjectedContextPanel extends ConsumerStatefulWidget {
+  const _InjectedContextPanel({this.teachingTopicId});
+
+  /// 教学模式 topic id；null=普通会话（不注入 topic_context）。
+  final int? teachingTopicId;
+
+  @override
+  ConsumerState<_InjectedContextPanel> createState() =>
+      _InjectedContextPanelState();
+}
+
+/// 面板异步加载的数据（一次读取，面板生命周期内保持）。
+class _InjectedContextData {
+  const _InjectedContextData({
+    required this.memoryBlock,
+    required this.topicText,
+  });
+  final String memoryBlock; // '<memory-context>…' 或「暂无」
+  final String? topicText; // 知识点教学上下文；null=非教学模式
+}
+
+class _InjectedContextPanelState extends ConsumerState<_InjectedContextPanel> {
+  bool _expanded = false;
+  Future<_InjectedContextData>? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = _load();
+  }
+
+  /// 教学模式 topicId 由 AiChatPage 在首帧后经 startTopicTeaching 才写入 state，
+  /// 面板首次 build 时可能还是 null——变化时重载（否则教学上下文缺失）。
+  @override
+  void didUpdateWidget(_InjectedContextPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.teachingTopicId != widget.teachingTopicId) {
+      _data = _load();
+    }
+  }
+
+  /// 与 agent_session_provider 的注入来源一致：memory 取自 agent_memory 表，
+  /// topic_context 取自 topic 表 + 分类路径。
+  Future<_InjectedContextData> _load() async {
+    final db = await ref.read(databaseProvider.future);
+    final memories = await AgentMemoryRepository(db).queryByScenario('study_plan');
+    // 与引擎 _memoryContextBlock 一致：取 content 文本拼 `[N] 内容` 编号块。
+    final memoryBlock = memories.isEmpty
+        ? '（暂无经验记忆，不会注入）'
+        : memories.asMap().entries.map((e) => '[${e.key + 1}] ${e.value.content}').join('\n');
+    String? topicText;
+    final tid = widget.teachingTopicId;
+    if (tid != null) {
+      final t = await TopicRepository(db).findById(tid);
+      if (t != null) {
+        final path =
+            (await CategoryRepository(db).pathOf(t.categoryId)).join('/');
+        topicText = '知识点：${t.title}（id=${t.id}）\n'
+            '分类路径：$path\n'
+            '引子（背景/问题）：${t.question}\n'
+            '答案（核心内容）：${t.summary}';
+      } else {
+        topicText = '（知识点 id=$tid 不存在）';
+      }
+    }
+    return _InjectedContextData(memoryBlock: memoryBlock, topicText: topicText);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow.withValues(alpha: 0.6),
+        border: Border.all(color: cs.outlineVariant, width: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.science_outlined, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '已注入上下文（开发者模式）',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            Divider(height: 1, thickness: 0.5, color: cs.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: FutureBuilder<_InjectedContextData>(
+                future: _data,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return Text(
+                      '加载中…',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    );
+                  }
+                  final data = snap.data;
+                  if (data == null) {
+                    return Text(
+                      '加载失败',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    );
+                  }
+                  final now = DateTime.now();
+                  final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _DevField(
+                        label: '今日日期 {{today}}（system prompt）',
+                        text: todayStr,
+                        theme: theme,
+                      ),
+                      const SizedBox(height: 8),
+                      _DevField(
+                        label: '经验记忆 <memory-context>（随用户消息注入）',
+                        text: data.memoryBlock,
+                        theme: theme,
+                      ),
+                      if (data.topicText != null) ...[
+                        const SizedBox(height: 8),
+                        _DevField(
+                          label: '知识点教学上下文 {{topic_context}}（system prompt）',
+                          text: data.topicText!,
+                          theme: theme,
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 注入上下文的单个字段：灰标签 + 等宽代码块（复用 _DevCodeBlock）。
+class _DevField extends StatelessWidget {
+  const _DevField({
+    required this.label,
+    required this.text,
+    required this.theme,
+  });
+  final String label;
+  final String text;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(height: 4),
+        _DevCodeBlock(text: text, theme: theme),
+      ],
     );
   }
 }

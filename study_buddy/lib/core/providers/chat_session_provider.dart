@@ -155,6 +155,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       toolEvents: const [],
       busy: true,
       error: null,
+      teachingTopicId: _topicId,
     );
 
     try {
@@ -208,6 +209,7 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
         toolEvents: const [],
         busy: false,
         error: '$e',
+        teachingTopicId: _topicId,
       );
     } finally {
       _done = null;
@@ -318,7 +320,11 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
       final msgs = await repo.loadMessages(id);
       if (msgs.isEmpty) return false;
       _sessionId = session.id;
-      state = ChatSessionState(messages: msgs, sessionId: session.id);
+      state = ChatSessionState(
+        messages: msgs,
+        sessionId: session.id,
+        teachingTopicId: _topicId, // 开发者模式面板识别注入字段（master 默认恢复时未传）
+      );
       return true;
     } catch (e, st) {
       LoggerService.instance.w('教学会话恢复失败: $e',

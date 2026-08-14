@@ -18,6 +18,7 @@ import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/app_update_provider.dart';
 import '../../core/providers/daily_review_limit_provider.dart';
+import '../../core/providers/dev_mode_provider.dart';
 import '../../core/providers/llm_config_provider.dart';
 import '../../core/providers/theme_mode_provider.dart';
 import '../../core/theme/paper_extension.dart';
@@ -63,6 +64,10 @@ class SettingsPage extends ConsumerWidget {
               label: 'LLM 调用日志',
               onTap: () => context.push('/logs/llm'),
             ),
+            const SizedBox(height: 32),
+            const _SectionLabel(text: '开发者'),
+            const SizedBox(height: 8),
+            const _DevModeRow(),
             const SizedBox(height: 32),
           ],
         ),
@@ -578,6 +583,23 @@ class _PreviewChannelRow extends ConsumerWidget {
     if (confirmed == true) {
       await notifier.set(true);
     }
+  }
+}
+
+/// 开发者模式开关行：开启后 AI 对话页显示工具调用详情卡片与注入上下文。
+/// 直接生效（与预览版下载不同，无需确认弹窗）。
+class _DevModeRow extends ConsumerWidget {
+  const _DevModeRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(devModeProvider).value ?? false;
+    return _SwitchRow(
+      icon: Icons.developer_mode,
+      label: '开发者模式',
+      value: enabled,
+      onChanged: (v) => ref.read(devModeProvider.notifier).set(v),
+    );
   }
 }
 

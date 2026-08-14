@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,7 +9,7 @@ import 'package:go_router/go_router.dart';
 // 我们直接 import 它来 mock ImagePickerPlatform.instance（无需在 pubspec 中声明）。
 // ignore: depend_on_referenced_packages
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
-// ignore: depend_on_referenced_packages
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/captured_image.dart';
@@ -84,10 +82,13 @@ Uint8List _pngBytes() => Uint8List.fromList(base64Decode(
 /// 纸感化后 assistant 回复用 `SelectableText.rich`（知识点 ※ 解析），
 /// `find.text` 无法命中（含 `findRichText: true` 也不行——底层是
 /// `EditableText`/`RenderEditable` 而非 `RichText`），故按 textSpan 明文匹配。
+/// 开发者模式 `_DevCodeBlock` 用 `SelectableText(text:)`（普通字符串，非 textSpan），
+/// 故同时回退检查 `.data`。
 Finder _selectableTextContaining(String text) =>
-    find.byWidgetPredicate((w) =>
-        w is SelectableText &&
-        (w.textSpan?.toPlainText() ?? '').contains(text));
+    find.byWidgetPredicate((w) => w is SelectableText
+        ? (w.textSpan?.toPlainText() ?? '').contains(text) ||
+            (w.data ?? '').contains(text)
+        : false);
 
 /// 假 image_picker platform：与 Task 2 测试同范式，本任务内复制到本文件。
 /// 只 mock getImage 路径（面板走的 picker 接口），其他方法留默认 noop。
@@ -165,6 +166,8 @@ Future<void> pumpPanel(
 
 void main() {
   // 内存数据库需要 FFI 工厂（不在 Android/iOS 测试环境里走原生 sqflite）。
+  // 开发者模式面板会经 databaseProvider 读 agent_memory/topic 表——用 sqflite_ffi
+  // 在测试里打开内存库（与 settings_page_test 同范式）。
   setUpAll(sqfliteFfiInit);
 
   testWidgets('首轮:截图预览可见,发送后显示 user 与 assistant 气泡', (tester) async {
@@ -481,5 +484,135 @@ void main() {
             '与 tonal 按钮背景 secondaryContainer 形成足够对比。',
       );
     }
+  });
+
+  // ───────── 开发者模式 ─────────
+
+  testWidgets('开发者模式:非 save_topic 工具渲染可展开详情卡片,展开可见参数与结果',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({'dev_mode_enabled': true});
+    final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
+    final controller = StreamController<AgentEvent>();
+    addTearDown(controller.close);
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider
+          .overrideWith((ref) => _ControllableAgentSession(ref, controller)),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpPanel(tester, container: container, screenshot: screenshot);
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pump();
+
+    const args = '{"id":7}';
+    const result = '{"id":7,"title":"极限","summary":"答案"}';
+    await tester.runAsync(() async {
+      controller.add(ToolCallStartEvent('get_topic', 't1'));
+      controller.add(ToolCallEndEvent('get_topic', result, 't1'));
+      controller.add(AgentRoundEndEvent([
+        ChatMessage(role: 'assistant', content: '已查询', toolCalls: [
+          ToolCall(id: 't1', name: 'get_topic', arguments: args),
+        ]),
+        ChatMessage(role: 'tool', content: result, toolCallId: 't1'),
+      ]));
+      controller.add(AgentDoneEvent('已查询'));
+      await controller.close();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    // 详情卡片折叠态：工具名作为卡片头可见。
+    expect(find.text('get_topic'), findsOneWidget);
+    // 点按展开 → 参数/结果两段 + pretty JSON。
+    await tester.tap(find.text('get_topic'));
+    await tester.pump();
+    expect(find.text('参数（arguments）'), findsOneWidget);
+    expect(find.text('结果（result）'), findsOneWidget);
+    expect(_selectableTextContaining('"id": 7'), findsWidgets);
+    expect(_selectableTextContaining('"title": "极限"'), findsWidgets);
+  });
+
+  testWidgets('开发者模式:save_topic 仍渲染 SavedTopicCapsule 而非详情卡片',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({'dev_mode_enabled': true});
+    final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
+    final controller = StreamController<AgentEvent>();
+    addTearDown(controller.close);
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider
+          .overrideWith((ref) => _ControllableAgentSession(ref, controller)),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpPanel(tester, container: container, screenshot: screenshot);
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pump();
+
+    const args = '{"path":"数学/导数","title":"极限","question":"q","summary":"s"}';
+    const toolResult = '{"id":7,"is_new":true,"msg":"已保存知识点"}';
+    await tester.runAsync(() async {
+      controller.add(ToolCallStartEvent('save_topic', 't1'));
+      controller.add(ToolCallEndEvent('save_topic', toolResult, 't1'));
+      controller.add(AgentRoundEndEvent([
+        ChatMessage(role: 'assistant', content: '已保存', toolCalls: [
+          ToolCall(id: 't1', name: 'save_topic', arguments: args),
+        ]),
+        ChatMessage(role: 'tool', content: toolResult, toolCallId: 't1'),
+      ]));
+      controller.add(AgentDoneEvent('已保存'));
+      await controller.close();
+    });
+    await tester.pump();
+    await tester.pump();
+
+    // 工具触发卡片保留：SavedTopicCapsule（isNew=true → 「新」badge）。
+    expect(find.text('新'), findsWidgets);
+    // 不被转成详情卡片（无「save_topic」工具名头行）。
+    expect(find.text('save_topic'), findsNothing);
+  });
+
+  testWidgets('开发者模式:展开注入上下文面板显示今日日期与经验记忆',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({'dev_mode_enabled': true});
+
+    // 在内存库预置经验记忆（注入面板的核心数据来源）。
+    // runAsync 内做真实异步 DB 写入（fake-async 下无法直接完成）。
+    late final StudyDatabase sdb;
+    await tester.runAsync(() async {
+      sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      await AgentMemoryRepository(sdb)
+          .add('study_plan', '用户喜欢先看结论再给推导');
+    });
+    addTearDown(() => sdb.close());
+
+    // 不走 teaching 入口——避免 send() 真实异步写库与 pumpAndSettle 死锁。
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+      databaseProvider.overrideWith((ref) async => sdb),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpPanel(tester, container: container);
+    await tester.pumpAndSettle();
+
+    // 注入面板头可见。
+    expect(find.text('已注入上下文（开发者模式）'), findsOneWidget);
+    // 展开：今日日期 + 经验记忆两段。面板读库是真实异步，
+    // 展开后用 runAsync 等待 isolate 查询完成，再 pump 渲染数据态。
+    await tester.tap(find.text('已注入上下文（开发者模式）'));
+    await tester.pump();
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('{{today}}'), findsOneWidget);
+    expect(find.textContaining('<memory-context>'), findsOneWidget);
+    // 经验记忆内容（编号块）可见。
+    expect(_selectableTextContaining('先看结论再给推导'), findsOneWidget);
+    // 非教学模式：教学上下文字段不渲染（节省噪声）。
+    expect(find.textContaining('{{topic_context}}'), findsNothing);
   });
 }
