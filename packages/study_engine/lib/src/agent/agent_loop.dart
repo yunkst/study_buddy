@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import '../llm/llm_provider_client.dart';
 import '../llm/llm_provider_core.dart';
 import '../logging/logger_sink.dart';
 import '../models/models.dart';
@@ -15,9 +16,11 @@ import 'tool_output_truncator.dart';
 /// LLM 远程调用失败的重试策略。
 ///
 /// 作用于 **单次 LLM 流式调用**（即一轮 ReAct 内的一次 chatStreamWithTools），
-/// 而不是整个 agent 会话。策略对 **所有** 异常一视同仁——无论是网络中断、
-/// 超时、HTTP 4xx/5xx 还是协议解析错误——都按 [maxAttempts] 重试，尽最大努力
-/// 吞掉远程服务的临时抖动，避免单次失败直接中断整个对话。
+/// 而不是整个 agent 会话。**重试范围按异常语义分类**：网络瞬态错误
+/// （SocketException / Timeout / HTTP 408 / 429 / 5xx）按 [maxAttempts] 重试，
+/// 尽力吞掉远程服务的临时抖动；**4xx 语义错误（400/401/403/404/422 等）
+/// 不重试**——重试同样的消息依旧失败，仅浪费调用与退避时间，直接向上抛错
+/// 收尾为 AgentErrorEvent。
 ///
 /// 流式语义下的一个不可避免约束：若 LLM 已经开始返回文本（增量已下发）后连接中断，
 /// 重试会触发一次完整重发——因为 SSE 不支持断点续传。此时本轮已累积的流式文本会被
@@ -159,6 +162,19 @@ class AgentLoop {
               if (chunk.toolCalls != null) agg.addAll(chunk.toolCalls!);
             }
           } catch (e, st) {
+            // 语义错误(4xx 业务错误:400/401/403/404/422 等)不重试——重试同样的
+            // msgs 依旧失败,还浪费 API 调用 + 让 UI 看到 3 次退避。立即交外层
+            // catch 收尾为 AgentErrorEvent。仅网络瞬态错误
+            // (SocketException / Timeout / 408 / 429 / 5xx)走重试链。
+            final isSemanticError = _isSemanticHttpError(e);
+            if (isSemanticError) {
+              logger.log(LoggerLevel.error, 'LLM 语义错误,不重试: $e',
+                  category: 'ai',
+                  traceId: traceId,
+                  stackTrace: st.toString(),
+                  tags: const ['llm-semantic-error']);
+              rethrow;
+            }
             attempts++;
             logger.log(LoggerLevel.warning, 'LLM 调用失败(第 $attempts 次): $e',
                 category: 'ai',
@@ -322,6 +338,17 @@ class AgentLoop {
           category: 'ai', traceId: traceId, tags: const ['tool-args-bad-json']);
       return null;
     }
+  }
+
+  /// 判断是否为「语义错误」的 HTTP 异常 —— 语义错误不重试(重试同样失败)。
+  ///
+  /// 覆盖 4xx 业务错误(400 参数非法 / 401 未授权 / 403 禁止 / 404 不存在 / 422 校验失败等),
+  /// 但排除 408(Request Timeout)与 429(Rate Limit)——二者属于瞬态,重试值得。
+  /// 5xx / 网络异常(SocketException/Timeout)走重试链,不在此列。
+  bool _isSemanticHttpError(Object e) {
+    if (e is! LlmHttpException) return false;
+    final code = e.statusCode;
+    return code >= 400 && code < 500 && code != 408 && code != 429;
   }
 
   /// 指数退避 + 抖动：baseDelay * 2^(attempt-1)，再叠加 [0, jitter)。

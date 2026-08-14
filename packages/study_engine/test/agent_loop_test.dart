@@ -376,6 +376,53 @@ void main() {
     // 空 id 的那个调用被分配了 call_recovered_N 占位
     expect(assistantIds, contains(startsWith('call_recovered_')));
   });
+
+  test('重试分类: LLM 返回 400 语义错误时不重试,立即 AgentErrorEvent', () async {
+    final llm = _AlwaysHttpErrorLlm(statusCode: 400);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), isEmpty,
+        reason: '400 语义错误不应触发任何重试(重试同样是坏请求)');
+    expect(events.last, isA<AgentErrorEvent>());
+  });
+
+  test('重试分类: 422 语义错误同样不重试', () async {
+    final llm = _AlwaysHttpErrorLlm(statusCode: 422);
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), isEmpty);
+    expect(events.last, isA<AgentErrorEvent>());
+  });
+
+  test('重试分类: 5xx 网络错误仍重试(回归,不破坏瞬态重试)', () async {
+    final llm = _FailingThenOkLlm(
+      failTimes: 1,
+      okChunks: const [LlmStreamChunk(textDelta: 'ok')],
+      errors: [LlmHttpException(500, 'server')],
+    );
+    final loop = AgentLoop(
+      llm: llm,
+      scenario: _FakeScenario(),
+      retry: const RetryConfig(maxAttempts: 3, baseDelayMs: 0, jitterMs: 0),
+      random: _FixedRandom(),
+    );
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+    expect(events.whereType<RetryEvent>(), hasLength(1));
+    expect(events.last, isA<AgentDoneEvent>());
+  });
 }
 
 /// 记录是否被调用的 scenario。
@@ -525,4 +572,20 @@ class _FixedRandom implements Random {
   double nextDouble() => 0.0;
   @override
   int nextInt(int max) => 0;
+}
+
+/// 每次调用都抛 LlmHttpException(statusCode)：模拟网关 4xx 语义错误。
+class _AlwaysHttpErrorLlm extends LlmProvider {
+  _AlwaysHttpErrorLlm({required this.statusCode}) : super(config: LlmConfig(
+            name: '', apiUrl: '', apiKey: '', model: '', createdAt: DateTime(2026)));
+  final int statusCode;
+
+  @override
+  Stream<LlmStreamChunk> chatStreamWithTools({
+    required List<ChatMessage> messages,
+    required List<Map<String, dynamic>> tools,
+    String? traceId,
+  }) async* {
+    throw LlmHttpException(statusCode, '{"error":{"message":"tool_call_id  is not found"}}');
+  }
 }
