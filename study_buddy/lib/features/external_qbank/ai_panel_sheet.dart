@@ -1252,30 +1252,19 @@ class _ToolCallDetailCardState extends State<_ToolCallDetailCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '参数（arguments）',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontSize: 11,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  _DevCodeBlock(
+                  _DevField(
+                    label: '参数（arguments）',
                     text: widget.arguments == null
                         ? '（流式轨迹，参数待本轮结束后可见）'
                         : _pretty(widget.arguments!),
                     theme: theme,
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    '结果（result）',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontSize: 11,
-                    ),
+                  _DevField(
+                    label: '结果（result）',
+                    text: _pretty(widget.result),
+                    theme: theme,
                   ),
-                  const SizedBox(height: 4),
-                  _DevCodeBlock(text: _pretty(widget.result), theme: theme),
                 ],
               ),
             ),
@@ -1416,22 +1405,25 @@ class _InjectedContextPanelState extends ConsumerState<_InjectedContextPanel> {
   /// topic_context 取自 topic 表 + 分类路径。
   Future<_InjectedContextData> _load() async {
     final db = await ref.read(databaseProvider.future);
-    final memories = await AgentMemoryRepository(db).queryByScenario('study_plan');
+    final tid = widget.teachingTopicId;
+    // memory 与 topic 互不依赖，并行查询；category path 依赖 topic 结果再取。
+    final (memories, topic) = await (
+      AgentMemoryRepository(db).queryByScenario('study_plan'),
+      tid != null ? TopicRepository(db).findById(tid) : Future.value(null),
+    ).wait;
     // 与引擎 _memoryContextBlock 一致：取 content 文本拼 `[N] 内容` 编号块。
     final memoryBlock = memories.isEmpty
         ? '（暂无经验记忆，不会注入）'
         : memories.asMap().entries.map((e) => '[${e.key + 1}] ${e.value.content}').join('\n');
     String? topicText;
-    final tid = widget.teachingTopicId;
     if (tid != null) {
-      final t = await TopicRepository(db).findById(tid);
-      if (t != null) {
+      if (topic != null) {
         final path =
-            (await CategoryRepository(db).pathOf(t.categoryId)).join('/');
-        topicText = '知识点：${t.title}（id=${t.id}）\n'
+            (await CategoryRepository(db).pathOf(topic.categoryId)).join('/');
+        topicText = '知识点：${topic.title}（id=${topic.id}）\n'
             '分类路径：$path\n'
-            '引子（背景/问题）：${t.question}\n'
-            '答案（核心内容）：${t.summary}';
+            '引子（背景/问题）：${topic.question}\n'
+            '答案（核心内容）：${topic.summary}';
       } else {
         topicText = '（知识点 id=$tid 不存在）';
       }

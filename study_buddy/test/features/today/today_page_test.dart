@@ -104,7 +104,7 @@ void main() {
     // 进入全屏对话页：AppBar 标题「问 AI」可见
     expect(find.byType(AiChatPage), findsOneWidget);
     // 空态引导的副标题可见
-    expect(find.text('拍照问一道题，或直接输入你的疑问'), findsOneWidget);
+    expect(find.text('拍照提问，或直接输入你的疑问\nAI 会陪你一起思考'), findsOneWidget);
   });
 }
 

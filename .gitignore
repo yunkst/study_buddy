@@ -22,6 +22,10 @@ Thumbs.db
 .superpowers/
 .claude/worktrees/
 .worktrees/
+.agents/
+
+# 本地代码审查 diff 草稿
+review_diff*.txt
 
 # MCP 调试产物（Playwright 等本地探针输出，不入库）
 .playwright-mcp/

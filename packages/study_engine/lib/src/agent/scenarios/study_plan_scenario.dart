@@ -343,16 +343,15 @@ class StudyPlanScenario implements AgentScenario {
     final to = _asInt(args['to']);
     if (from == null) return '参数 from 缺失或非整数: ${args['from']}';
     if (to == null) return '参数 to 缺失或非整数: ${args['to']}';
-    final type = rawType; // promoted to non-null String
     final fromTopic = await topics.findById(from);
     final toTopic = await topics.findById(to);
     if (fromTopic == null) return '知识点 id=$from 不存在';
     if (toTopic == null) return '知识点 id=$to 不存在';
     final before = (await edges.findByTopic(from)).where((e) => e.otherId == to).length;
-    await edges.insert(from, to, type);
+    await edges.insert(from, to, rawType);
     final after = (await edges.findByTopic(from)).where((e) => e.otherId == to).length;
-    if (after == before) return '关联已存在: ${fromTopic.title} → ${toTopic.title} ($type)';
-    return '已建立 $type 关联: ${fromTopic.title} → ${toTopic.title}';
+    if (after == before) return '关联已存在: ${fromTopic.title} → ${toTopic.title} ($rawType)';
+    return '已建立 $rawType 关联: ${fromTopic.title} → ${toTopic.title}';
   }
 
   Future<String> _setMastery(int topicId, String status, String reason) async {
