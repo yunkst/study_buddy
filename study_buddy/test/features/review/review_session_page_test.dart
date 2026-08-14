@@ -26,6 +26,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
+import 'package:study_buddy/core/theme/paper_extension.dart';
 import 'package:study_buddy/features/review/review_session_page.dart';
 import 'package:study_engine/study_engine.dart';
 
@@ -316,12 +317,11 @@ void main() {
     await tester.pump(const Duration(seconds: 11));
   });
 
-  // 回归：复习卡 4 档评分按钮（忘了/困难/良好/简单）文字颜色必须与 tonal 按钮
-  // 背景（secondaryContainer）配对——即 onSecondaryContainer。
-  // 历史缺陷：label 套用 headlineSmall 样式（颜色为 onSurface 暖墨），落在冷色
-  // secondaryContainer 上色相冲突、对比不足，「看不清字」。
-  testWidgets('4 档评分按钮文字用 onSecondaryContainer,与 secondaryContainer 背景配对',
-      (tester) async {
+  // 回归：复习卡 4 档评分按钮（忘了/困难/良好/简单）使用「记忆牢固度色阶」——
+  // 忘了→error（朱砂）、困难/良好→paper.gold（提示金）、简单→tertiary（墨绿），
+  // 每档按钮文字与该档语义色一致（淡色底 + 同色边框，对比充足）。
+  // 替代旧设计：扁平 tonal 按钮 + onSecondaryContainer 文字。
+  testWidgets('4 档评分按钮按记忆牢固度使用语义色', (tester) async {
     await tester.runAsync(() async {
       final now = DateTime.now();
       final catId = await _seedCategory(sdb);
@@ -358,14 +358,21 @@ void main() {
     await tester.tap(find.text('点击翻面看答案'));
     await tester.pumpAndSettle();
 
-    final expected = AppTheme.light.colorScheme.onSecondaryContainer;
-    for (final label in const ['忘了', '困难', '良好', '简单']) {
-      final text = tester.widget<Text>(find.text(label));
+    final cs = AppTheme.light.colorScheme;
+    final gold = AppTheme.light.extension<PaperColors>()!.gold;
+    final expected = <String, Color>{
+      '忘了': cs.error,
+      '困难': gold,
+      '良好': gold,
+      '简单': cs.tertiary,
+    };
+    for (final entry in expected.entries) {
+      final text = tester.widget<Text>(find.text(entry.key));
       expect(
         text.style?.color,
-        expected,
-        reason: '「$label」文字颜色应为 onSecondaryContainer($expected)，'
-            '与 tonal 按钮背景 secondaryContainer 形成足够对比。',
+        entry.value,
+        reason: '「${entry.key}」文字颜色应为其语义色 ${entry.value}，'
+            '与淡色底（语义色 12% 透明度）同色系配对、对比充足。',
       );
     }
 

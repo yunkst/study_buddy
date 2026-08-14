@@ -461,12 +461,9 @@ void main() {
     expect(teachingState.messages, isNotEmpty); // 教学开场已发出
   });
 
-  // 回归：空态三按钮（拍照 / 从相册选择 / 直接输入文字）文字颜色必须与
-  // tonal 按钮背景（secondaryContainer）配对——即 onSecondaryContainer。
-  // 历史缺陷：label 套用 headlineSmall 样式（颜色为 onSurface 暖墨），
-  // 落在冷色 secondaryContainer 上色相冲突、对比不足，「看不清字」。
-  testWidgets('空态按钮文字用 onSecondaryContainer,与 secondaryContainer 背景配对',
-      (tester) async {
+  // 空态回归：首次进入（无历史 + 无待附图）显示插画占位而非 3 个功能按钮。
+  // 引导文案引导用户直接使用底部输入框；拍照/相册入口收敛到输入行的加图按钮。
+  testWidgets('空态显示插画占位与引导文案,不再展示 3 个功能按钮', (tester) async {
     final container = ProviderContainer(overrides: [
       agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
     ]);
@@ -474,16 +471,14 @@ void main() {
     // 不传 screenshot：messages 空 + _pendingImage 空 → 进入空态引导。
     await pumpPanel(tester, container: container);
 
-    final expected = AppTheme.light.colorScheme.onSecondaryContainer;
-    for (final label in const ['拍照', '从相册选择', '直接输入文字']) {
-      final text = tester.widget<Text>(find.text(label));
-      expect(
-        text.style?.color,
-        expected,
-        reason: '「$label」文字颜色应为 onSecondaryContainer($expected)，'
-            '与 tonal 按钮背景 secondaryContainer 形成足够对比。',
-      );
-    }
+    // 插画 + 标题 + 副标题占位。
+    expect(find.text('开始你的问题'), findsOneWidget);
+    expect(find.textContaining('拍照提问'), findsOneWidget);
+
+    // 3 个功能按钮已被插画占位替代。
+    expect(find.text('拍照'), findsNothing);
+    expect(find.text('从相册选择'), findsNothing);
+    expect(find.text('直接输入文字'), findsNothing);
   });
 
   // ───────── 开发者模式 ─────────
