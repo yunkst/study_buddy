@@ -12,6 +12,7 @@ import '../../repos/topic_schedule_repository.dart';
 import '../agent_scenario.dart';
 import '../agent_tools.dart';
 import '../ask_user_tools.dart';
+import '../memory_policy.dart';
 import '../plan_tools.dart';
 import '../prompt_resolver.dart';
 import '../tool_definition.dart';
@@ -100,6 +101,8 @@ class StudyPlanScenario implements AgentScenario {
     _tool(PlanTools.planTools[11], (a, _) => _checkinDayTask(a)),
     _tool(PlanTools.planTools[12], (a, _) => _updateDayTask(a)),
     _tool(PlanTools.planTools[13], (a, _) => _deleteDayTask(a)),
+    // 经验记忆：patch_memory 演进/沉淀偏好与教训。
+    _tool(AskUserTools.patchMemory, (a, _) => _patchMemory(a)),
     // ask_user：由 AgentLoop 特殊拦截（挂起等用户作答），不走 executeTool。
     _tool(AskUserTools.askUser, (a, _) async => 'ask_user 由 AgentLoop 拦截处理'),
   ];
@@ -813,6 +816,103 @@ class StudyPlanScenario implements AgentScenario {
     return '已删除每日任务 id=$taskId';
   }
 
+  // ===================== 经验记忆（patch_memory 工具） =====================
+
+  Future<String> _patchMemory(Map<String, dynamic> args) async {
+    final action = _reqEnum(args, 'action', {'add', 'replace', 'remove'});
+    final op = switch (action) {
+      'add' => AddMemoryOp(_reqStr(args, 'new_text')),
+      'replace' =>
+        ReplaceMemoryOp(_reqStr(args, 'target_text'), _reqStr(args, 'new_text')),
+      'remove' => RemoveMemoryOp(_reqStr(args, 'target_text')),
+      _ => throw ToolArgsException('未知 action: $action'),
+    };
+    final result = await patchMemory(op);
+    return result.message;
+  }
+
+  @override
+  Future<MemoryPatchResult> patchMemory(MemoryPatchOp op) async {
+    final all = await memories.queryByScenario(id);
+    final allTexts = all.map((m) => m.content).toList();
+    var changed = false;
+    var successMsg = '记忆已更新';
+    switch (op) {
+      case AddMemoryOp(:final content):
+        if (content.trim().isEmpty) {
+          return MemoryPatchResult(false, '记忆内容不能为空');
+        }
+        if (isDuplicate(allTexts, content)) {
+          return MemoryPatchResult(true, '重复，已跳过（记忆已存在相同内容）');
+        }
+        if (isOverBudget(allTexts, additional: [content])) {
+          return MemoryPatchResult(false, _budgetError(allTexts));
+        }
+        await memories.add(id, content);
+        changed = true;
+        successMsg = '已新增记忆';
+        break;
+      case ReplaceMemoryOp(:final target, :final newContent):
+        final hits = _substringHits(all, target);
+        if (hits.isEmpty) {
+          return MemoryPatchResult(false, _notFoundError(allTexts, target));
+        }
+        if (hits.length > 1) {
+          return MemoryPatchResult(false, _ambiguousError(allTexts, target, hits));
+        }
+        final after = [...allTexts];
+        after[hits.single] = newContent;
+        if (isOverBudget(after)) {
+          return MemoryPatchResult(false, _budgetError(after));
+        }
+        await memories.update(all[hits.single].id!, newContent);
+        changed = true;
+        successMsg = '已更新记忆';
+        break;
+      case RemoveMemoryOp(:final target):
+        final hits = _substringHits(all, target);
+        if (hits.isEmpty) {
+          return MemoryPatchResult(false, _notFoundError(allTexts, target));
+        }
+        if (hits.length > 1) {
+          return MemoryPatchResult(false, _ambiguousError(allTexts, target, hits));
+        }
+        await memories.delete(all[hits.single].id!);
+        changed = true;
+        successMsg = '已删除记忆';
+        break;
+    }
+    // 成功落库后同步缓存：修复「run 中途 patch 后后续轮次 <memory-context> 看不到」。
+    // 失败路径未改库，无需刷新。
+    if (changed) {
+      _memCache = (await memories.queryByScenario(id)).map((m) => m.content).toList();
+    }
+    return MemoryPatchResult(true, successMsg);
+  }
+
+  /// 子串命中下标（不区分大小写）。空=零命中，多=需更精确子串。
+  List<int> _substringHits(List<AgentMemory> all, String target) {
+    final lower = target.toLowerCase();
+    return [
+      for (var i = 0; i < all.length; i++)
+        if (all[i].content.toLowerCase().contains(lower)) i,
+    ];
+  }
+
+  String _budgetError(List<String> texts) =>
+      '记忆已超容量上限（${kMaxMemoryChars} 字符），当前 ${totalChars(texts)} 字符。'
+      '请用 replace/remove 合并或删除旧条目腾出空间后重试。当前条目：\n${_numbered(texts)}';
+
+  String _notFoundError(List<String> texts, String target) =>
+      '未找到包含「$target」的记忆条目。当前条目：\n${_numbered(texts)}';
+
+  String _ambiguousError(List<String> texts, String target, List<int> hits) =>
+      '「$target」匹配到 ${hits.length} 条记忆，请用更精确的子串区分。命中：\n'
+      '${hits.map((i) => '[${i + 1}] ${texts[i]}').join('\n')}';
+
+  String _numbered(List<String> texts) =>
+      texts.asMap().entries.map((e) => '[${e.key + 1}] ${e.value}').join('\n');
+
   @override
   Future<String?> onNoToolCalls(List<ChatMessage> messages) async => null;
 
@@ -820,21 +920,6 @@ class StudyPlanScenario implements AgentScenario {
   Future<List<String>> getMemories() async {
     _memCache = (await memories.queryByScenario(id)).map((m) => m.content).toList();
     return _memCache;
-  }
-
-  @override
-  Future<MemoryPatchResult> patchMemory(int? index, String newText) async {
-    final all = await memories.queryByScenario(id);
-    if (index == null) {
-      await memories.add(id, newText);
-      return MemoryPatchResult(true, '已新增记忆');
-    }
-    final i = index - 1;
-    if (i < 0 || i >= all.length) {
-      return MemoryPatchResult(false, '编号越界，可用范围 1..${all.length}');
-    }
-    await memories.update(all[i].id!, newText);
-    return MemoryPatchResult(true, '已更新记忆 $index');
   }
 
   @override

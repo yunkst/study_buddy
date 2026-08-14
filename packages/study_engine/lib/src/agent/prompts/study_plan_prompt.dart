@@ -132,5 +132,8 @@ const String kStudyPlanSystemPromptTemplate = '''你是学习伴侣 AI。职责�
 ## 经验记忆
 你的经验记忆（过去对话沉淀的偏好与教训）不在此处，而是在每轮的用户消息里以
 <memory-context> 块随附（标注为 NOT new user input）。请读取并遵守其中的约定。
+可用 patch_memory 工具管理：add 新增、replace 合并更新、remove 删除（用短而唯一的
+子串定位条目，不区分大小写）。记忆总容量约 2000 字符：当工具返回「超限/条目列表」错误时，
+请在同轮用 replace/remove 合并旧条目腾出空间后再重试，不要丢弃有价值的信息。
 
 {{topic_context}}''';

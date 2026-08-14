@@ -44,6 +44,29 @@ class AskUserTools {
     },
   };
 
+  /// 经验记忆管理工具（单工具多 action）。
+  static const patchMemory = {
+    'type': 'function',
+    'function': {
+      'name': 'patch_memory',
+      'description': '管理你的经验记忆（agent 持久记忆，随 <memory-context> 注入每轮用户消息，'
+          '用于沉淀学习偏好、用户画像与教学教训）。add 新增一条；replace 用 new_text 替换目标子串命中的那条；'
+          'remove 删除目标子串命中的那条。记忆总容量约 2000 字符，超限报错时请用 replace/remove 合并旧条目腾空间。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'enum': ['add', 'replace', 'remove']},
+          'target_text': {
+            'type': 'string',
+            'description': 'replace/remove 用于定位条目；用短而唯一的子串（不区分大小写），add 忽略',
+          },
+          'new_text': {'type': 'string', 'description': 'add/replace 的新内容'},
+        },
+        'required': ['action'],
+      },
+    },
+  };
+
   /// study 场景工具集：知识点 9 工具 + ask_user。
   static const studyToolsWithAsk = [
     ...AgentTools.studyTools,
@@ -62,5 +85,6 @@ class AskUserTools {
     ...AgentTools.studyTools,
     ...PlanTools.planTools,
     askUser,
+    patchMemory,
   ];
 }

@@ -15,6 +15,28 @@ class MemoryPatchResult {
   MemoryPatchResult(this.ok, this.message);
 }
 
+/// agent 记忆操作（patch_memory 工具的强类型表达）。
+sealed class MemoryPatchOp {}
+
+/// 新增一条记忆。
+class AddMemoryOp extends MemoryPatchOp {
+  final String content;
+  AddMemoryOp(this.content);
+}
+
+/// 替换 [target] 子串命中的那条记忆为新内容。
+class ReplaceMemoryOp extends MemoryPatchOp {
+  final String target;
+  final String newContent;
+  ReplaceMemoryOp(this.target, this.newContent);
+}
+
+/// 删除 [target] 子串命中的那条记忆。
+class RemoveMemoryOp extends MemoryPatchOp {
+  final String target;
+  RemoveMemoryOp(this.target);
+}
+
 /// Agent 场景抽象：每个场景自带工具集、系统提示词、工具执行、记忆。
 abstract class AgentScenario {
   String get id;
@@ -49,6 +71,6 @@ abstract class AgentScenario {
   Future<String?> onNoToolCalls(List<ChatMessage> messages);
 
   Future<List<String>> getMemories();
-  Future<MemoryPatchResult> patchMemory(int? index, String newText);
+  Future<MemoryPatchResult> patchMemory(MemoryPatchOp op);
   Future<void> cleanup();
 }

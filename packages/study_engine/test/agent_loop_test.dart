@@ -37,7 +37,7 @@ class _FakeScenario implements AgentScenario {
   }
   @override Future<String?> onNoToolCalls(List<ChatMessage> messages) async => null;
   @override Future<List<String>> getMemories() async => [];
-  @override Future<MemoryPatchResult> patchMemory(int? index, String newText) async => MemoryPatchResult(true, '');
+  @override Future<MemoryPatchResult> patchMemory(MemoryPatchOp op) async => MemoryPatchResult(true, '');
   @override Future<void> cleanup() async {}
 }
 
@@ -352,7 +352,7 @@ class _RecordingScenario implements AgentScenario {
     memoriesQueried = true;
     return [];
   }
-  @override Future<MemoryPatchResult> patchMemory(int? index, String newText) async => MemoryPatchResult(true, '');
+  @override Future<MemoryPatchResult> patchMemory(MemoryPatchOp op) async => MemoryPatchResult(true, '');
   @override Future<void> cleanup() async {}
 }
 
