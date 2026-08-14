@@ -280,68 +280,86 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             // 教学入口：顶部常驻可折叠知识卡（标题 + 引子/答案缩略，点回详情页）。
             if (_isTeaching) _TopicHeaderCard(topicId: widget.initialTopicId!),
             // 空态引导：首次进入对话页（无历史 + 无待附图）
+            // 用 Expanded + ListView 占据消息区，展示插画占位而非 3 个按钮。
+            // 开发者模式面板在空态下也可见（调试工具，应始终可访问）。
             if (showEmptyState)
-              _EmptyState(
-                paper: paper,
-                onCamera: () => _attachCroppedImage(fromCamera: true),
-                onGallery: () => _attachCroppedImage(fromCamera: false),
-                onInput: () => _inputFocus.requestFocus(),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => ListView(
+                    children: [
+                      if (devMode)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
+                          child: _InjectedContextPanel(
+                            teachingTopicId: state.teachingTopicId,
+                          ),
+                        ),
+                      SizedBox(
+                        height: constraints.maxHeight -
+                            (devMode ? 60 : 0), // 减去开发者模式面板大致高度
+                        child: const _EmptyState(),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             // 消息列表
-            Expanded(
-              child: ListView(
-                controller: _scrollCtrl,
-                children: [
-                  // 开发者模式：顶部展示本轮隐式注入的上下文（system prompt 动态字段
-                  // + 随用户消息注入的经验记忆），调试 LLM 实际收到什么。
-                  if (devMode)
-                    _InjectedContextPanel(
-                      teachingTopicId: state.teachingTopicId,
-                    ),
-                  ...state.messages
-                      .map((m) => _buildMessage(m, theme, state.messages, devMode)),
-                  // 「AI 正在思考…」指示器：busy 且暂无流式文本/挂起提问时显示。
-                  // 覆盖此前无反馈的几个时刻——发送后首 token 延迟、工具执行间隙、
-                  // 多轮 ReAct 轮次切换空窗——消除「AI 卡住」的错觉。
-                  if (state.busy &&
-                      state.streamingText.isEmpty &&
-                      state.pendingAsk == null)
-                    _ThinkingIndicator(
-                      toolEvents: state.toolEvents,
-                      devMode: devMode,
-                      colorScheme: colorScheme,
-                      theme: theme,
-                    ),
-                  // 流式文本（当前轮 LLM 正在输出）
-                  if (state.streamingText.isNotEmpty)
-                    _AiNote(
-                      text: state.streamingText,
-                      toolEvents: state.toolEvents,
-                      devMode: devMode,
-                      colorScheme: colorScheme,
-                      theme: theme,
-                    ),
-                  // ask_user 提问卡片：agent 挂起等用户作答。
-                  if (state.pendingAsk != null)
-                    AskUserCard(
-                      request: state.pendingAsk!,
-                      onSubmit: (answer) => ref
-                          .read(_chatProvider.notifier)
-                          .respondToAsk(answer),
-                    ),
-                  // 首轮未发送时显示拍立得截图预览
-                  if (!_firstSent && _pendingImage != null)
-                    _Polaroid(
-                      image: Image.memory(
-                        _pendingImage!.pngBytes,
-                        height: 100,
-                        fit: BoxFit.contain,
+            if (!showEmptyState)
+              Expanded(
+                child: ListView(
+                  controller: _scrollCtrl,
+                  children: [
+                    // 开发者模式：顶部展示本轮隐式注入的上下文（system prompt 动态字段
+                    // + 随用户消息注入的经验记忆），调试 LLM 实际收到什么。
+                    if (devMode)
+                      _InjectedContextPanel(
+                        teachingTopicId: state.teachingTopicId,
                       ),
-                      paper: paper,
-                    ),
-                ],
+                    ...state.messages
+                        .map((m) => _buildMessage(m, theme, state.messages, devMode)),
+                    // 「AI 正在思考…」指示器：busy 且暂无流式文本/挂起提问时显示。
+                    // 覆盖此前无反馈的几个时刻——发送后首 token 延迟、工具执行间隙、
+                    // 多轮 ReAct 轮次切换空窗——消除「AI 卡住」的错觉。
+                    if (state.busy &&
+                        state.streamingText.isEmpty &&
+                        state.pendingAsk == null)
+                      _ThinkingIndicator(
+                        toolEvents: state.toolEvents,
+                        devMode: devMode,
+                        colorScheme: colorScheme,
+                        theme: theme,
+                      ),
+                    // 流式文本（当前轮 LLM 正在输出）
+                    if (state.streamingText.isNotEmpty)
+                      _AiNote(
+                        text: state.streamingText,
+                        toolEvents: state.toolEvents,
+                        devMode: devMode,
+                        colorScheme: colorScheme,
+                        theme: theme,
+                      ),
+                    // ask_user 提问卡片：agent 挂起等用户作答。
+                    if (state.pendingAsk != null)
+                      AskUserCard(
+                        request: state.pendingAsk!,
+                        onSubmit: (answer) => ref
+                            .read(_chatProvider.notifier)
+                            .respondToAsk(answer),
+                      ),
+                    // 首轮未发送时显示拍立得截图预览
+                    if (!_firstSent && _pendingImage != null)
+                      _Polaroid(
+                        image: Image.memory(
+                          _pendingImage!.pngBytes,
+                          height: 100,
+                          fit: BoxFit.contain,
+                        ),
+                        paper: paper,
+                      ),
+                  ],
+                ),
               ),
-            ),
             // 错误展示：errorContainer 底 + 朱砂左边框。
             if (state.error != null) ...[
               const SizedBox(height: 8),
@@ -1594,109 +1612,309 @@ class _ErrorPanel extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────
 
 /// 空态引导：消息列表为空且无待附图时显示。
-/// 三个入口均为对话页内可发起的入口：拍照 / 从相册选择 / 直接输入文字。
-/// 用户从今日页进入对话页后，可在此选择「先拍照问一道题」或「直接打字」。
 ///
-/// 视觉：朱砂✦ 大字 + 提示句 + 三行 FilledButton.tonal（与今日页保持一致）。
+/// 设计方向：去掉 3 个功能按钮，改为一个纸感插画风格的占位图形
+/// （羽毛笔 + 对话气泡 + ✦ 印章点缀），引导用户直接使用底部输入框。
+/// 视觉上更克制、更有书卷气，与整体纸感学术风格一致。
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.paper,
-    required this.onCamera,
-    required this.onGallery,
-    required this.onInput,
-  });
-
-  final PaperColors paper;
-  final VoidCallback onCamera;
-  final VoidCallback onGallery;
-  final VoidCallback onInput;
+  const _EmptyState();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisAlignment: MainAxisAlignment.center,
+    final paper = theme.extension<PaperColors>() ?? PaperColors.light;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 纸感插画：对话气泡 + 羽毛笔 + ✦ 点缀
+            _EmptyIllustration(paper: paper, cs: cs),
+            const SizedBox(height: 28),
+            Text(
+              '开始你的问题',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '拍照提问，或直接输入你的疑问\nAI 会陪你一起思考',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 空态插画：对话气泡 + 羽毛笔 + ✦ 印章点缀。
+///
+/// 用 CustomPaint 手绘，保持纸感学术风格：虚线气泡边框 + 简约羽毛笔剪影。
+class _EmptyIllustration extends StatelessWidget {
+  const _EmptyIllustration({required this.paper, required this.cs});
+
+  final PaperColors paper;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 140,
+      height: 120,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Center(
+          // 对话气泡（虚线边框，拍立得白底）
+          Positioned(
+            left: 0,
+            top: 8,
+            child: CustomPaint(
+              size: const Size(100, 80),
+              painter: _BubblePainter(
+                color: paper.stampRed,
+                bgColor: paper.polaroidBg,
+              ),
+            ),
+          ),
+          // 气泡内的 ✦ 印章
+          Positioned(
+            left: 38,
+            top: 32,
             child: Text(
               '✦',
               style: TextStyle(
-                fontSize: 36,
-                color: cs.primary,
+                color: paper.stampRed,
+                fontSize: 22,
                 height: 1.0,
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            '问 AI',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '拍照问一道题，或直接输入你的疑问',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.tonalIcon(
-            onPressed: onCamera,
-            icon: const Icon(Icons.photo_camera_outlined),
-            label: Text(
-              '拍照',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontSize: 14,
-                color: cs.onSecondaryContainer,
+          // 羽毛笔（斜放，笔尖朝向气泡）
+          Positioned(
+            right: 2,
+            bottom: 0,
+            child: Transform.rotate(
+              angle: -25 * math.pi / 180,
+              child: CustomPaint(
+                size: const Size(44, 70),
+                painter: _QuillPainter(
+                  color: paper.gold,
+                  tipColor: paper.stampRed,
+                ),
               ),
             ),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
-          const SizedBox(height: 10),
-          FilledButton.tonalIcon(
-            onPressed: onGallery,
-            icon: const Icon(Icons.photo_library_outlined),
-            label: Text(
-              '从相册选择',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontSize: 14,
-                color: cs.onSecondaryContainer,
+          // 小墨点装饰
+          Positioned(
+            right: 12,
+            top: 4,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: paper.stampRed.withValues(alpha: 0.6),
+                shape: BoxShape.circle,
               ),
             ),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
-          const SizedBox(height: 10),
-          FilledButton.tonalIcon(
-            onPressed: onInput,
-            icon: const Icon(Icons.edit_note),
-            label: Text(
-              '直接输入文字',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontSize: 14,
-                color: cs.onSecondaryContainer,
+          Positioned(
+            left: 8,
+            bottom: 4,
+            child: Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: paper.gold.withValues(alpha: 0.7),
+                shape: BoxShape.circle,
               ),
-            ),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// 虚线对话气泡绘制器。
+class _BubblePainter extends CustomPainter {
+  _BubblePainter({required this.color, required this.bgColor});
+
+  final Color color;
+  final Color bgColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height - 12);
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(14));
+
+    // 填充
+    final fillPaint = Paint()..color = bgColor;
+    canvas.drawRRect(rrect, fillPaint);
+
+    // 虚线边框
+    final borderPaint = Paint()
+      ..color = color.withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    _drawDashedRRect(canvas, rrect, borderPaint, 6, 4);
+
+    // 气泡小尾巴
+    final tailPath = Path()
+      ..moveTo(size.width * 0.3, size.height - 12)
+      ..lineTo(size.width * 0.18, size.height)
+      ..lineTo(size.width * 0.42, size.height - 12)
+      ..close();
+    canvas.drawPath(tailPath, fillPaint);
+
+    // 尾巴左边
+    final tailLeftPaint = Paint()
+      ..color = color.withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    _drawDashedLine(
+      canvas,
+      Offset(size.width * 0.3, size.height - 12),
+      Offset(size.width * 0.18, size.height),
+      tailLeftPaint,
+      4,
+      3,
+    );
+    _drawDashedLine(
+      canvas,
+      Offset(size.width * 0.18, size.height),
+      Offset(size.width * 0.42, size.height - 12),
+      tailLeftPaint,
+      4,
+      3,
+    );
+  }
+
+  void _drawDashedRRect(
+    Canvas canvas,
+    RRect rrect,
+    Paint paint,
+    double dash,
+    double gap,
+  ) {
+    final path = Path()..addRRect(rrect);
+    _drawDashedPath(canvas, path, paint, dash, gap);
+  }
+
+  void _drawDashedPath(
+    Canvas canvas,
+    Path path,
+    Paint paint,
+    double dash,
+    double gap,
+  ) {
+    final metrics = path.computeMetrics().toList();
+    for (final metric in metrics) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final len = dash;
+        final extractPath = metric.extractPath(distance, distance + len);
+        canvas.drawPath(extractPath, paint);
+        distance += dash + gap;
+      }
+    }
+  }
+
+  void _drawDashedLine(
+    Canvas canvas,
+    Offset start,
+    Offset end,
+    Paint paint,
+    double dash,
+    double gap,
+  ) {
+    final path = Path()
+      ..moveTo(start.dx, start.dy)
+      ..lineTo(end.dx, end.dy);
+    _drawDashedPath(canvas, path, paint, dash, gap);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BubblePainter oldDelegate) =>
+      color != oldDelegate.color || bgColor != oldDelegate.bgColor;
+}
+
+/// 羽毛笔绘制器。
+class _QuillPainter extends CustomPainter {
+  _QuillPainter({required this.color, required this.tipColor});
+
+  final Color color;
+  final Color tipColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 羽毛主体（叶片形状，用贝塞尔曲线）
+    final shaftPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final featherPath = Path();
+    featherPath.moveTo(size.width * 0.5, size.height * 0.15);
+    featherPath.cubicTo(
+      size.width * 0.9, size.height * 0.25,
+      size.width * 0.95, size.height * 0.55,
+      size.width * 0.55, size.height * 0.75,
+    );
+    featherPath.cubicTo(
+      size.width * 0.2, size.height * 0.6,
+      size.width * 0.1, size.height * 0.35,
+      size.width * 0.5, size.height * 0.15,
+    );
+    canvas.drawPath(featherPath, shaftPaint);
+
+    // 羽毛中轴（浅色细茎）
+    final stemPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(size.width * 0.5, size.height * 0.18),
+      Offset(size.width * 0.48, size.height * 0.72),
+      stemPaint,
+    );
+
+    // 笔尖（朱砂色，三角形）
+    final tipPaint = Paint()
+      ..color = tipColor
+      ..style = PaintingStyle.fill;
+    final tipPath = Path();
+    tipPath.moveTo(size.width * 0.55, size.height * 0.72);
+    tipPath.lineTo(size.width * 0.35, size.height * 0.78);
+    tipPath.lineTo(size.width * 0.5, size.height);
+    tipPath.close();
+    canvas.drawPath(tipPath, tipPaint);
+
+    // 笔尖高光
+    final tipHighlight = Paint()
+      ..color = Colors.white.withValues(alpha: 0.4)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(
+      Offset(size.width * 0.48, size.height * 0.75),
+      Offset(size.width * 0.5, size.height * 0.96),
+      tipHighlight,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _QuillPainter oldDelegate) =>
+      color != oldDelegate.color || tipColor != oldDelegate.tipColor;
 }
 
 // ─────────────────────────────────────────────────────────────

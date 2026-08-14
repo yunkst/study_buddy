@@ -282,7 +282,11 @@ class _CardView extends StatelessWidget {
   }
 }
 
-/// 四档评分行：忘了 / 困难 / 良好 / 简单，各带预估下次间隔小字。
+/// 四档评分行：忘了 / 困难 / 良好 / 简单。
+///
+/// 设计方向：从扁平 tonal 按钮改为「记忆牢固度色阶」胶囊按钮——
+/// 从左到右颜色随牢固度递进（朱砂→橙→金→墨绿），每档配一个语义图标
+/// 与预估下次间隔。视觉信息层级更强，一眼能看出「该按哪个」。
 class _RatingRow extends StatelessWidget {
   const _RatingRow({
     required this.accent,
@@ -301,11 +305,29 @@ class _RatingRow extends StatelessWidget {
     Rating.easy: '简单',
   };
 
+  static const _icons = <Rating, IconData>{
+    Rating.forgot: Icons.refresh,
+    Rating.hard: Icons.trending_up,
+    Rating.good: Icons.check,
+    Rating.easy: Icons.bolt,
+  };
+
+  /// 每档的语义色：忘了→朱砂红，困难→暖橙，良好→提示金，简单→墨绿。
+  /// 色阶左低右高，直观映射「记忆牢固度」。
+  Color _tint(Rating r, ColorScheme cs, PaperColors? paper) => switch (r) {
+        Rating.forgot => cs.error,
+        Rating.hard => paper?.gold ?? cs.tertiary,
+        Rating.good => paper?.gold ?? cs.tertiary,
+        Rating.easy => cs.tertiary,
+      };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final paper = theme.extension<PaperColors>();
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (final r in Rating.values)
           Expanded(
@@ -313,27 +335,20 @@ class _RatingRow extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 3),
               child: Column(
                 children: [
-                  FilledButton.tonal(
-                    onPressed: () => onRate(r),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(40),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                    ),
-                    child: Text(
-                      _labels[r]!,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontSize: 14,
-                        color: cs.onSecondaryContainer,
-                      ),
-                    ),
+                  _RatingPill(
+                    label: _labels[r]!,
+                    icon: _icons[r]!,
+                    color: _tint(r, cs, paper),
+                    onTap: () => onRate(r),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     predict(r),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: cs.onSurfaceVariant,
+                      fontSize: 10,
                     ),
                   ),
                 ],
@@ -341,6 +356,59 @@ class _RatingRow extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 单个评分胶囊按钮：色淡底 + 图标 + 文字，点按有水波纹反馈。
+class _RatingPill extends StatelessWidget {
+  const _RatingPill({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        splashColor: color.withValues(alpha: 0.2),
+        highlightColor: color.withValues(alpha: 0.15),
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: color.withValues(alpha: 0.45)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
