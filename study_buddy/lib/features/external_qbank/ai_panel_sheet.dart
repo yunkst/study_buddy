@@ -30,6 +30,7 @@ import '../../core/theme/paper_scaffold.dart';
 import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/ask_user_input_semantics.dart';
 import '../../core/widgets/markdown_latex.dart';
+import '../../core/widgets/typewriter_text.dart';
 import 'saved_topic_capsule.dart';
 
 /// 对话页启动参数：截图（拍题/分享冷启动）与知识点教学入口（【为什么？】）可并存。
@@ -342,6 +343,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                         devMode: devMode,
                         colorScheme: colorScheme,
                         theme: theme,
+                        // 流式输出走打字机(active=busy);busy 结束本轮即卸下,
+                        // 由消息气泡整段展示,不存在「残尾逐字」。
+                        active: state.busy,
                       ),
                     // ask_user 提问卡片：agent 挂起等用户作答。
                     if (state.pendingAsk != null)
@@ -823,6 +827,8 @@ class _AttachedImageGrid extends StatelessWidget {
 ///
 /// [toolEvents] 为当前轮流式工具轨迹（仅流式气泡传入；历史 assistant 消息传空）。
 /// [devMode] 开启时工具轨迹渲染为可展开详情卡片（流式期参数尚未产生，仅结果可见）。
+/// [active] 为 true 时（流式输出期）文本经 TypewriterText 打字机逐字上屏，
+/// 揭示速度随积压自适应;false（历史/完成消息）则整段立显,不做打字动画。
 class _AiNote extends StatelessWidget {
   const _AiNote({
     required this.text,
@@ -830,6 +836,7 @@ class _AiNote extends StatelessWidget {
     required this.devMode,
     required this.colorScheme,
     required this.theme,
+    this.active = false,
   });
 
   final String text;
@@ -837,6 +844,7 @@ class _AiNote extends StatelessWidget {
   final bool devMode;
   final ColorScheme colorScheme;
   final ThemeData theme;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -860,7 +868,15 @@ class _AiNote extends StatelessWidget {
               )),
           if (text.isNotEmpty) ...[
             if (toolEvents.isNotEmpty) const SizedBox(height: 6),
-            MarkdownLatex(data: text, selectable: true),
+            // 打字机揭示截断文本,Markdown/LaTeX 解析原始句法不变——只是
+            // 每次喂入已揭示的部分,随揭示进度渐进渲染(部分 Markdown 已由
+            // 流式增量渲染覆盖,截断不引入新的解析风险)。
+            TypewriterText(
+              text: text,
+              active: active,
+              builder: (_, partial) =>
+                  MarkdownLatex(data: partial, selectable: true),
+            ),
           ],
         ],
       ),

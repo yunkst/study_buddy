@@ -8,6 +8,7 @@ import 'package:study_engine/study_engine.dart';
 import '../../core/providers/agent_session_provider.dart';
 import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/ask_user_input_semantics.dart';
+import '../../core/widgets/typewriter_text.dart';
 
 /// 弹出计划 AI 对话。planId 为空=新建模式，非空=调整模式。
 /// 新建模式下 create_plan 成功后跳转 /plan/:id。
@@ -282,7 +283,13 @@ class _PlanChatSheetState extends ConsumerState<_PlanChatSheet> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
-                child: SelectableText(_aiText.toString()),
+                // 流式期走打字机(active=_busy),完成后 _busy=false → 立即整段显示,
+                // 避免已完成输出残尾逐字拖沓。
+                child: TypewriterText(
+                  text: _aiText.toString(),
+                  active: _busy,
+                  builder: (_, partial) => SelectableText(partial),
+                ),
               ),
             ],
           ],
