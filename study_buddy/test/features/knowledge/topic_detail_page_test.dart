@@ -26,6 +26,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/core/widgets/markdown_latex.dart';
@@ -152,21 +153,52 @@ void main() {
     expect(find.text('已掌握'), findsOneWidget);
   });
 
-  testWidgets('【为什么？】按钮渲染并点击跳转 /ai 教学入口', (tester) async {
-    final container = ProviderContainer(
-      overrides: [databaseProvider.overrideWith((ref) async => sdb)],
-    );
+  testWidgets('【为什么？】:点击后按钮变「正在思考」,AI 首个 token 到达才跳转 /ai', (tester) async {
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWith((ref) async => sdb),
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
     addTearDown(container.dispose);
 
     await pumpDetailPage(tester, container);
 
-    // 正文区明显按钮渲染（key + 文案）。
     expect(find.byKey(const ValueKey('why-button')), findsOneWidget);
     expect(find.text('为什么？'), findsOneWidget);
 
-    // 点击 → push /ai（占位页 'ai-page' 出现）。
     await tester.tap(find.byKey(const ValueKey('why-button')));
+    await tester.pump();
+    // 等待态：按钮变「正在思考怎么和你解释..」（未立即跳转）
+    expect(find.text('正在思考怎么和你解释..'), findsOneWidget);
+    expect(find.text('ai-page'), findsNothing);
+
+    // startTeaching 的恢复查询是真实异步（sqflite isolate），runAsync 推进；
+    // fake 事件流首个 TextDelta 到达 → resolve → push /ai。
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)));
     await tester.pumpAndSettle();
     expect(find.text('ai-page'), findsOneWidget);
+
+    // startTeaching 触发的 createSession / flushPersist 写库（sqflite isolate
+    // 真实异步）在断言通过后仍在后台飞行中；若直接 container.dispose（本测试开头
+    // 注册，LIFO 后执行），未完成的 _flushPersist 访问已释放的 _ref 会抛
+    // UnmountedRefException。addTearDown 回调运行在 real async zone（实测：真实
+    // Future.delayed 会完成），故在此注册一个真实等待，让写链在 dispose 前跑完。
+    // LIFO 顺序：本回调先于上面的 container.dispose 执行。
+    addTearDown(() => Future<void>.delayed(const Duration(seconds: 2)));
   });
+}
+
+/// 假 AgentSession：事件流立即放完，记录收到的 topicId。
+class _FakeAgentSession extends AgentSession {
+  _FakeAgentSession(super.ref);
+  final List<int?> receivedTopicIds = [];
+  @override
+  Future<AgentSessionHandle> run(List<ChatMessage> messages,
+      {int? chatSessionId, int? planId, DateTime? today, int? topicId}) async {
+    receivedTopicIds.add(topicId);
+    return AgentSessionHandle(
+      stream: Stream.fromIterable(
+          [TextDeltaEvent('开场'), AgentDoneEvent('开场')]),
+    );
+  }
 }

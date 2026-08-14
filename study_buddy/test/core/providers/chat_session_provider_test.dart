@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/chat_session_provider.dart';
 import 'package:study_buddy/core/providers/captured_image.dart';
+import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_engine/study_engine.dart';
 
 /// 假 AgentSession：用预制事件流驱动，记录收到的 messages。
@@ -36,6 +38,7 @@ CapturedScreenshot _screenshot() =>
     CapturedScreenshot(Uint8List.fromList([1, 2, 3]), 'data:image/png;base64,MTIz');
 
 void main() {
+  setUpAll(sqfliteFfiInit);
   // 事件序列必须严格遵循引擎真实契约（见 agent_loop.dart）：
   // - 纯文本轮：TextDeltaEvent* + AgentDoneEvent(finalText)，NO RoundEnd
   // - 工具调用轮：ToolCallStart/End + AgentRoundEndEvent([assistant(toolCalls), tool, ...])
@@ -234,42 +237,65 @@ void main() {
     expect(state.toolEvents, isEmpty);
   });
 
-  test('startTopicTeaching: 清空旧会话 + 发开场消息 + run 收到 topicId', () async {
-    final events = <AgentEvent>[
-      TextDeltaEvent('开场'),
-      AgentDoneEvent('开场'),
-    ];
+  test('startTeaching:存在历史教学会话时直接恢复,不调用 LLM', () async {
+    // 内存库预置 topicId=42 的教学会话（user+assistant）
+    final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    addTearDown(sdb.close);
+    final seedRepo = ChatRepository(sdb);
+    final sid = await seedRepo.createSession('study_plan', '教学', topicId: 42);
+    await seedRepo.addMessage(sid, const ChatMessage(role: 'user', content: '开场指令'));
+    await seedRepo.addMessage(sid, const ChatMessage(role: 'assistant', content: '上次讲解内容'));
+
     _FakeAgentSession? captured;
     final container = ProviderContainer(overrides: [
-      agentSessionProvider.overrideWith((ref) {
-        return captured = _FakeAgentSession(ref, events);
-      }),
+      agentSessionProvider.overrideWith((ref) =>
+          captured = _FakeAgentSession(ref, const [])),
+      databaseProvider.overrideWith((ref) async => sdb),
     ]);
     addTearDown(container.dispose);
 
-    final notifier = container.read(currentChatProvider.notifier);
-    // 先积累一轮旧会话（普通模式，topicId 应为 null）
-    await notifier.send('旧问题', image: _screenshot());
-    expect(container.read(currentChatProvider).messages, isNotEmpty);
+    final notifier = container.read(topicTeachingProvider.notifier);
+    await notifier.startTeaching(42);
 
-    // 教学启动：清旧会话 → 记录 topic → 发开场消息触发 AI 开场
-    notifier.startTopicTeaching(42);
-    // 开场 send 是 unawaited 异步，等事件流（Stream.fromIterable）走完
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-
-    final state = container.read(currentChatProvider);
-    // 旧会话被清空，只剩开场 user + assistant 回复
+    final state = container.read(topicTeachingProvider);
     expect(state.messages, hasLength(2));
-    expect(state.messages[0].role, 'user');
-    expect(state.messages[1].role, 'assistant');
-    expect(state.messages[1].content, '开场');
+    expect(state.messages[1].content, '上次讲解内容');
     expect(state.busy, isFalse);
-    // 开场 user 消息是教学指令（含「场景」），且不以用户气泡语义泄漏
+    // 关键：零 LLM 调用（恢复路径完全不 read agentSessionProvider，
+    // overrideWith 工厂惰性求值 → captured 保持 null，比 run 未被调用更强的零 LLM 证明）
+    expect(captured, isNull);
+  });
+
+  test('startTeaching:无历史时发开场并等首个 TextDelta resolve,透传 topicId', () async {
+    final events = <AgentEvent>[
+      TextDeltaEvent('开场'),
+      TextDeltaEvent('引导'),
+      AgentDoneEvent('开场引导'),
+    ];
+    final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    addTearDown(sdb.close);
+    _FakeAgentSession? captured;
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) =>
+          captured = _FakeAgentSession(ref, events)),
+      databaseProvider.overrideWith((ref) async => sdb),
+    ]);
+    addTearDown(container.dispose);
+
+    final notifier = container.read(topicTeachingProvider.notifier);
+    await notifier.startTeaching(42);
+    await Future<void>.delayed(const Duration(milliseconds: 20)); // 事件流走完
+
+    final state = container.read(topicTeachingProvider);
+    expect(state.messages, hasLength(2)); // 开场 user + assistant
     final userContent = state.messages[0].content as List<ContentPart>;
-    final userText = userContent.whereType<TextPart>().map((p) => p.text).join();
-    expect(userText, contains('场景'));
-    // run 透传 topicId：旧轮为 null，教学轮为 42
-    expect(captured!.receivedTopicIds, [null, 42]);
+    expect(userContent.whereType<TextPart>().map((p) => p.text).join(), contains('场景'));
+    expect(state.messages[1].content, '开场引导');
+    expect(state.busy, isFalse);
+    // 教学轮透传 topicId=42
+    expect(captured!.receivedTopicIds, [42]);
   });
 
   test('send 运行中 clear:挂起的 send future 必须返回(不永久挂起)', () async {

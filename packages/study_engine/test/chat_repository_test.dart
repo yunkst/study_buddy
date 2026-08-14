@@ -97,4 +97,32 @@ void main() {
     expect(await repo.latestSession('study_plan'), isNull);
     await sdb.close();
   });
+
+  test('教学会话:createSession 带 topicId,findTeachingSession 命中且 latestSession 主线过滤', () async {
+    final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final repo = ChatRepository(sdb);
+    // 一条主线（无 topicId）+ 一条教学（topicId=42）
+    final mainlineId = await repo.createSession('study_plan', '主线');
+    final teachingId =
+        await repo.createSession('study_plan', '教学', topicId: 42);
+    await repo.addMessage(mainlineId, const ChatMessage(role: 'user', content: '主线消息'));
+    await repo.addMessage(teachingId, const ChatMessage(role: 'user', content: '教学消息'));
+
+    // findTeachingSession 命中 topicId=42 的教学会话
+    final found = await repo.findTeachingSession(42);
+    expect(found, isNotNull);
+    expect(found!.id, teachingId);
+    // 未命中其他 topic
+    expect(await repo.findTeachingSession(99), isNull);
+
+    // latestSession 默认只回主线（不被教学会话污染）
+    final latest = await repo.latestSession('study_plan');
+    expect(latest!.id, mainlineId);
+
+    // latestSession 关闭主线过滤时能看到教学会话
+    final any = await repo.latestSession('study_plan', mainlineOnly: false);
+    expect(any!.id, teachingId); // 教学会话更新晚，按 updated_at 排前
+    await sdb.close();
+  });
 }

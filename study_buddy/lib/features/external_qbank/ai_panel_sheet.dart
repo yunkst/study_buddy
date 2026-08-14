@@ -7,17 +7,20 @@
 // 截图纯内存，随会话释放；会话跨进入/返回保留（全局 StateNotifierProvider，页面 dispose
 // 不触发 clear），由「新对话」按钮（AppBar）或 App 退出（app.dart didChangeAppLifecycleState
 // detached）清空。
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_engine/study_engine.dart';
 
 import '../../core/providers/agent_session_provider.dart';
 import '../../core/providers/chat_session_provider.dart';
+import '../../core/providers/database_provider.dart';
 import '../../core/providers/image_pick_provider.dart';
 import '../../core/providers/captured_image.dart';
 import '../../core/services/logger_service.dart';
@@ -83,30 +86,44 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   /// 而非用户气泡；用户自行发送首条消息后（_firstSent=true）恢复普通气泡。
   bool _teachingOpening = false;
 
+  /// 会话状态来源：教学入口（initialTopicId != null）→ topicTeachingProvider，
+  /// 否则主线（currentChatProvider）。教学与主线完全隔离，互不覆盖。
+  /// late final：initState 中按入口赋值，build（ref.watch）在 initState 之后才执行。
+  late final StateNotifierProvider<ChatSessionNotifier, ChatSessionState>
+      _chatProvider;
+
+  bool get _isTeaching => widget.initialTopicId != null;
+
   @override
   void initState() {
     super.initState();
-    // 冷启动恢复最近会话（重启续聊）：幂等，无历史时静默降级为全新对话。
-    ref.read(currentChatProvider.notifier).hydrate();
+    // 按入口选择会话 provider：教学走独立 provider，主线走 currentChatProvider。
+    _chatProvider = _isTeaching ? topicTeachingProvider : currentChatProvider;
+    // 冷启动恢复最近会话（续聊）：仅主线；教学路径由 startTeaching 自行恢复历史。
+    if (!_isTeaching) {
+      ref.read(_chatProvider.notifier).hydrate();
+    }
     // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
     _pendingImage = widget.initialScreenshot;
-    // 知识点教学入口（【为什么？】）：清旧会话 + 记录教学 topic + 发开场消息，
-    // AI 自动从知识点诞生的场景出发开场引导。
-    // 延迟到首帧后执行：send() 会修改 currentChatProvider，而 initState 期间
-    // 修改 provider 违反 Riverpod 3 的「构建期禁止修改」断言。
-    final topicId = widget.initialTopicId;
-    _teachingOpening = topicId != null;
-    if (topicId != null) {
+    _teachingOpening = _isTeaching;
+    // 教学兜底启动：从详情页进入时 startTeaching 已完成/进行中则跳过；
+    // 深链/分享直达空态时补发开场。延迟到首帧后执行（send 修改 provider，
+    // initState 期间违反 Riverpod 3 构建期约束）。
+    if (_isTeaching) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref.read(currentChatProvider.notifier).startTopicTeaching(topicId);
+        if (!mounted) return;
+        final s = ref.read(topicTeachingProvider);
+        if (!s.busy && s.messages.isEmpty) {
+          unawaited(ref
+              .read(topicTeachingProvider.notifier)
+              .startTeaching(widget.initialTopicId!));
         }
       });
     }
     // 输入文本变化时重算发送按钮可用态（canSend 依赖 _inputCtrl.text）。
     _inputCtrl.addListener(_onInputChanged);
     // 监听会话状态变化：仅在有新消息/流式增量时滚动到底部。
-    ref.listenManual(currentChatProvider, (prev, next) {
+    ref.listenManual(_chatProvider, (prev, next) {
       if (prev == null) return;
       final grew = next.messages.length != prev.messages.length ||
           next.streamingText.length != prev.streamingText.length;
@@ -142,7 +159,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       _pendingImage = null;
       _firstSent = true;
     });
-    await ref.read(currentChatProvider.notifier).send(text, image: image);
+    await ref.read(_chatProvider.notifier).send(text, image: image);
   }
 
   // 输入区语义判定委托给共享的 AskUserInputSemantics（与 plan_chat_sheet 共用），
@@ -153,7 +170,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty) return;
     _inputCtrl.clear();
-    ref.read(currentChatProvider.notifier).respondToAsk(text);
+    ref.read(_chatProvider.notifier).respondToAsk(text);
   }
 
   /// 构造当前输入区语义。sheet 状态 _firstSent + state.busy + state.pendingAsk。
@@ -218,7 +235,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(currentChatProvider);
+    final state = ref.watch(_chatProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     // 纸感扩展兜底：未装配 PaperColors 的上下文（如 widget 测试裸 MaterialApp）
@@ -243,7 +260,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             onPressed: state.busy || state.messages.isEmpty
                 ? null
                 : () {
-                    ref.read(currentChatProvider.notifier).clear();
+                    ref.read(_chatProvider.notifier).clear();
                     _inputCtrl.clear();
                     setState(() {
                       _pendingImage = null;
@@ -258,6 +275,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 教学入口：顶部常驻可折叠知识卡（标题 + 引子/答案缩略，点回详情页）。
+            if (_isTeaching) _TopicHeaderCard(topicId: widget.initialTopicId!),
             // 空态引导：首次进入对话页（无历史 + 无待附图）
             if (showEmptyState)
               _EmptyState(
@@ -297,7 +316,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     AskUserCard(
                       request: state.pendingAsk!,
                       onSubmit: (answer) => ref
-                          .read(currentChatProvider.notifier)
+                          .read(_chatProvider.notifier)
                           .respondToAsk(answer),
                     ),
                   // 首轮未发送时显示拍立得截图预览
@@ -1502,6 +1521,106 @@ class _ReviewReplyBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 私有 widget：教学入口顶部知识卡（可折叠）
+// ─────────────────────────────────────────────────────────────
+
+/// 教学入口顶部知识卡：默认展开（标题 + 引子/答案缩略 2 行），可折叠成一行标题条，
+/// 点卡片主体跳回知识点详情页。数据来自 TopicRepository.findById。
+class _TopicHeaderCard extends ConsumerStatefulWidget {
+  const _TopicHeaderCard({required this.topicId});
+
+  final int topicId;
+
+  @override
+  ConsumerState<_TopicHeaderCard> createState() => _TopicHeaderCardState();
+}
+
+class _TopicHeaderCardState extends ConsumerState<_TopicHeaderCard> {
+  bool _expanded = true;
+
+  Future<Topic?> _loadTopic() async {
+    final db = await ref.read(databaseProvider.future);
+    return TopicRepository(db).findById(widget.topicId);
+  }
+
+  /// 剥掉常见 Markdown 记号，供缩略文本用。
+  String _stripMarkdown(String s) =>
+      s.replaceAll(RegExp(r'[*_`#>\-\[\]()]'), '').trim();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      color: cs.surfaceContainerLow,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: cs.outlineVariant, width: 0.5),
+      ),
+      child: FutureBuilder<Topic?>(
+        future: _loadTopic(),
+        builder: (context, snap) {
+          final title = snap.data?.title ?? '知识点';
+          return InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => context.push('/topic/${widget.topicId}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.emoji_objects_outlined,
+                      size: 16, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        if (_expanded && snap.hasData) ...[
+                          const SizedBox(height: 4),
+                          Text('引子：${_stripMarkdown(snap.data!.question)}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: cs.onSurfaceVariant)),
+                          const SizedBox(height: 2),
+                          Text('答案：${_stripMarkdown(snap.data!.summary)}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: cs.onSurfaceVariant)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('topic-card-toggle'),
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    icon: Icon(
+                        _expanded ? Icons.expand_less : Icons.expand_more),
+                    tooltip: _expanded ? '收起' : '展开',
+                    onPressed: () =>
+                        setState(() => _expanded = !_expanded),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

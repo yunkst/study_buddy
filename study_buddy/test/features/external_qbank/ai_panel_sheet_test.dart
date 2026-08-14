@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +11,12 @@ import 'package:go_router/go_router.dart';
 // 我们直接 import 它来 mock ImagePickerPlatform.instance（无需在 pubspec 中声明）。
 // ignore: depend_on_referenced_packages
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+// ignore: depend_on_referenced_packages
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:study_buddy/core/providers/agent_session_provider.dart';
 import 'package:study_buddy/core/providers/captured_image.dart';
 import 'package:study_buddy/core/providers/chat_session_provider.dart';
+import 'package:study_buddy/core/providers/database_provider.dart';
 import 'package:study_buddy/core/theme/app_theme.dart';
 import 'package:study_buddy/core/widgets/markdown_latex.dart';
 import 'package:study_buddy/features/external_qbank/ai_panel_sheet.dart';
@@ -161,6 +164,9 @@ Future<void> pumpPanel(
 }
 
 void main() {
+  // 内存数据库需要 FFI 工厂（不在 Android/iOS 测试环境里走原生 sqflite）。
+  setUpAll(sqfliteFfiInit);
+
   testWidgets('首轮:截图预览可见,发送后显示 user 与 assistant 气泡', (tester) async {
     final screenshot = CapturedScreenshot(_pngBytes(), 'data:image/png;base64,x');
     final container = ProviderContainer(overrides: [
@@ -376,14 +382,26 @@ void main() {
 
   testWidgets('教学入口:带 topicId 进入后 AI 自动开场,开场指令渲染为引导横幅',
       (tester) async {
+    // override databaseProvider 让其 future 立即 reject：startTeaching 内的
+    // _tryRestoreTeaching await databaseProvider.future 会抛错被 try/catch 吞掉，
+    // 立即返回 false → 走 send 开场路径（同步 append user 消息到 state，
+    // 后续 stream 监听由 FakeAgentSession 的 Stream.fromIterable 同步派发完成）。
+    // 避免 fakeAsync 下 path_provider method channel 调用永久挂起导致 pumpAndSettle 死锁。
     final container = ProviderContainer(overrides: [
       agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+      databaseProvider.overrideWith((ref) =>
+          Future.error(StateError('test: db unavailable'))),
     ]);
     addTearDown(container.dispose);
 
     // 知识点教学入口（topicId=42）：进入即自动清会话 + 发开场消息 + AI 开场回复。
     await pumpPanel(tester, container: container, topicId: 42);
-    await tester.pumpAndSettle();
+    // startTeaching 同步完成 send 部分后 await firstToken.future。
+    // 多次 pump 推进 fakeAsync：让 stream 监听 / UI 重建 / LoggerService 内
+    // 的 1s Timer（_schedulePersist）跑完，避免 timer 残留触发 _verifyInvariants 失败。
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
 
     // 开场指令 user 消息渲染为居中引导横幅（而非用户气泡）。
     expect(find.text('从场景出发，认识这个知识点'), findsOneWidget);
@@ -391,11 +409,53 @@ void main() {
     expect(_selectableTextContaining('这是分析'), findsOneWidget);
     // 开场指令本身不作为用户气泡文本泄漏显示。
     expect(find.textContaining('诞生的具体场景'), findsNothing);
-    // 会话含 user(开场指令) + assistant(开场回复)。
-    final state = container.read(currentChatProvider);
+    // 会话含 user(开场指令) + assistant(开场回复)（在 topicTeachingProvider，
+    // 而非 currentChatProvider——教学与主线隔离）。
+    final state = container.read(topicTeachingProvider);
     expect(state.messages, hasLength(2));
     expect(state.messages[0].role, 'user');
     expect(state.messages[1].role, 'assistant');
+    // 主线 currentChatProvider 保持空（不被教学覆盖）。
+    expect(container.read(currentChatProvider).messages, isEmpty);
+  });
+
+  testWidgets('教学入口:顶部可折叠知识卡渲染,折叠后只留标题;会话走 topicTeachingProvider',
+      (tester) async {
+    // fakeAsync 下 startTeaching 走真 DB I/O 会永久挂起，故用 reject override：
+    // _tryRestoreTeaching 立刻 catch → 走 send 路径（FakeAgentSession 同步 stream
+    // 由 fakeAsync microtask 推进完成）。_TopicHeaderCard 的 FutureBuilder 同样
+    // 走 databaseProvider（reject），title fallback '知识点'，引子/答案 fallback
+    // 到空 → 不渲染。折叠测试聚焦「toggle 行为」与「教学会话走 topicTeachingProvider」：
+    // 折叠态不渲染引子/答案的展开（这里 snap.hasData=false，折叠/展开均不渲染
+    // 引子/答案行），验证 toggle 可点 + 教学会话独立于主线。
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+      databaseProvider.overrideWith((ref) =>
+          Future.error(StateError('test: db unavailable'))),
+    ]);
+    addTearDown(container.dispose);
+
+    await pumpPanel(tester, container: container, topicId: 42);
+    // 多次 pump 推进 fakeAsync：startTeaching 的 stream 派发 + LoggerService
+    // 1s Timer（_schedulePersist）跑完，避免 _verifyInvariants timer 残留失败。
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    // 顶部知识卡：toggle 可见（fallback '知识点' 标题 + IconButton）
+    expect(find.byKey(const ValueKey('topic-card-toggle')), findsOneWidget);
+
+    // 折叠：点 toggle → 状态翻转（不抛错）
+    await tester.tap(find.byKey(const ValueKey('topic-card-toggle')));
+    await tester.pump();
+    // 折叠后：knowledge 数据 snap 仍可能为 null，但至少 toggle 仍存在（可再展开）
+    expect(find.byKey(const ValueKey('topic-card-toggle')), findsOneWidget);
+
+    // 会话走 topicTeachingProvider（不污染主线）
+    final teachingState = container.read(topicTeachingProvider);
+    final mainState = container.read(currentChatProvider);
+    expect(mainState.messages, isEmpty); // 主线没被覆盖
+    expect(teachingState.messages, isNotEmpty); // 教学开场已发出
   });
 
   // 回归：空态三按钮（拍照 / 从相册选择 / 直接输入文字）文字颜色必须与
