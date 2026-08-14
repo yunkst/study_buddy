@@ -1720,6 +1720,7 @@ class _EmptyIllustration extends StatelessWidget {
                 painter: _QuillPainter(
                   color: paper.gold,
                   tipColor: paper.stampRed,
+                  highlightColor: paper.paperHighlight,
                 ),
               ),
             ),
@@ -1860,10 +1861,17 @@ class _BubblePainter extends CustomPainter {
 
 /// 羽毛笔绘制器。
 class _QuillPainter extends CustomPainter {
-  _QuillPainter({required this.color, required this.tipColor});
+  _QuillPainter({
+    required this.color,
+    required this.tipColor,
+    required this.highlightColor,
+  });
 
   final Color color;
   final Color tipColor;
+
+  /// 叶片上的浅色高光（中轴细茎 + 笔尖高光），走主题 token。
+  final Color highlightColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1886,9 +1894,9 @@ class _QuillPainter extends CustomPainter {
     );
     canvas.drawPath(featherPath, shaftPaint);
 
-    // 羽毛中轴（浅色细茎）
+    // 羽毛中轴（浅色细茎）—— 走主题高光 token，亮模式象牙白、暗模式深褐。
     final stemPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.6)
+      ..color = highlightColor.withValues(alpha: 0.6)
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -1911,7 +1919,7 @@ class _QuillPainter extends CustomPainter {
 
     // 笔尖高光
     final tipHighlight = Paint()
-      ..color = Colors.white.withValues(alpha: 0.4)
+      ..color = highlightColor.withValues(alpha: 0.4)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     canvas.drawLine(
@@ -1923,7 +1931,9 @@ class _QuillPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _QuillPainter oldDelegate) =>
-      color != oldDelegate.color || tipColor != oldDelegate.tipColor;
+      color != oldDelegate.color ||
+      tipColor != oldDelegate.tipColor ||
+      highlightColor != oldDelegate.highlightColor;
 }
 
 // ─────────────────────────────────────────────────────────────
