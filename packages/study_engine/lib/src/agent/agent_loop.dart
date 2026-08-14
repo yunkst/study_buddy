@@ -9,6 +9,7 @@ import 'agent_event.dart';
 import 'agent_scenario.dart';
 import 'ask_user.dart';
 import 'context_compactor.dart';
+import 'tool_call_id_normalizer.dart';
 import 'tool_output_truncator.dart';
 
 /// LLM 远程调用失败的重试策略。
@@ -188,11 +189,20 @@ class AgentLoop {
           return;
         }
 
-        // assistant 消息携带 tool_calls
-        final assistantMsg = ChatMessage(role: 'assistant', content: buf.toString(), toolCalls: agg);
+        // P0:聚合结果 tool_call id 归一化 —— 空/重复 id 分配 session-stable 占位,
+        // 保证 assistant.tool_calls[].id 与后续 tool 消息 tool_call_id 严格成对且非空,
+        // 杜绝 400 "tool_call_id  is not found"(空值)污染。这是根治点:
+        // 即使 args 解析失败/ask_user 取消照常回灌,协议依然合法。
+        final normalizedAgg = normalizeToolCallIds(agg);
+
+        // assistant 消息携带 tool_calls(用归一化后的 id)
+        final assistantMsg = ChatMessage(
+            role: 'assistant',
+            content: buf.toString(),
+            toolCalls: normalizedAgg);
         msgs.add(assistantMsg);
         final roundNewMsgs = <ChatMessage>[assistantMsg];
-        for (final tc in agg) {
+        for (final tc in normalizedAgg) {
           logger.log(LoggerLevel.info, '工具调用: ${tc.name}',
               category: 'ai', traceId: traceId, tags: const ['tool-call']);
           yield ToolCallStartEvent(tc.name, tc.id);
