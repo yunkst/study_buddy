@@ -337,7 +337,7 @@ class ChatMessage {
     if (toolCalls != null) {
       m['tool_calls'] = toolCalls!.map((t) => t.toJson()).toList();
     }
-    if (toolCallId != null) m['tool_call_id'] = toolCallId;
+    if (toolCallId != null && toolCallId!.isNotEmpty) m['tool_call_id'] = toolCallId;
     return m;
   }
 
@@ -374,7 +374,10 @@ class ChatMessage {
       role: row['role'] as String,
       content: content,
       toolCalls: toolCalls,
-      toolCallId: row['tool_call_id'] as String?,
+      toolCallId: () {
+        final v = row['tool_call_id'] as String?;
+        return v == null || v.isEmpty ? null : v;
+      }(),
     );
   }
 
@@ -405,7 +408,7 @@ class ChatMessage {
   static ToolCall _toolCallFromJson(Map<String, Object?> j) {
     final fn = j['function'] as Map<String, Object?>? ?? const {};
     return ToolCall(
-      id: j['id'] as String? ?? '',
+      id: j['id'] as String? ?? 'call_unknown',
       name: fn['name'] as String? ?? '',
       arguments: fn['arguments'] as String? ?? '',
     );
