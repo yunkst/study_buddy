@@ -134,16 +134,19 @@ class ChatSessionNotifier extends StateNotifier<ChatSessionState> {
     );
   }
 
-  /// 发送一轮：组装 user 消息（文字+可选图）→ append → 调 AgentSession.run
+  /// 发送一轮：组装 user 消息（文字+多图）→ append → 调 AgentSession.run
   /// 监听事件流回填 state。构造期抛错回滚 user 消息。
-  Future<void> send(String text, {CapturedScreenshot? image}) async {
+  ///
+  /// [images] 按顺序附加为 ImageUrlPart（每张图占用一个 content part），
+  /// 同一 user 消息可携带多图；传空列表等价于纯文字发送。
+  Future<void> send(String text, {List<CapturedScreenshot> images = const []}) async {
     if (state.busy) return;
     final trimmed = text.trim();
-    if (trimmed.isEmpty && image == null) return;
+    if (trimmed.isEmpty && images.isEmpty) return;
 
     final userContent = <ContentPart>[
       TextPart(trimmed.isEmpty ? '分析这道题涉及的知识点' : trimmed),
-      if (image != null) ImageUrlPart(image.base64DataUri, detail: 'high'),
+      ...images.map((img) => ImageUrlPart(img.base64DataUri, detail: 'high')),
     ];
     final userMsg = ChatMessage(role: 'user', content: userContent);
 

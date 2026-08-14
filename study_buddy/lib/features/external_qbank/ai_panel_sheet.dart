@@ -1,4 +1,4 @@
-// 纸感学术 AI 对话页（全屏）：消息列表多轮对话（拍立得截图 + 用户气泡 + 工具轨迹 + AI 回复）。
+// 纸感学术 AI 对话页（全屏）：消息列表多轮对话（用户气泡含附图 + 工具轨迹 + AI 回复）。
 //
 // 由路由 `/ai` 承载（顶层 GoRoute，root navigator 承载 → 全屏盖住底部导航）。
 // 进入方式：今日页「问 AI」入口 / 知识点详情页「问 AI 深度交流」/ 分享冷启动带图。
@@ -81,7 +81,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   final FocusNode _inputFocus = FocusNode();
-  CapturedScreenshot? _pendingImage; // 待附图（首轮入口或追问轮追加）
+  /// 待附图队列（首轮入口预填或追问轮追加，可多张）。发送时随文字一起进
+  /// 用户气泡；预览呈现在输入区上方缩略图条，每张可单独移除。
+  final List<CapturedScreenshot> _pendingImages = [];
   bool _firstSent = false;
   /// 是否教学开场（详情页【为什么？】入口）：开场指令 user 消息渲染为居中引导横幅
   /// 而非用户气泡；用户自行发送首条消息后（_firstSent=true）恢复普通气泡。
@@ -105,7 +107,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       ref.read(_chatProvider.notifier).hydrate();
     }
     // 首轮：用入口截图作为首条消息的图（拍题 / 分享冷启动预填）。不自动发送。
-    _pendingImage = widget.initialScreenshot;
+    if (widget.initialScreenshot != null) {
+      _pendingImages.add(widget.initialScreenshot!);
+    }
     _teachingOpening = _isTeaching;
     // 教学兜底启动：从详情页进入时 startTeaching 已完成/进行中则跳过；
     // 深链/分享直达空态时补发开场。延迟到首帧后执行（send 修改 provider，
@@ -154,13 +158,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   Future<void> _send() async {
     final text = _inputCtrl.text;
-    final image = _pendingImage;
+    final images = List<CapturedScreenshot>.from(_pendingImages);
     _inputCtrl.clear();
     setState(() {
-      _pendingImage = null;
+      _pendingImages.clear();
       _firstSent = true;
     });
-    await ref.read(_chatProvider.notifier).send(text, image: image);
+    await ref.read(_chatProvider.notifier).send(text, images: images);
   }
 
   // 输入区语义判定委托给共享的 AskUserInputSemantics（与 plan_chat_sheet 共用），
@@ -193,9 +197,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     return _send;
   }
 
-  /// 追问轮加图：Sheet 选拍照/相册 → pickImageForAi → setState 更新 _pendingImage。
+  /// 加图：Sheet 选拍照/相册 → pickImageForAi → 追加进待附图队列。
   ///
-  /// 取消拍照/裁剪（返回 null）则不追加图。
+  /// 取消拍照/裁剪（返回 null）则不追加图；追加不覆盖已有图（支持多图）。
   Future<void> _attachCroppedImage({required bool fromCamera}) async {
     final screenshot = await pickImageForAi(fromCamera: fromCamera);
     if (screenshot == null || !mounted) return;
@@ -204,7 +208,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       extra: screenshot.pngBytes,
     );
     if (cropped == null || !mounted) return;
-    setState(() => _pendingImage = cropped);
+    setState(() => _pendingImages.add(cropped));
   }
 
   /// 追问轮加图：Sheet 选拍照/相册 → 复用 _attachCroppedImage。
@@ -240,16 +244,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     final devMode = ref.watch(devModeProvider).value ?? false;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    // 纸感扩展兜底：未装配 PaperColors 的上下文（如 widget 测试裸 MaterialApp）
-    // 退回亮色日光纸，避免 null 崩溃。
-    final paper = theme.extension<PaperColors>() ?? PaperColors.light;
 
-    // 派生空态：历史为空 + 当前没有待附图（ishistory）→ 显示空态引导。
+    // 派生空态：历史为空 + 当前没有待附图 → 显示空态引导。
     final hasHistory = state.messages.isNotEmpty;
-    final showEmptyState = !hasHistory && _pendingImage == null;
+    final showEmptyState = !hasHistory && _pendingImages.isEmpty;
 
     // 微信风发送可用态：有正文或待附图才可发送。
-    final canSend = _inputCtrl.text.trim().isNotEmpty || _pendingImage != null;
+    final canSend = _inputCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty;
 
     return PaperScaffold(
       appBar: AppBar(
@@ -268,7 +269,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     // fire-and-forget：后台沉淀本次对话经验，不阻塞开新对话。
                     ref.read(agentSessionProvider).distillMemory(snapshot);
                     setState(() {
-                      _pendingImage = null;
+                      _pendingImages.clear();
                       _firstSent = false;
                     });
                     if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
@@ -350,16 +351,6 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                             .read(_chatProvider.notifier)
                             .respondToAsk(answer),
                       ),
-                    // 首轮未发送时显示拍立得截图预览
-                    if (!_firstSent && _pendingImage != null)
-                      _Polaroid(
-                        image: Image.memory(
-                          _pendingImage!.pngBytes,
-                          height: 100,
-                          fit: BoxFit.contain,
-                        ),
-                        paper: paper,
-                      ),
                   ],
                 ),
               ),
@@ -372,26 +363,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 theme: theme,
               ),
             ],
-            // 待附图预览（追问轮）：拍立得缩略 + 移除按钮。
-            if (_pendingImage != null && _firstSent) ...[
+            // 待附图预览（任意轮次）：微信风缩略图条，每张右上角 × 可单独移除。
+            if (_pendingImages.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  _Polaroid(
-                    image: Image.memory(
-                      _pendingImage!.pngBytes,
-                      height: 48,
-                      fit: BoxFit.contain,
-                    ),
-                    paper: paper,
-                    compact: true,
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => setState(() => _pendingImage = null),
-                  ),
-                ],
+              _PendingImagePreview(
+                images: _pendingImages,
+                onRemove: (i) => setState(() => _pendingImages.removeAt(i)),
+                theme: theme,
               ),
             ],
             // 输入行：微信风——➕ 加图在前，圆角输入框后是小号发送按钮。
@@ -605,81 +583,70 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 私有 widget：拍立得截图
+// 私有 widget：待附图预览条
 // ─────────────────────────────────────────────────────────────
 
-/// 拍立得截图：白底 polaroidBg + 不对称 padding（底部留 caption）+ 倾斜 -1.5° +
-/// 暖阴影 + 顶部图钉（朱砂圆）+ 斜体 caption。
+/// 待附图预览条：输入区上方一行横向缩略图（微信风），每张右上角小 × 可单独移除。
 ///
-/// [compact] 为追问轮缩略预览：去掉倾斜与 caption，缩小 padding。
-class _Polaroid extends StatelessWidget {
-  const _Polaroid({required this.image, required this.paper, this.compact = false});
+/// 多图按加入顺序排列，超宽可横向滑动；缩略图居中裁剪（BoxFit.cover），
+/// 仅做发送前确认，发送后图片以原始内容进入用户气泡。
+class _PendingImagePreview extends StatelessWidget {
+  const _PendingImagePreview({
+    required this.images,
+    required this.onRemove,
+    required this.theme,
+  });
 
-  final Widget image;
-  final PaperColors paper;
-  final bool compact;
+  final List<CapturedScreenshot> images;
+  final ValueChanged<int> onRemove;
+  final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final core = Container(
-      padding: compact
-          ? const EdgeInsets.all(6)
-          : const EdgeInsets.fromLTRB(10, 10, 10, 26),
-      decoration: BoxDecoration(
-        color: paper.polaroidBg,
-        boxShadow: [
-          BoxShadow(
-            color: paper.warmShadow,
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          image,
-          if (!compact) ...[
-            const SizedBox(height: 4),
-            Text(
-              '· 待分析 ·',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontStyle: FontStyle.italic,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-    if (compact) return core;
-    return Transform.rotate(
-      angle: -1.5 * math.pi / 180,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          core,
-          // 顶部图钉：朱砂圆，居中悬浮在拍立得上沿。
-          Positioned(
-            top: -6,
-            left: 0,
-            right: 0,
-            child: Center(
+    final cs = theme.colorScheme;
+    return SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: images.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) => Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
               child: Container(
-                width: 12,
-                height: 12,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: paper.warmShadow, blurRadius: 2),
-                  ],
+                  border: Border.all(color: cs.outlineVariant, width: 0.5),
+                ),
+                child: Image.memory(
+                  images[i].pngBytes,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
                 ),
               ),
             ),
-          ),
-        ],
+            // 右上角移除按钮：悬浮小圆钮，独立于缩略图可点。
+            Positioned(
+              top: -6,
+              right: -6,
+              child: GestureDetector(
+                onTap: () => onRemove(i),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: cs.surface,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: cs.outlineVariant),
+                  ),
+                  child: Icon(Icons.close, size: 12, color: cs.onSurfaceVariant),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

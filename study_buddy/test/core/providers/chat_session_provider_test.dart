@@ -58,7 +58,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('分析这道题', image: _screenshot());
+    await notifier.send('分析这道题', images: [_screenshot()]);
 
     final state = container.read(currentChatProvider);
     // C1 修复后：assistant 最终文本经 Done 追加到 messages
@@ -85,7 +85,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('问1', image: _screenshot());
+    await notifier.send('问1', images: [_screenshot()]);
     await notifier.send('问2');
 
     // 第二次 run 收到的 messages 应含第 1 轮 user+assistant + 第 2 轮 user
@@ -116,7 +116,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('保存这个', image: _screenshot());
+    await notifier.send('保存这个', images: [_screenshot()]);
 
     final state = container.read(currentChatProvider);
     // messages = [user, assistant(toolCalls), tool, assistant(finalText)]
@@ -156,7 +156,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('保存并总结', image: _screenshot());
+    await notifier.send('保存并总结', images: [_screenshot()]);
 
     final state = container.read(currentChatProvider);
     // F1 — streamingText 不应跨轮累积（RoundEnd 与 Done 都会清空）
@@ -191,7 +191,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    final future1 = notifier.send('问1', image: _screenshot());
+    final future1 = notifier.send('问1', images: [_screenshot()]);
     // future1 还未完成时立即发第二次
     await notifier.send('问2');
     await future1;
@@ -207,7 +207,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('问1', image: _screenshot());
+    await notifier.send('问1', images: [_screenshot()]);
 
     final state = container.read(currentChatProvider);
     expect(state.messages, isEmpty); // user 被回滚
@@ -227,7 +227,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    await notifier.send('问', image: _screenshot());
+    await notifier.send('问', images: [_screenshot()]);
     expect(container.read(currentChatProvider).messages, isNotEmpty);
 
     notifier.clear();
@@ -306,7 +306,7 @@ void main() {
     addTearDown(container.dispose);
 
     final notifier = container.read(currentChatProvider.notifier);
-    final sendFuture = notifier.send('问', image: _screenshot());
+    final sendFuture = notifier.send('问', images: [_screenshot()]);
     // 等一拍让流订阅建立、send 进入 await done.future
     await Future.delayed(const Duration(milliseconds: 10));
     expect(container.read(currentChatProvider).busy, isTrue);
@@ -342,7 +342,7 @@ void main() {
     ));
 
     // 先 send 一轮让 messages 非空
-    await container.read(currentChatProvider.notifier).send('问', image: _screenshot());
+    await container.read(currentChatProvider.notifier).send('问', images: [_screenshot()]);
     await tester.pump();
     expect(container.read(currentChatProvider).messages, isNotEmpty);
 
