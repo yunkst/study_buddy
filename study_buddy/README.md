@@ -1,16 +1,12 @@
 # study_buddy
 
-A new Flutter project.
+这是「时习」App 的 Flutter 工程目录。
 
-## Getting Started
+项目的完整说明（功能、学习理念、下载）已迁移到[仓库根目录的 README](../README.md)，本目录面向开发者。本地编译与运行：
 
-This project is a starting point for a Flutter application.
+```bash
+flutter pub get
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+> 首次运行前，请在 App 内「设置 → AI 配置」填入你自己的 AI 接口地址与密钥。

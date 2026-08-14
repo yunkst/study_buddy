@@ -23,6 +23,17 @@ Thumbs.db
 .claude/worktrees/
 .worktrees/
 
+# MCP 调试产物（Playwright 等本地探针输出，不入库）
+.playwright-mcp/
+
+# 本地一次性预览/变更日志草稿
+preview-fullpage.png
+.changelog_preview*.txt
+
+# 内部开发规范与历史过程文档（不随公开仓库发布）
+docs/superpowers/
+docs/logging-guidelines.md
+
 # 发布脚本临时文件
 TAG_EDITMSG_TMP
 __pycache__/
