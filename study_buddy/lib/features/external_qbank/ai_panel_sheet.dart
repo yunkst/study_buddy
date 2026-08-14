@@ -1228,7 +1228,10 @@ class _EmptyState extends StatelessWidget {
             icon: const Icon(Icons.photo_camera_outlined),
             label: Text(
               '拍照',
-              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 14,
+                color: cs.onSecondaryContainer,
+              ),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
@@ -1240,7 +1243,10 @@ class _EmptyState extends StatelessWidget {
             icon: const Icon(Icons.photo_library_outlined),
             label: Text(
               '从相册选择',
-              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 14,
+                color: cs.onSecondaryContainer,
+              ),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
@@ -1252,7 +1258,10 @@ class _EmptyState extends StatelessWidget {
             icon: const Icon(Icons.edit_note),
             label: Text(
               '直接输入文字',
-              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 14,
+                color: cs.onSecondaryContainer,
+              ),
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),

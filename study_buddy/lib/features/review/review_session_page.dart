@@ -323,6 +323,7 @@ class _RatingRow extends StatelessWidget {
                       _labels[r]!,
                       style: theme.textTheme.headlineSmall?.copyWith(
                         fontSize: 14,
+                        color: cs.onSecondaryContainer,
                       ),
                     ),
                   ),
@@ -364,7 +365,10 @@ class _CenteredMessage extends StatelessWidget {
             onPressed: onBack,
             child: Text(
               '返回',
-              style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSecondaryContainer,
+              ),
             ),
           ),
         ],
@@ -429,7 +433,10 @@ class _TopicErrorView extends StatelessWidget {
           onPressed: onSkip,
           child: Text(
             '跳过此卡',
-            style: theme.textTheme.headlineSmall?.copyWith(fontSize: 14),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontSize: 14,
+              color: theme.colorScheme.onSecondaryContainer,
+            ),
           ),
         ),
       ],

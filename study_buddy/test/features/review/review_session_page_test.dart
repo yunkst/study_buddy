@@ -315,4 +315,60 @@ void main() {
 
     await tester.pump(const Duration(seconds: 11));
   });
+
+  // 回归：复习卡 4 档评分按钮（忘了/困难/良好/简单）文字颜色必须与 tonal 按钮
+  // 背景（secondaryContainer）配对——即 onSecondaryContainer。
+  // 历史缺陷：label 套用 headlineSmall 样式（颜色为 onSurface 暖墨），落在冷色
+  // secondaryContainer 上色相冲突、对比不足，「看不清字」。
+  testWidgets('4 档评分按钮文字用 onSecondaryContainer,与 secondaryContainer 背景配对',
+      (tester) async {
+    await tester.runAsync(() async {
+      final now = DateTime.now();
+      final catId = await _seedCategory(sdb);
+      final topicId = await sdb.db.insert(
+        'topic',
+        Topic(
+          categoryId: catId,
+          question: '色相配对',
+          title: '色相配对',
+          summary: '答案为：色相配对',
+          createdAt: now,
+          updatedAt: now,
+        ).toMap(),
+      );
+      await sdb.db.insert(
+        'topic_schedule',
+        TopicSchedule(
+          topicId: topicId,
+          stability: 1.0,
+          difficulty: 5.0,
+          reps: 1,
+          lapses: 0,
+          lastReviewedAt: now.subtract(const Duration(days: 10)),
+          dueAt: now.subtract(const Duration(days: 1)),
+        ).toMap(),
+      );
+    });
+
+    final container = buildContainer();
+    addTearDown(container.dispose);
+    await pumpReviewPage(tester, container);
+
+    // 翻面：显示 4 档评分按钮。
+    await tester.tap(find.text('点击翻面看答案'));
+    await tester.pumpAndSettle();
+
+    final expected = AppTheme.light.colorScheme.onSecondaryContainer;
+    for (final label in const ['忘了', '困难', '良好', '简单']) {
+      final text = tester.widget<Text>(find.text(label));
+      expect(
+        text.style?.color,
+        expected,
+        reason: '「$label」文字颜色应为 onSecondaryContainer($expected)，'
+            '与 tonal 按钮背景 secondaryContainer 形成足够对比。',
+      );
+    }
+
+    await tester.pump(const Duration(seconds: 11));
+  });
 }

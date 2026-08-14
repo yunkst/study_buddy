@@ -397,4 +397,29 @@ void main() {
     expect(state.messages[0].role, 'user');
     expect(state.messages[1].role, 'assistant');
   });
+
+  // 回归：空态三按钮（拍照 / 从相册选择 / 直接输入文字）文字颜色必须与
+  // tonal 按钮背景（secondaryContainer）配对——即 onSecondaryContainer。
+  // 历史缺陷：label 套用 headlineSmall 样式（颜色为 onSurface 暖墨），
+  // 落在冷色 secondaryContainer 上色相冲突、对比不足，「看不清字」。
+  testWidgets('空态按钮文字用 onSecondaryContainer,与 secondaryContainer 背景配对',
+      (tester) async {
+    final container = ProviderContainer(overrides: [
+      agentSessionProvider.overrideWith((ref) => _FakeAgentSession(ref)),
+    ]);
+    addTearDown(container.dispose);
+    // 不传 screenshot：messages 空 + _pendingImage 空 → 进入空态引导。
+    await pumpPanel(tester, container: container);
+
+    final expected = AppTheme.light.colorScheme.onSecondaryContainer;
+    for (final label in const ['拍照', '从相册选择', '直接输入文字']) {
+      final text = tester.widget<Text>(find.text(label));
+      expect(
+        text.style?.color,
+        expected,
+        reason: '「$label」文字颜色应为 onSecondaryContainer($expected)，'
+            '与 tonal 按钮背景 secondaryContainer 形成足够对比。',
+      );
+    }
+  });
 }
