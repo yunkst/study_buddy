@@ -71,3 +71,6 @@ icon_options/
 
 # 根级设计预览稿（HTML 探索素材，非 app 工程文件，勿入库）
 design-preview/
+
+# 推广物料（掘金文章/小红书封面等本地草稿，勿入库）
+promotion/
