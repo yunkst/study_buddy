@@ -31,6 +31,7 @@ import '../../core/widgets/ask_user_card.dart';
 import '../../core/widgets/ask_user_input_semantics.dart';
 import '../../core/widgets/markdown_latex.dart';
 import '../../core/widgets/typewriter_text.dart';
+import 'recommend_topics_card.dart';
 import 'saved_topic_capsule.dart';
 
 /// 对话页启动参数：截图（拍题/分享冷启动）与知识点教学入口（【为什么？】）可并存。
@@ -1112,6 +1113,7 @@ typedef ToolResultRenderer = Widget? Function(
 /// 一个同签名的私有 builder 即可。无需改动 [buildToolResultWidget] 主流程。
 final Map<String, ToolResultRenderer> _toolRenderers = {
   'save_topic': _buildSavedTopicCapsule,
+  'recommend_topics': _buildRecommendTopics,
   // 未来可加：create_plan / set_mastery / …
 };
 
@@ -1128,6 +1130,30 @@ Widget? _buildSavedTopicCapsule(String result, ColorScheme cs, ThemeData theme) 
     // 非合法 JSON，回退普通工具轨迹行。工具返回非预期格式说明协议异常，记录排查。
     LoggerService.instance.w('save_topic 结果解析失败,回退普通轨迹行: $e',
         category: LogCategory.ai, tags: const ['save-topic-result']);
+  }
+  return null;
+}
+
+/// recommend_topics → [RecommendTopicsCard]。解析 items 列表渲染相关知识点卡片；
+/// 非法 JSON 或空 items 返回 null（回退普通轨迹行，空结果说明库中没有相关知识点）。
+Widget? _buildRecommendTopics(String result, ColorScheme cs, ThemeData theme) {
+  try {
+    final decoded = jsonDecode(result);
+    if (decoded is Map && decoded['items'] is List) {
+      final items = (decoded['items'] as List)
+          .whereType<Map>()
+          .map((e) => RecommendTopicsItem(
+                id: e['id'] as int,
+                title: e['title'] as String? ?? '',
+                path: e['path'] as String? ?? '',
+              ))
+          .toList();
+      if (items.isEmpty) return null;
+      return RecommendTopicsCard(items: items);
+    }
+  } catch (e) {
+    LoggerService.instance.w('recommend_topics 结果解析失败,回退普通轨迹行: $e',
+        category: LogCategory.ai, tags: const ['recommend-topics-result']);
   }
   return null;
 }

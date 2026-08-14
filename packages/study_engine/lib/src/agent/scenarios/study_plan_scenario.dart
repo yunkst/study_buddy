@@ -27,7 +27,7 @@ class ToolArgsException implements Exception {
   String toString() => 'ToolArgsException: $message';
 }
 
-/// 融合场景：学习伴侣 + 学习计划合一。27 工具（知识点 11 + 计划 14 + ask_user +
+/// 融合场景：学习伴侣 + 学习计划合一。28 工具（知识点 12 + 计划 14 + ask_user +
 /// patch_memory），一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
 /// 记忆来自 agent_memory 表（scenario_id='study_plan'，v9 迁移把旧 study/plan 归并）。
 ///
@@ -69,7 +69,7 @@ class StudyPlanScenario implements AgentScenario {
   @override String get displayName => '学习伴侣';
   @override List<Map<String, dynamic>> get tools => AskUserTools.combinedTools;
 
-  /// 工具定义表（27 个：知识点 11 + 计划 14 + ask_user + patch_memory）。
+  /// 工具定义表（28 个：知识点 12 + 计划 14 + ask_user + patch_memory）。
   /// schema 复用现有 const Map（AskUserTools.combinedTools 同源），execute 复用
   /// 下方私有实现方法；[executeTool] 按 id 查表分发。
   late final List<ToolDefinition> _defs = [
@@ -86,6 +86,7 @@ class StudyPlanScenario implements AgentScenario {
         (a, ctx) => _saveReview(a, ctx.scenarioContext as AgentScenarioContext?)),
     _tool(AgentTools.studyTools[9], (a, _) => _deleteTopic(a)),
     _tool(AgentTools.studyTools[10], (a, _) => _deleteCategory(a)),
+    _tool(AgentTools.studyTools[11], (a, _) => _recommendTopics(a)),
     // —— 学习计划 ——
     _tool(PlanTools.planTools[0], (a, _) => _createPlan(a)),
     _tool(PlanTools.planTools[1], (a, _) => _getPlan(a)),
@@ -237,6 +238,23 @@ class StudyPlanScenario implements AgentScenario {
       'returned': items.length,
       'has_more': result.total > (offset ?? 0) + limit,
     });
+  }
+
+  /// 向用户推荐知识库中与话题相关的知识点（只读，前端渲染可点卡片）。
+  ///
+  /// 与 [_searchTopics] 的区别：这里是对用户的推荐展示（标题命中优先、上限 8 条、
+  /// 无需分页），而 search_topics 是 AI 内部查重浏览。返回 items 全量即结果，
+  /// 由前端把工具结果渲染成「相关知识点」卡片列表。
+  Future<String> _recommendTopics(Map<String, dynamic> args) async {
+    const limit = 8;
+    final keyword = _reqStr(args, 'keyword');
+    final result = await topics.searchWithTitlePriority(keyword, limit: limit);
+    final items = <Map<String, Object?>>[];
+    for (final it in result.items) {
+      final path = await categories.pathOf(it.categoryId);
+      items.add({'id': it.id, 'title': it.title, 'path': path.join('/')});
+    }
+    return jsonEncode({'items': items});
   }
 
   Future<String> _getTopic(Map<String, dynamic> args) async {

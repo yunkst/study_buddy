@@ -1,4 +1,4 @@
-/// Agent 工具 schema（OpenAI function calling）。知识点体系 11 个工具（含删除）。
+/// Agent 工具 schema（OpenAI function calling）。知识点体系 12 个工具（含删除）。
 class AgentTools {
   AgentTools._();
 
@@ -196,6 +196,24 @@ class AgentTools {
     },
   };
 
+  static const recommendTopics = {
+    'type': 'function',
+    'function': {
+      'name': 'recommend_topics',
+      'description': '向用户推荐知识库中与当前话题相关的知识点。回答完用户问题后,若知识库中已存在相关知识点,'
+          '调用本工具把它们以可点击卡片展示给用户(复习/跳转详情)。按 keyword 在库中检索'
+          '(匹配标题、引子、答案,标题命中的优先展示)。只读工具,不修改任何数据。'
+          '返回省略时表示未找到相关知识点,不要在回复中编造。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'keyword': {'type': 'string', 'description': '与用户当前问题/话题相关的检索词,应提炼为库中可能存在的知识点概念名,如"洛必达法则"'},
+        },
+        'required': ['keyword'],
+      },
+    },
+  };
+
   static const studyTools = [
     listTopics,
     searchTopics,
@@ -208,5 +226,6 @@ class AgentTools {
     saveReview,
     deleteTopic,
     deleteCategory,
+    recommendTopics,
   ];
 }

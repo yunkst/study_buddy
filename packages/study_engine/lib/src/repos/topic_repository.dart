@@ -60,6 +60,56 @@ class TopicRepository {
     return TopicSearchResult(items, total);
   }
 
+  /// recommend_topics 专用检索：标题命中的知识点排最前，再按引子/答案命中补充，
+  /// 合并去重（补充段用 `id NOT IN (标题命中段)` 排除），总条数不超过 [limit]。
+  ///
+  /// total 表示任一字段命中的去重总数（与 [search] 同口径）；items 则按
+  /// 「标题命中优先」的启发式排序，适合向用户推荐时定序。
+  Future<TopicSearchResult> searchWithTitlePriority(String keyword, {int limit = 8}) async {
+    final escaped = keyword.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
+    final like = '%$escaped%';
+
+    // ① 标题命中段：同 keyword 下标题含关键字的强相关，优先展示。
+    final titleRows = await _db.db.rawQuery(
+      'SELECT id, title, category_id FROM topic '
+      'WHERE title LIKE ? ESCAPE \'\\\' ORDER BY title LIMIT ?',
+      [like, limit],
+    );
+    final titleIds = <int>{for (final r in titleRows) r['id'] as int};
+
+    // ② 补充段：引子/答案命中但标题未命中的，为标题段之后的弱相关，补足到 limit。
+    // 注意 titleIds 为空时不能写 `id NOT IN (NULL)` —— SQL 中该条件恒为 unknown，
+    // 会把补充段整段过滤掉（标题无命中场景就全丢了）。
+    final fillLimit = limit - titleRows.length;
+    final fillRows = fillLimit > 0
+        ? await _db.db.rawQuery(
+            titleIds.isEmpty
+                ? 'SELECT id, title, category_id FROM topic '
+                    'WHERE question LIKE ? ESCAPE \'\\\' OR summary LIKE ? ESCAPE \'\\\' '
+                    'ORDER BY title LIMIT ?'
+                : 'SELECT id, title, category_id FROM topic '
+                    'WHERE (question LIKE ? ESCAPE \'\\\' OR summary LIKE ? ESCAPE \'\\\') '
+                    'AND id NOT IN (${titleIds.map((_) => '?').join(',')}) '
+                    'ORDER BY title LIMIT ?',
+            titleIds.isEmpty
+                ? [like, like, fillLimit]
+                : [like, like, ...titleIds, fillLimit],
+          )
+        : const <Map<String, Object?>>[];
+
+    final countRows = await _db.db.rawQuery(
+      'SELECT COUNT(*) AS c FROM topic WHERE title LIKE ? ESCAPE \'\\\' '
+      'OR question LIKE ? ESCAPE \'\\\' OR summary LIKE ? ESCAPE \'\\\'',
+      [like, like, like],
+    );
+    final total = countRows.isNotEmpty ? (countRows.first['c'] as int) : 0;
+
+    final items = [...titleRows, ...fillRows]
+        .map((r) => TopicSearchItem(r['id'] as int, r['title'] as String, r['category_id'] as int))
+        .toList();
+    return TopicSearchResult(items, total);
+  }
+
   /// 更新答案本体并刷新 updated_at。
   Future<void> updateSummary(int id, String summary) async {
     await _db.db.update('topic', {'summary': summary, 'updated_at': DateTime.now().millisecondsSinceEpoch},

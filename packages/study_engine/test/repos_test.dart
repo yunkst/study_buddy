@@ -147,6 +147,78 @@ void main() {
     expect(r.total, 0);
   });
 
+  test('TopicRepository.searchWithTitlePriority 标题命中排前,再补引子/答案命中', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    await topics.insert(Topic(categoryId: catId, question: '洛必达法则的适用条件是什么？', title: '洛必达法则', summary: '0/0 型极限对分子分母求导', createdAt: now, updatedAt: now)); // title 命中
+    await topics.insert(Topic(categoryId: catId, question: '如何用洛必达法则求极限？', title: '未定式极限', summary: '先判断类型再求导', createdAt: now, updatedAt: now)); // question 命中
+    await topics.insert(Topic(categoryId: catId, question: 'q', title: '等价无穷小', summary: '洛必达法则失效时可用等价替换', createdAt: now, updatedAt: now)); // summary 命中
+    await topics.insert(Topic(categoryId: catId, question: 'q', title: '夹逼定理', summary: 'squeeze theorem', createdAt: now, updatedAt: now)); // 未命中
+
+    final r = await topics.searchWithTitlePriority('洛必达');
+
+    expect(r.total, 3); // 三条命中,去重后计数
+    expect(r.items, hasLength(3));
+    expect(r.items.first.title, '洛必达法则'); // 标题命中最靠前
+  });
+
+  test('TopicRepository.searchWithTitlePriority 同一知识点多处命中只返回一次', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    await topics.insert(Topic(categoryId: catId, question: '如何用洛必达法则求极限？', title: '洛必达法则', summary: '洛必达法则求 0/0 型极限', createdAt: now, updatedAt: now)); // title+question+summary 全命中
+    await topics.insert(Topic(categoryId: catId, question: 'q', title: '未定式极限', summary: '可用洛必达法则处理', createdAt: now, updatedAt: now)); // summary 命中
+
+    final r = await topics.searchWithTitlePriority('洛必达');
+
+    expect(r.total, 2);
+    expect(r.items, hasLength(2));
+    expect(r.items.first.title, '洛必达法则');
+  });
+
+  test('TopicRepository.searchWithTitlePriority limit 截断且标题命中不被挤掉', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    for (var i = 1; i <= 3; i++) {
+      await topics.insert(Topic(categoryId: catId, question: 'q', title: '洛必达法则变体$i', summary: 's', createdAt: now, updatedAt: now)); // 3 条 title 命中
+    }
+    for (var i = 1; i <= 3; i++) {
+      await topics.insert(Topic(categoryId: catId, question: 'q', title: '未定式极限$i', summary: '用洛必达法则处理$i', createdAt: now, updatedAt: now)); // 3 条 summary 命中
+    }
+
+    final r = await topics.searchWithTitlePriority('洛必达', limit: 4);
+
+    expect(r.total, 6);
+    expect(r.items, hasLength(4));
+    // 前 3 条是标题命中(段在前),最后 1 条才是 summary 补充
+    expect(r.items.take(3).map((e) => e.title), [
+      '洛必达法则变体1',
+      '洛必达法则变体2',
+      '洛必达法则变体3',
+    ]);
+  });
+
+  test('TopicRepository.searchWithTitlePriority 标题无命中时仍返回引子/答案命中', () async {
+    final cats = CategoryRepository(sdb);
+    final topics = TopicRepository(sdb);
+    final catId = await cats.ensurePath(['数学']);
+    final now = DateTime.now();
+    // 标题不含关键词,仅引子命中 —— 推荐场景常见(标题简洁,关键词常只在引子里)。
+    await topics.insert(Topic(categoryId: catId, question: '如何求0/0型极限?', title: '未定式极限', summary: 's', createdAt: now, updatedAt: now));
+    await topics.insert(Topic(categoryId: catId, question: 'q', title: '中值定理', summary: 's', createdAt: now, updatedAt: now)); // 未命中
+
+    final r = await topics.searchWithTitlePriority('0/0');
+
+    expect(r.total, 1);
+    expect(r.items, hasLength(1));
+    expect(r.items.single.title, '未定式极限');
+  });
+
   test('TopicRepository.updateSummary 刷新 updated_at', () async {
     final cats = CategoryRepository(sdb);
     final topics = TopicRepository(sdb);
