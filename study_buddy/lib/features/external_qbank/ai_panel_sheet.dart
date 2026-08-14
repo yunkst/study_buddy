@@ -1112,13 +1112,19 @@ class _SendButton extends StatelessWidget {
 // 私有函数：工具结果渲染（save_topic 卡片 / 普通轨迹行）
 // ─────────────────────────────────────────────────────────────
 
-/// 工具专属渲染器注册表：name → builder；builder 返回 `null` 表示「该工具无
-/// 专属卡片或结果解析失败」，由 [buildToolResultWidget] 回退到 devMode/普通轨迹行。
+/// 工具专属渲染器签名：输入 LLM 工具结果 + 当前主题，输出专属 widget（null
+/// 表示「结果解析失败/无需专属卡片」，由 [buildToolResultWidget] 回退）。
+typedef ToolResultRenderer = Widget? Function(
+  String result,
+  ColorScheme colorScheme,
+  ThemeData theme,
+);
+
+/// 工具专属渲染器注册表：name → builder。
 ///
 /// 新增工具专属卡片：在此 map 加一项 `'<tool_name>': _build<YourWidget>`，并写
 /// 一个同签名的私有 builder 即可。无需改动 [buildToolResultWidget] 主流程。
-final Map<String, Widget? Function(String result, ColorScheme cs, ThemeData theme)>
-    _toolRenderers = {
+final Map<String, ToolResultRenderer> _toolRenderers = {
   'save_topic': _buildSavedTopicCapsule,
   // 未来可加：create_plan / set_mastery / …
 };

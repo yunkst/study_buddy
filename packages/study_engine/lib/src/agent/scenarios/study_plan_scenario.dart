@@ -16,6 +16,16 @@ import '../plan_tools.dart';
 import '../prompt_resolver.dart';
 import '../tool_definition.dart';
 
+/// 工具参数缺失/类型错误异常：由各工具 handler 的必填参数 helper
+/// （[_reqStr]/[_reqInt]/[_reqEnum]）抛出，[StudyPlanScenario.executeTool]
+/// 入口统一 catch 转成「参数 xxx 缺失…」友好报错，避免污染下一轮 LLM 调用。
+class ToolArgsException implements Exception {
+  ToolArgsException(this.message);
+  final String message;
+  @override
+  String toString() => 'ToolArgsException: $message';
+}
+
 /// 融合场景：学习伴侣 + 学习计划合一。26 工具（知识点 11 + 计划 14 + ask_user），
 /// 一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
 /// 记忆来自 agent_memory 表（scenario_id='study_plan'，v9 迁移把旧 study/plan 归并）。
@@ -167,14 +177,19 @@ class StudyPlanScenario implements AgentScenario {
     // 按 id 查表分发（原 24 个 case 的 switch 已拆成 _defs 注册）。
     for (final d in _defs) {
       if (d.id == name) {
-        return d.execute(
-          args,
-          ToolExecContext(
-            toolCallId: toolCallId,
-            scenarioContext: context,
-            onProgress: onProgress,
-          ),
-        );
+        try {
+          return await d.execute(
+            args,
+            ToolExecContext(
+              toolCallId: toolCallId,
+              scenarioContext: context,
+              onProgress: onProgress,
+            ),
+          );
+        } on ToolArgsException catch (e) {
+          // 必填参数校验统一在入口转友好报错，handler 内无需各自写 if 链。
+          return e.message;
+        }
       }
     }
     return '未知工具: $name';
@@ -205,8 +220,7 @@ class StudyPlanScenario implements AgentScenario {
 
   Future<String> _searchTopics(Map<String, dynamic> args) async {
     const limit = 30;
-    final keyword = _argStr(args, 'keyword');
-    if (keyword == null) return '参数 keyword 缺失或非字符串: ${args['keyword']}';
+    final keyword = _reqStr(args, 'keyword');
     final offset = _argInt(args, 'offset');
     final result = await topics.search(keyword, limit: limit, offset: offset ?? 0);
     final items = <Map<String, Object?>>[];
@@ -223,8 +237,7 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _getTopic(Map<String, dynamic> args) async {
-    final id = _argInt(args, 'id');
-    if (id == null) return '参数 id 缺失或非整数: ${args['id']}';
+    final id = _reqInt(args, 'id');
     final t = await topics.findById(id);
     if (t == null) return '知识点 id=$id 不存在';
     final path = await categories.pathOf(t.categoryId);
@@ -269,14 +282,10 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _saveTopic(Map<String, dynamic> args) async {
-    final path = _argStr(args, 'path');
-    final title = _argStr(args, 'title');
-    final question = _argStr(args, 'question');
-    final summary = _argStr(args, 'summary');
-    if (path == null) return '参数 path 缺失或非字符串: ${args['path']}';
-    if (title == null) return '参数 title 缺失或非字符串: ${args['title']}';
-    if (question == null) return '参数 question 缺失或非字符串: ${args['question']}';
-    if (summary == null) return '参数 summary 缺失或非字符串: ${args['summary']}';
+    final path = _reqStr(args, 'path');
+    final title = _reqStr(args, 'title');
+    final question = _reqStr(args, 'question');
+    final summary = _reqStr(args, 'summary');
     final existing = await topics.findByTitle(title);
     if (existing != null) {
       await _ensureDefaultSchedule(existing.id!, force: false);
@@ -330,10 +339,8 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _updateTopic(Map<String, dynamic> args) async {
-    final id = _argInt(args, 'id');
-    final summary = _argStr(args, 'summary');
-    if (id == null) return '参数 id 缺失或非整数: ${args['id']}';
-    if (summary == null) return '参数 summary 缺失或非字符串: ${args['summary']}';
+    final id = _reqInt(args, 'id');
+    final summary = _reqStr(args, 'summary');
     final existing = await topics.findById(id);
     if (existing == null) return '知识点 id=$id 不存在';
     await topics.updateSummary(id, summary);
@@ -342,15 +349,12 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _linkTopics(Map<String, dynamic> args) async {
-    // 用 _argEnum/_argInt 而非 `as` 强转：模型流式输出偶发吐空 args / 非法 JSON
+    // 用 _reqEnum/_reqInt 而非 `as` 强转：模型流式输出偶发吐空 args / 非法 JSON
     // 会让 _parseArgs 退到 P0 防御分支时 args 为 null（外层不上 executeTool），
     // 但即便绕过、空 Map 进来也不该抛 TypeError。
-    final type = _argEnum(args, 'type', const {'prerequisite', 'related'});
-    if (type == null) return 'type 必须是 prerequisite 或 related';
-    final from = _argInt(args, 'from');
-    final to = _argInt(args, 'to');
-    if (from == null) return '参数 from 缺失或非整数: ${args['from']}';
-    if (to == null) return '参数 to 缺失或非整数: ${args['to']}';
+    final type = _reqEnum(args, 'type', const {'prerequisite', 'related'});
+    final from = _reqInt(args, 'from');
+    final to = _reqInt(args, 'to');
     final fromTopic = await topics.findById(from);
     final toTopic = await topics.findById(to);
     if (fromTopic == null) return '知识点 id=$from 不存在';
@@ -363,12 +367,9 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _setMastery(Map<String, dynamic> args) async {
-    final topicId = _argInt(args, 'topic_id');
-    final status = _argStr(args, 'status');
-    final reason = _argStr(args, 'reason');
-    if (topicId == null) return '参数 topic_id 缺失或非整数: ${args['topic_id']}';
-    if (status == null) return '参数 status 缺失或非字符串: ${args['status']}';
-    if (reason == null) return '参数 reason 缺失或非字符串: ${args['reason']}';
+    final topicId = _reqInt(args, 'topic_id');
+    final status = _reqStr(args, 'status');
+    final reason = _reqStr(args, 'reason');
     final parsed = MasteryStatusX.fromWire(status);
     if (parsed == MasteryStatus.unknown) {
       return 'status 不合法(允许 learning/mastered/weak,禁止 unknown)';
@@ -379,8 +380,7 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _getMastery(Map<String, dynamic> args) async {
-    final topicId = _argInt(args, 'topic_id');
-    if (topicId == null) return '参数 topic_id 缺失或非整数: ${args['topic_id']}';
+    final topicId = _reqInt(args, 'topic_id');
     final current = await mastery.currentStatus(topicId);
     final timeline = await mastery.timeline(topicId);
     final recent = timeline.reversed.take(5).toList().reversed.map((m) => {
@@ -397,38 +397,43 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _saveReview(Map<String, dynamic> args, AgentScenarioContext? ctx) async {
-    final summary = _argStr(args, 'summary');
-    if (summary == null) return '参数 summary 缺失或非字符串: ${args['summary']}';
+    final summary = _reqStr(args, 'summary');
     final itemsRaw = args['items'];
     if (itemsRaw is! List) return '参数 items 缺失或非数组: ${args['items']}';
     final items = <ReviewItem>[];
-    for (final raw in itemsRaw) {
-      if (raw is! Map) return '参数 items 含非对象项: $raw';
-      final m = Map<String, dynamic>.from(raw);
-      final question = _argStr(m, 'question');
-      final verdict = _argStr(m, 'verdict');
-      final analysis = _argStr(m, 'analysis');
-      if (question == null) return '参数 items[${items.length}].question 缺失或非字符串';
-      if (verdict == null) return '参数 items[${items.length}].verdict 缺失或非字符串';
-      if (analysis == null) return '参数 items[${items.length}].analysis 缺失或非字符串';
-      final tids = m['topic_ids'];
-      items.add(ReviewItem(
-        seq: _asInt(m['seq']) ?? 0,
-        question: question,
-        userAnswer: _argStr(m, 'user_answer'),
-        verdict: verdict,
-        analysis: analysis,
-        topicIds: tids == null
-            ? const []
-            : (tids is List)
-                ? tids.map((e) => _asInt(e)).whereType<int>().toList()
-                : const [],
-      ));
+    for (final (i, raw) in itemsRaw.indexed) {
+      if (raw is! Map) return '参数 items 含非对象项(第 ${i + 1} 项): $raw';
+      final item = _parseReviewItem(Map<String, dynamic>.from(raw));
+      if (item == null) {
+        return '参数 items[${i + 1}] 存在非法字段，请检查 question/verdict/analysis 是否齐全';
+      }
+      items.add(item);
     }
     final sessionId = ctx?.extra['chat_session_id'] as int?;
     final id = await reviews.save(chatSessionId: sessionId, summary: summary, items: items);
     return '已保存批改(共 ${items.length} 题,review_id=$id)';
   }
+
+  /// 解析单个批改条目：question/verdict/analysis 必填，seq/user_answer/topic_ids
+  /// 可选。字段非法返回 null，由 [_saveReview] 统一报错定位第几项。
+  ReviewItem? _parseReviewItem(Map<String, dynamic> m) {
+    final question = _argStr(m, 'question');
+    final verdict = _argStr(m, 'verdict');
+    final analysis = _argStr(m, 'analysis');
+    if (question == null || verdict == null || analysis == null) return null;
+    return ReviewItem(
+      seq: _asInt(m['seq']) ?? 0,
+      question: question,
+      userAnswer: _argStr(m, 'user_answer'),
+      verdict: verdict,
+      analysis: analysis,
+      topicIds: _topicIdsOf(m['topic_ids']),
+    );
+  }
+
+  /// topic_ids 数组 → int 列表；非数组/含非整项时丢弃该元素（容错，不阻断保存）。
+  List<int> _topicIdsOf(Object? raw) =>
+      raw is List ? raw.map((e) => _asInt(e)).whereType<int>().toList() : const [];
 
   /// 删除知识点：id 与 title 二选一，id 优先。删后 FK CASCADE 自动清掌握度/调度/边。
   /// 校验：二者都缺 → 拒绝；id/title 均无法定位 → 返回未找到。
@@ -494,27 +499,50 @@ class StudyPlanScenario implements AgentScenario {
     return null;
   }
 
-  /// 从工具参数取 int 字段；缺失/非整数返回 null。与 [_asInt] 不同点在于按 key
-  /// 从 args 取，供各工具 handler 统一「防御解析 + 缺参友好报错」范式。
-  int? _argInt(Map<String, dynamic> args, String key) => _asInt(args[key]);
-
-  /// 从工具参数取 String 字段；缺失/非字符串返回 null。
+  /// 可选参数：缺失/非字符串返回 null，由 handler 按需判空。
   String? _argStr(Map<String, dynamic> args, String key) {
     final v = args[key];
     return v is String ? v : null;
   }
 
-  /// 枚举字段校验：值必须是指定集合内的字符串，否则返回 null。
-  String? _argEnum(Map<String, dynamic> args, String key, Set<String> allowed) {
-    final v = _argStr(args, key);
-    return (v != null && allowed.contains(v)) ? v : null;
+  /// 可选参数：缺失/非整数返回 null。
+  int? _argInt(Map<String, dynamic> args, String key) => _asInt(args[key]);
+
+  // —— 必填参数：缺失/类型错抛 [ToolArgsException]，由 executeTool 入口统一转
+  // 友好报错，handler 不再各自写 if 链。——
+
+  /// 必填 String 参数；缺失/非字符串抛 [ToolArgsException]。
+  String _reqStr(Map<String, dynamic> args, String key) {
+    final v = args[key];
+    if (v is! String) throw ToolArgsException('参数 $key 缺失或非字符串: $v');
+    return v;
+  }
+
+  /// 必填 int 参数；缺失/非整数抛 [ToolArgsException]。
+  int _reqInt(Map<String, dynamic> args, String key) {
+    final v = _asInt(args[key]);
+    if (v == null) throw ToolArgsException('参数 $key 缺失或非整数: ${args[key]}');
+    return v;
+  }
+
+  /// 必填枚举参数：值必须属于 [allowed]；否则抛 [ToolArgsException]。
+  String _reqEnum(Map<String, dynamic> args, String key, Set<String> allowed) {
+    final v = _reqStr(args, key);
+    if (!allowed.contains(v)) {
+      throw ToolArgsException('参数 $key 必须是 ${allowed.join('/')}');
+    }
+    return v;
   }
 
   // ===================== 学习计划 =====================
 
   /// 宽松日期解析：非法/非日期字符串返回 null，由调用方兜底报错（替代裸
   /// `DateTime.parse` 的 FormatException，避免污染下一轮 LLM 调用）。
-  DateTime? _parseDateSafe(String s) => DateTime.tryParse(s);
+  DateTime? _tryParseDate(String s) => DateTime.tryParse(s);
+
+  /// yyyy-MM-dd 格式化（本地无 intl 依赖）。
+  String _fmtYmd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Future<String> _createPlan(Map<String, dynamic> args) async {
     final name = _argStr(args, 'name');
@@ -533,7 +561,7 @@ class StudyPlanScenario implements AgentScenario {
     if (missing.isNotEmpty) {
       return '缺少必填字段: ${missing.join(', ')}。请向用户追问补齐后再创建。';
     }
-    final examDateDt = _parseDateSafe(examDate!);
+    final examDateDt = _tryParseDate(examDate!);
     if (examDateDt == null) return '参数 exam_date 格式非法: $examDate';
     final now = DateTime.now();
     final planId = await plans.insertPlan(Plan(
@@ -567,22 +595,21 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _getPlan(Map<String, dynamic> args) async {
-    final planId = _argInt(args, 'plan_id');
-    if (planId == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final planId = _reqInt(args, 'plan_id');
     final detail = await plans.getPlanDetail(planId);
     final msList = detail.milestones.map((m) => {
           'id': m.id, 'title': m.title, 'description': m.description,
-          'target_date': '${m.targetDate.year}-${m.targetDate.month.toString().padLeft(2, '0')}-${m.targetDate.day.toString().padLeft(2, '0')}',
+          'target_date': _fmtYmd(m.targetDate),
           'status': m.status, 'sort_order': m.sortOrder,
         }).toList();
     final aList = detail.assessments.map((a) => {
           'id': a.id, 'score': a.score, 'note': a.note,
-          'assessed_at': '${a.assessedAt.year}-${a.assessedAt.month.toString().padLeft(2, '0')}-${a.assessedAt.day.toString().padLeft(2, '0')}',
+          'assessed_at': _fmtYmd(a.assessedAt),
         }).toList();
     return jsonEncode({
       'plan': {
         'id': detail.plan.id, 'name': detail.plan.name,
-        'exam_date': '${detail.plan.examDate.year}-${detail.plan.examDate.month.toString().padLeft(2, '0')}-${detail.plan.examDate.day.toString().padLeft(2, '0')}',
+        'exam_date': _fmtYmd(detail.plan.examDate),
         'exam_content': detail.plan.examContent, 'target': detail.plan.target,
         'daily_minutes': detail.plan.dailyMinutes, 'current_level': detail.plan.currentLevel,
       },
@@ -592,8 +619,7 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _updatePlan(Map<String, dynamic> args) async {
-    final pid = _argInt(args, 'plan_id');
-    if (pid == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final pid = _reqInt(args, 'plan_id');
     final existing = await plans.findPlanById(pid);
     if (existing == null) return '计划 id=$pid 不存在';
     final examDateStr = _argStr(args, 'exam_date');
@@ -601,7 +627,7 @@ class StudyPlanScenario implements AgentScenario {
     if (examDateStr == null) {
       examDate = existing.examDate;
     } else {
-      final d = _parseDateSafe(examDateStr);
+      final d = _tryParseDate(examDateStr);
       if (d == null) return '参数 exam_date 格式非法: $examDateStr';
       examDate = d;
     }
@@ -620,17 +646,13 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _addMilestone(Map<String, dynamic> args) async {
-    final pid = _argInt(args, 'plan_id');
-    if (pid == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final pid = _reqInt(args, 'plan_id');
     final existing = await plans.findPlanById(pid);
     if (existing == null) return '计划 id=$pid 不存在';
-    final title = _argStr(args, 'title');
-    final description = _argStr(args, 'description');
-    final targetDateStr = _argStr(args, 'target_date');
-    if (title == null) return '参数 title 缺失或非字符串: ${args['title']}';
-    if (description == null) return '参数 description 缺失或非字符串: ${args['description']}';
-    if (targetDateStr == null) return '参数 target_date 缺失或非字符串: ${args['target_date']}';
-    final targetDate = _parseDateSafe(targetDateStr);
+    final title = _reqStr(args, 'title');
+    final description = _reqStr(args, 'description');
+    final targetDateStr = _reqStr(args, 'target_date');
+    final targetDate = _tryParseDate(targetDateStr);
     if (targetDate == null) return '参数 target_date 格式非法: $targetDateStr';
     final now = DateTime.now();
     final id = await plans.addMilestone(Milestone(
@@ -646,14 +668,13 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _updateMilestone(Map<String, dynamic> args) async {
-    final mid = _argInt(args, 'milestone_id');
-    if (mid == null) return '参数 milestone_id 缺失或非整数: ${args['milestone_id']}';
+    final mid = _reqInt(args, 'milestone_id');
     final status = _argStr(args, 'status');
     if (status != null && status != 'pending' && status != 'done') {
       return 'status 必须是 pending 或 done，收到: $status';
     }
     final targetDateStr = _argStr(args, 'target_date');
-    final targetDate = targetDateStr == null ? null : _parseDateSafe(targetDateStr);
+    final targetDate = targetDateStr == null ? null : _tryParseDate(targetDateStr);
     if (targetDateStr != null && targetDate == null) return '参数 target_date 格式非法: $targetDateStr';
     await plans.updateMilestone(
       mid,
@@ -667,15 +688,13 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _deleteMilestone(Map<String, dynamic> args) async {
-    final milestoneId = _argInt(args, 'milestone_id');
-    if (milestoneId == null) return '参数 milestone_id 缺失或非整数: ${args['milestone_id']}';
+    final milestoneId = _reqInt(args, 'milestone_id');
     await plans.deleteMilestone(milestoneId);
     return '已删除节点 id=$milestoneId';
   }
 
   Future<String> _addAssessment(Map<String, dynamic> args) async {
-    final pid = _argInt(args, 'plan_id');
-    if (pid == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final pid = _reqInt(args, 'plan_id');
     final existing = await plans.findPlanById(pid);
     if (existing == null) return '计划 id=$pid 不存在';
     final now = DateTime.now();
@@ -684,7 +703,7 @@ class StudyPlanScenario implements AgentScenario {
     if (assessedAtStr == null) {
       assessedAt = now;
     } else {
-      final d = _parseDateSafe(assessedAtStr);
+      final d = _tryParseDate(assessedAtStr);
       if (d == null) return '参数 assessed_at 格式非法: $assessedAtStr';
       assessedAt = d;
     }
@@ -700,8 +719,7 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _deletePlan(Map<String, dynamic> args) async {
-    final planId = _argInt(args, 'plan_id');
-    if (planId == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final planId = _reqInt(args, 'plan_id');
     // 删前取一次详情用于反馈计数
     final detail = await plans.getPlanDetail(planId);
     final name = detail.plan.name;
@@ -717,22 +735,18 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _deleteAssessment(Map<String, dynamic> args) async {
-    final assessmentId = _argInt(args, 'assessment_id');
-    if (assessmentId == null) return '参数 assessment_id 缺失或非整数: ${args['assessment_id']}';
+    final assessmentId = _reqInt(args, 'assessment_id');
     await plans.deleteAssessment(assessmentId);
     return '已删除测评 id=$assessmentId';
   }
 
   Future<String> _createDayTask(Map<String, dynamic> args) async {
-    final pid = _argInt(args, 'plan_id');
-    if (pid == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final pid = _reqInt(args, 'plan_id');
     final existing = await plans.findPlanById(pid);
     if (existing == null) return '计划 id=$pid 不存在';
-    final title = _argStr(args, 'title');
-    final taskDateStr = _argStr(args, 'task_date');
-    if (title == null) return '参数 title 缺失或非字符串: ${args['title']}';
-    if (taskDateStr == null) return '参数 task_date 缺失或非字符串: ${args['task_date']}';
-    final taskDate = _parseDateSafe(taskDateStr);
+    final title = _reqStr(args, 'title');
+    final taskDateStr = _reqStr(args, 'task_date');
+    final taskDate = _tryParseDate(taskDateStr);
     if (taskDate == null) return '参数 task_date 格式非法: $taskDateStr';
     final now = DateTime.now();
     final id = await dayTasks.addTask(PlanDayTask(
@@ -747,25 +761,22 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _listDayTasks(Map<String, dynamic> args) async {
-    final pid = _argInt(args, 'plan_id');
-    if (pid == null) return '参数 plan_id 缺失或非整数: ${args['plan_id']}';
+    final pid = _reqInt(args, 'plan_id');
     final date = _argStr(args, 'task_date');
-    final dateDt = date == null ? null : _parseDateSafe(date);
+    final dateDt = date == null ? null : _tryParseDate(date);
     if (date != null && dateDt == null) return '参数 task_date 格式非法: $date';
     final list = date != null
         ? await dayTasks.findByPlanAndDate(pid, dateDt!)
         : await dayTasks.findByPlan(pid);
-    String fmtDate(DateTime d) =>
-        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     String fmtDateTime(DateTime d) =>
-        '${fmtDate(d)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+        '${_fmtYmd(d)} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     return jsonEncode({
       'plan_id': pid,
       'count': list.length,
       'tasks': list
           .map((t) => {
                 'id': t.id,
-                'task_date': fmtDate(t.taskDate),
+                'task_date': _fmtYmd(t.taskDate),
                 'title': t.title,
                 'status': t.status,
                 'sort_order': t.sortOrder,
@@ -776,22 +787,16 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _checkinDayTask(Map<String, dynamic> args) async {
-    final tid = _argInt(args, 'task_id');
-    if (tid == null) return '参数 task_id 缺失或非整数: ${args['task_id']}';
-    final status = _argStr(args, 'status');
-    if (status == null) return '参数 status 缺失或非字符串: ${args['status']}';
-    if (status != 'pending' && status != 'done') {
-      return 'status 必须是 pending 或 done，收到: $status';
-    }
+    final tid = _reqInt(args, 'task_id');
+    final status = _reqEnum(args, 'status', const {'pending', 'done'});
     await dayTasks.updateTask(tid, status: status);
     return '已把任务 $tid 标记为 $status';
   }
 
   Future<String> _updateDayTask(Map<String, dynamic> args) async {
-    final tid = _argInt(args, 'task_id');
-    if (tid == null) return '参数 task_id 缺失或非整数: ${args['task_id']}';
+    final tid = _reqInt(args, 'task_id');
     final taskDateStr = _argStr(args, 'task_date');
-    final taskDate = taskDateStr == null ? null : _parseDateSafe(taskDateStr);
+    final taskDate = taskDateStr == null ? null : _tryParseDate(taskDateStr);
     if (taskDateStr != null && taskDate == null) return '参数 task_date 格式非法: $taskDateStr';
     await dayTasks.updateTask(
       tid,
@@ -803,8 +808,7 @@ class StudyPlanScenario implements AgentScenario {
   }
 
   Future<String> _deleteDayTask(Map<String, dynamic> args) async {
-    final taskId = _argInt(args, 'task_id');
-    if (taskId == null) return '参数 task_id 缺失或非整数: ${args['task_id']}';
+    final taskId = _reqInt(args, 'task_id');
     await dayTasks.deleteTask(taskId);
     return '已删除每日任务 id=$taskId';
   }
