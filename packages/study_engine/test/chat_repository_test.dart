@@ -75,16 +75,17 @@ void main() {
     final repo = ChatRepository(sdb);
     final s1 = await repo.createSession('study_plan', '旧会话');
     final s2 = await repo.createSession('study_plan', '新会话');
-    // 确保 s1 是「最近」：先 touch s2 再 touch s1（后 touch 者 updated_at 更大，
-    // 由 touchSession 的 DateTime.now() 保证先后顺序，即使毫秒级间隔）
-    await repo.touchSession(s2);
-    await repo.touchSession(s1);
+    // 显式注入递增时间戳，避免 DateTime.now() 同毫秒导致 updated_at 相等、
+    // ORDER BY updated_at DESC, id DESC 顺序颠倒的 flaky。
+    final t0 = DateTime.utc(2026, 8, 14, 9, 0, 0);
+    await repo.touchSession(s2, at: t0.add(const Duration(seconds: 1)));
+    await repo.touchSession(s1, at: t0.add(const Duration(seconds: 2)));
 
     final latest = await repo.latestSession('study_plan');
     expect(latest!.id, s1);
     // 不同 scenario 不混
     final other = await repo.createSession('other', '其他');
-    await repo.touchSession(other);
+    await repo.touchSession(other, at: t0.add(const Duration(seconds: 3)));
     expect((await repo.latestSession('study_plan'))!.id, s1);
     expect((await repo.latestSession('other'))!.id, other);
     await sdb.close();

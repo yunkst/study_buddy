@@ -139,10 +139,11 @@ class ChatRepository {
   }
 
   /// 更新会话 updated_at（每轮持久化后调用，保证「最近会话」排序准确）。
-  Future<void> touchSession(int sessionId) async {
+  /// [at] 可选显式时间戳（测试注入确定时钟）；缺省用当前时间。
+  Future<void> touchSession(int sessionId, {DateTime? at}) async {
     await _db.db.update(
       'chat_session',
-      {'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {'updated_at': (at ?? DateTime.now()).millisecondsSinceEpoch},
       where: 'id = ?',
       whereArgs: [sessionId],
     );
