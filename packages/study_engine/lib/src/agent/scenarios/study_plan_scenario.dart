@@ -822,13 +822,28 @@ class StudyPlanScenario implements AgentScenario {
     final action = _reqEnum(args, 'action', {'add', 'replace', 'remove'});
     final op = switch (action) {
       'add' => AddMemoryOp(_reqStr(args, 'new_text')),
-      'replace' =>
-        ReplaceMemoryOp(_reqStr(args, 'target_text'), _reqStr(args, 'new_text')),
-      'remove' => RemoveMemoryOp(_reqStr(args, 'target_text')),
+      'replace' => _replaceOpWithTarget(args),
+      'remove' => _removeOpWithTarget(args),
       _ => throw ToolArgsException('未知 action: $action'),
     };
     final result = await patchMemory(op);
     return result.message;
+  }
+
+  ReplaceMemoryOp _replaceOpWithTarget(Map<String, dynamic> args) {
+    final target = _reqStr(args, 'target_text');
+    if (target.trim().isEmpty) {
+      throw ToolArgsException('参数 target_text 不能为空');
+    }
+    return ReplaceMemoryOp(target, _reqStr(args, 'new_text'));
+  }
+
+  RemoveMemoryOp _removeOpWithTarget(Map<String, dynamic> args) {
+    final target = _reqStr(args, 'target_text');
+    if (target.trim().isEmpty) {
+      throw ToolArgsException('参数 target_text 不能为空');
+    }
+    return RemoveMemoryOp(target);
   }
 
   @override

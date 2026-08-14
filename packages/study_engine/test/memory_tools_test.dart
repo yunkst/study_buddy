@@ -115,13 +115,33 @@ void main() {
     await sdb.close();
   });
 
-  test('缓存同步：patch 后 getMemories 反映新值', () async {
+  test('replace 空 target_text 被拒', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
     final sc = newScenario(sdb);
-    await sc.getMemories();
     await sc.executeTool('patch_memory', {'action': 'add', 'new_text': '偏好A'});
-    final mems = await sc.getMemories();
-    expect(mems, contains('偏好A'));
+    final r = await sc.executeTool('patch_memory', {
+      'action': 'replace', 'target_text': '   ', 'new_text': 'X',
+    });
+    expect(r, contains('target_text'));
+    // 库仍是 1 条原始记忆（未被空 target 替换第一条）
+    final mems = await AgentMemoryRepository(sdb).queryByScenario('study_plan');
+    expect(mems.single.content, '偏好A');
+    await sdb.close();
+  });
+
+  test('缓存同步：patch 后 composeApiMessages 记忆块反映新值', () async {
+    final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final sc = newScenario(sdb);
+    await sc.getMemories(); // 预填充 _memCache（此时为空）
+    await sc.executeTool('patch_memory', {'action': 'add', 'new_text': '偏好A'});
+    // composeApiMessages 只读 _memCache 不重查库——此断言才是「patch 后刷新缓存」的真验证：
+    // 若实现里丢了 if (changed) { _memCache = ... } 刷新逻辑，_memCache 仍为空，
+    // composeApiMessages 会提前 return base，apiContent 为 null，此处断言即失败。
+    final out = sc.composeApiMessages(
+      [ChatMessage(role: 'user', content: '你好')],
+      const AgentScenarioContext(),
+    );
+    expect(out.last.apiContent, contains('偏好A'));
     await sdb.close();
   });
 }
