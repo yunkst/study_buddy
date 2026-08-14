@@ -46,19 +46,9 @@ header { border-bottom: 1px solid var(--line); }
   padding: 20px 0;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.seal-box {
-  width: 40px; height: 40px;
-  border: 2px solid var(--seal);
-  border-radius: 6px;
-  color: var(--seal);
-  font-family: var(--serif);
-  font-size: 15px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  letter-spacing: 1px;
-  padding-left: 1px;
-  background:
-    radial-gradient(circle at 30% 40%, rgba(244,43,69,.08), transparent 60%),
-    radial-gradient(circle at 75% 70%, rgba(244,43,69,.06), transparent 55%);
+.brand img {
+  width: 42px; height: 42px; border-radius: 9px;
+  box-shadow: 0 1px 4px rgba(60,45,25,.25);
 }
 .brand b { font-family: var(--serif); font-size: 20px; letter-spacing: 2px; }
 .nav-links { display: flex; gap: 28px; align-items: center; font-size: 15px; }
@@ -303,7 +293,7 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; }
 <header>
   <div class="wrap nav">
     <div class="brand">
-      <div class="seal-box">时习</div>
+      <img src="assets/logo.png" alt="时习 App 图标">
       <b>时习</b>
     </div>
     <nav class="nav-links">
