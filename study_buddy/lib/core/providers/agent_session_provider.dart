@@ -46,10 +46,7 @@ class AgentSession {
     int? topicId,
   }) async {
     final db = await _ref.read(databaseProvider.future);
-    final llmConfigs = LlmConfigRepository(db);
-    // 主入口（拍照批改）必须视觉，故 vision 优先；计划对话可无图，回退普通默认项。
-    final cfg = await llmConfigs.getDefault(vision: true) ??
-        await llmConfigs.getDefault(vision: false);
+    final cfg = await _defaultLlmConfig(db);
     if (cfg == null) {
       throw StateError(
         '未配置默认 LLM。请先在 llm_config 表中添加 is_default=1 的记录。',
@@ -153,6 +150,45 @@ class AgentSession {
       completeAskUser: loop.completeAskUser,
       abortAskUser: loop.abortAskUser,
     );
+  }
+
+  /// 读取默认 LLM 配置（vision 优先，回退普通默认项）。无配置返回 null。
+  /// run() 与 distillMemory() 共用，避免两处重复解析逻辑。
+  Future<LlmConfig?> _defaultLlmConfig(StudyDatabase db) async {
+    final llmConfigs = LlmConfigRepository(db);
+    return await llmConfigs.getDefault(vision: true) ??
+        await llmConfigs.getDefault(vision: false);
+  }
+
+  /// 沉淀经验记忆（P2）：用户点击「新对话」时调用，把本次对话提炼成记忆写入。
+  /// fire-and-forget：调用方不 await；内部任何失败都不抛出（Distiller 兜底 + 本方法再兜一层），
+  /// 绝不影响新对话体验。未配置 LLM 时静默跳过。
+  Future<void> distillMemory(List<ChatMessage> messages, {String? traceId}) async {
+    try {
+      final db = await _ref.read(databaseProvider.future);
+      final cfg = await _defaultLlmConfig(db);
+      if (cfg == null) return; // 未配置 LLM：静默跳过
+      final llm = LlmProvider(
+        config: cfg,
+        llmSink: LlmLogger.instance,
+        logger: LoggerService.instance,
+      );
+      final distiller = MemoryDistiller(
+        llm: llm,
+        memories: AgentMemoryRepository(db),
+        logger: LoggerService.instance,
+      );
+      await distiller.distill(
+        messages: messages,
+        scenarioId: 'study_plan',
+        traceId: traceId ?? 'distill-${DateTime.now().millisecondsSinceEpoch}',
+      );
+    } catch (e) {
+      // App 层日志便捷方法（e/log 同语义）：sink 接口 log() 的 category 是 String，
+      // 而 LogCategory.ai 是 App 层枚举，二者不可混用（analyze 会报类型错）。
+      LoggerService.instance.e('记忆沉淀失败: $e',
+          category: LogCategory.ai, tags: const ['memory']);
+    }
   }
 
   /// 预取所有场景的 system prompt 覆盖（scenario_id → content）。

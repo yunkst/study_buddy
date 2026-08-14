@@ -262,8 +262,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             onPressed: state.busy || state.messages.isEmpty
                 ? null
                 : () {
+                    final snapshot = state.messages; // 清空前取快照
                     ref.read(_chatProvider.notifier).clear();
                     _inputCtrl.clear();
+                    // fire-and-forget：后台沉淀本次对话经验，不阻塞开新对话。
+                    ref.read(agentSessionProvider).distillMemory(snapshot);
                     setState(() {
                       _pendingImage = null;
                       _firstSent = false;
