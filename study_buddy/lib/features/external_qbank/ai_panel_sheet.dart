@@ -1112,12 +1112,39 @@ class _SendButton extends StatelessWidget {
 // 私有函数：工具结果渲染（save_topic 卡片 / 普通轨迹行）
 // ─────────────────────────────────────────────────────────────
 
-/// 工具结果渲染：当工具为 `save_topic` 且 [result] 是合法 `{id, is_new, msg}` JSON 时，
-/// 渲染可点击的 [SavedTopicCapsule]；否则（非 save_topic 或 JSON 解析失败）回退普通
-/// [ToolTraceLine]（[line] 为展示文案），保证解析失败不崩。
+/// 工具专属渲染器注册表：name → builder；builder 返回 `null` 表示「该工具无
+/// 专属卡片或结果解析失败」，由 [buildToolResultWidget] 回退到 devMode/普通轨迹行。
 ///
-/// [devMode] 为开发者模式：非特例工具渲染可展开的 [_ToolCallDetailCard]（含
-/// 参数 [arguments] 与结果 [result]，均 pretty JSON），供调试工具输入输出。
+/// 新增工具专属卡片：在此 map 加一项 `'<tool_name>': _build<YourWidget>`，并写
+/// 一个同签名的私有 builder 即可。无需改动 [buildToolResultWidget] 主流程。
+final Map<String, Widget? Function(String result, ColorScheme cs, ThemeData theme)>
+    _toolRenderers = {
+  'save_topic': _buildSavedTopicCapsule,
+  // 未来可加：create_plan / set_mastery / …
+};
+
+Widget? _buildSavedTopicCapsule(String result, ColorScheme cs, ThemeData theme) {
+  try {
+    final decoded = jsonDecode(result);
+    if (decoded is Map && decoded['id'] is int) {
+      return SavedTopicCapsule(
+        id: decoded['id'] as int,
+        isNew: decoded['is_new'] as bool? ?? false,
+      );
+    }
+  } catch (e) {
+    // 非合法 JSON，回退普通工具轨迹行。工具返回非预期格式说明协议异常，记录排查。
+    LoggerService.instance.w('save_topic 结果解析失败,回退普通轨迹行: $e',
+        category: LogCategory.ai, tags: const ['save-topic-result']);
+  }
+  return null;
+}
+
+/// 工具结果渲染：先查 [_toolRenderers] 注册表，命中且 builder 返回 non-null 则
+/// 用专属卡片（当前仅 `save_topic` → [SavedTopicCapsule]）；否则回退——
+/// [devMode] 开启渲染 [_ToolCallDetailCard]（含参数/结果 pretty JSON），
+/// 关闭则渲染 [_ToolTraceLine]（[line] 为展示文案）。
+///
 /// [arguments] 来自 assistant 消息的 ToolCall；流式轨迹阶段尚无参数（null）。
 Widget buildToolResultWidget({
   required String name,
@@ -1128,20 +1155,10 @@ Widget buildToolResultWidget({
   String? arguments,
   bool devMode = false,
 }) {
-  if (name == 'save_topic') {
-    try {
-      final decoded = jsonDecode(result);
-      if (decoded is Map && decoded['id'] is int) {
-        return SavedTopicCapsule(
-          id: decoded['id'] as int,
-          isNew: decoded['is_new'] as bool? ?? false,
-        );
-      }
-    } catch (e) {
-      // 非合法 JSON，回退普通工具轨迹行。工具返回非预期格式说明协议异常，记录排查。
-      LoggerService.instance.w('save_topic 结果解析失败,回退普通轨迹行: $e',
-          category: LogCategory.ai, tags: const ['save-topic-result']);
-    }
+  final renderer = _toolRenderers[name];
+  if (renderer != null) {
+    final w = renderer(result, colorScheme, theme);
+    if (w != null) return w;
   }
   if (devMode) {
     return _ToolCallDetailCard(
