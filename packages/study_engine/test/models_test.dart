@@ -45,6 +45,58 @@ void main() {
     });
   });
 
+  test('toolCallId 为空串时 forApi 不写出 tool_call_id 字段', () {
+    // 防御 400 tool_call_id  is not found：空串 id 不应发给 LLM
+    final m = ChatMessage(role: 'tool', content: '结果', toolCallId: '');
+    final api = m.toJson(forApi: true);
+    expect(api.containsKey('tool_call_id'), isFalse,
+        reason: '空串 toolCallId 不应序列化，否则网关报 400');
+    expect(api['role'], 'tool');
+    // 非空 toolCallId 仍然正常写出
+    final m2 = ChatMessage(role: 'tool', content: '结果', toolCallId: 'call_1');
+    expect(m2.toJson(forApi: true)['tool_call_id'], 'call_1');
+  });
+
+  test('fromDb 中空串 tool_call_id 归一化为 null', () {
+    // 历史数据中可能存了空串，读出来应转成 null
+    final row = {
+      'id': 1,
+      'chat_id': 1,
+      'role': 'tool',
+      'content': '"结果"',
+      'tool_calls': null,
+      'tool_call_id': '',
+      'api_content': null,
+      'created_at': 0,
+    };
+    final m = ChatMessage.fromDb(row);
+    expect(m.toolCallId, isNull, reason: '空串 tool_call_id 应归一化为 null');
+    // 正常非空 id 不受影响
+    final row2 = {
+      'id': 2,
+      'chat_id': 1,
+      'role': 'tool',
+      'content': '"结果"',
+      'tool_calls': null,
+      'tool_call_id': 'call_abc',
+      'api_content': null,
+      'created_at': 0,
+    };
+    expect(ChatMessage.fromDb(row2).toolCallId, 'call_abc');
+    // NULL 值也正常为 null
+    final row3 = {
+      'id': 3,
+      'chat_id': 1,
+      'role': 'user',
+      'content': '"hi"',
+      'tool_calls': null,
+      'tool_call_id': null,
+      'api_content': null,
+      'created_at': 0,
+    };
+    expect(ChatMessage.fromDb(row3).toolCallId, isNull);
+  });
+
   test('MasteryStatus 双向序列化', () {
     expect(MasteryStatus.mastered.wire, 'mastered');
     expect(MasteryStatusX.fromWire('weak'), MasteryStatus.weak);
