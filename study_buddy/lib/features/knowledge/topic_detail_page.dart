@@ -90,6 +90,11 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> {
     } catch (e) {
       LoggerService.instance.w('教学启动失败: $e',
           category: LogCategory.ai, tags: const ['teaching-start']);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('教学启动失败，请重试')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _teachingStarting = false);
     }
