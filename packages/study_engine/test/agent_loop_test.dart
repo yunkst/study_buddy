@@ -261,6 +261,75 @@ void main() {
     expect(events.whereType<RetryEvent>(), isEmpty);
     expect(events.last, isA<AgentDoneEvent>());
   });
+
+  // ============ 工具调用 arguments 防御性解析 ============
+
+  test('工具 arguments 为空串时：tool 消息标为「参数缺失」，不下游崩溃', () async {
+    // 回归：k3 / 模型偶发吐空 arguments（旧 _parseArgs 静默返回 {}，下游 _linkTopics
+    // 走 `as int` 抛 TypeError，污染下一轮）。修复后：tool 消息明确说「参数缺失」，
+    // AgentLoop 正常继续，最后 Done。
+    final llm = _FakeLlm([
+      const [
+        LlmStreamChunk(
+          textDelta: '',
+          toolCalls: [
+            ToolCall(id: 'c1', name: 'link_topics', arguments: ''),
+          ],
+        ),
+      ],
+      const [LlmStreamChunk(textDelta: 'done')],
+    ]);
+    final scenario = _FakeScenario();
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+
+    expect(events.last, isA<AgentDoneEvent>());
+    final roundEnds = events.whereType<AgentRoundEndEvent>().toList();
+    expect(roundEnds, hasLength(1));
+    final newMsgs = roundEnds.single.newMessages;
+    final toolMsg = newMsgs[1];
+    expect(toolMsg.role, 'tool');
+    expect(toolMsg.toolCallId, 'c1');
+    // 容错：tool 消息内容是结构化错误字符串，便于上层/LLM 看到失败原因
+    expect(toolMsg.content, isA<String>());
+    expect((toolMsg.content as String).toLowerCase(), contains('args'));
+  });
+
+  test('工具 arguments 是双 JSON 拼接时：tool 消息标为「参数非法」，不污染下游', () async {
+    // 回归：模型流式输出偶发把两个 JSON 对象粘合到一个 tool_call.arguments
+    // (如 '{"from":7,"to":4,...}{"from":7,"to":6,...}')。旧 _parseArgs 也静默返回 {}。
+    // 修复后：tool 消息明确说「参数非法 JSON」，AgentLoop 继续。
+    final llm = _FakeLlm([
+      const [
+        LlmStreamChunk(
+          textDelta: '',
+          toolCalls: [
+            ToolCall(
+              id: 'c1',
+              name: 'link_topics',
+              arguments: '{"from":7,"to":4,"type":"prerequisite"}'
+                  '{"from":7,"to":6,"type":"prerequisite"}',
+            ),
+          ],
+        ),
+      ],
+      const [LlmStreamChunk(textDelta: 'done')],
+    ]);
+    final scenario = _FakeScenario();
+    final loop = AgentLoop(llm: llm, scenario: scenario);
+    final events =
+        await loop.run([const ChatMessage(role: 'system', content: 'sys')]).toList();
+
+    expect(events.last, isA<AgentDoneEvent>());
+    final roundEnds = events.whereType<AgentRoundEndEvent>().toList();
+    expect(roundEnds, hasLength(1));
+    final newMsgs = roundEnds.single.newMessages;
+    final toolMsg = newMsgs[1];
+    expect(toolMsg.role, 'tool');
+    expect(toolMsg.content, isA<String>());
+    expect((toolMsg.content as String).toLowerCase(), anyOf(contains('illegal'), contains('args'), contains('json')));
+  });
 }
 
 /// 记录是否被调用的 scenario。

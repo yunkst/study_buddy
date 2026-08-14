@@ -75,8 +75,7 @@ class StudyPlanScenario implements AgentScenario {
         )),
     _tool(AgentTools.studyTools[4],
         (a, _) => _updateTopic(a['id'] as int, a['summary'] as String)),
-    _tool(AgentTools.studyTools[5], (a, _) =>
-        _linkTopics(a['from'] as int, a['to'] as int, a['type'] as String)),
+    _tool(AgentTools.studyTools[5], (a, _) => _linkTopics(a)),
     _tool(AgentTools.studyTools[6], (a, _) =>
         _setMastery(a['topic_id'] as int, a['status'] as String, a['reason'] as String)),
     _tool(AgentTools.studyTools[7], (a, _) => _getMastery(a['topic_id'] as int)),
@@ -332,8 +331,19 @@ class StudyPlanScenario implements AgentScenario {
     return '已更新知识点「${existing.title}」的答案';
   }
 
-  Future<String> _linkTopics(int from, int to, String type) async {
-    if (type != 'prerequisite' && type != 'related') return 'type 必须是 prerequisite 或 related';
+  Future<String> _linkTopics(Map<String, dynamic> args) async {
+    // 用 _asInt 而非 `as int`：模型流式输出偶发吐空 args / 非法 JSON 会让
+    // _parseArgs 退到 P0 防御分支时 args 为 null（外层不上 executeTool），
+    // 但即便绕过、空 Map 进来也不该抛 TypeError。
+    final rawType = args['type'];
+    if (rawType is! String || (rawType != 'prerequisite' && rawType != 'related')) {
+      return 'type 必须是 prerequisite 或 related';
+    }
+    final from = _asInt(args['from']);
+    final to = _asInt(args['to']);
+    if (from == null) return '参数 from 缺失或非整数: ${args['from']}';
+    if (to == null) return '参数 to 缺失或非整数: ${args['to']}';
+    final type = rawType; // promoted to non-null String
     final fromTopic = await topics.findById(from);
     final toTopic = await topics.findById(to);
     if (fromTopic == null) return '知识点 id=$from 不存在';

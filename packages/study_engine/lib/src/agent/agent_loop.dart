@@ -201,7 +201,7 @@ class AgentLoop {
 
           // ask_user 特殊路径：拦下并挂起，等 UI 用户作答后把答案作为工具结果。
           if (tc.name == 'ask_user') {
-            final request = _buildAskUserRequest(tc, args);
+            final request = _buildAskUserRequest(tc, args ?? const {});
             final completer = Completer<Object?>();
             askUserCompleter = completer;
             pendingAskRequest = request;
@@ -221,6 +221,15 @@ class AgentLoop {
             }
             result = answer as String;
             yield AskUserAnsweredEvent(tc.id, result);
+          } else if (args == null) {
+            // arguments 解析失败（空 / 非 JSON / 多对象拼接）：跳过工具执行，
+            // 把结构化错误塞进 tool 消息，避免下游 `as int` 等强转抛 TypeError
+            // 污染下一轮 LLM 调用。
+            logger.log(LoggerLevel.error, '工具参数解析失败，跳过执行: ${tc.name}',
+                category: 'ai',
+                traceId: traceId,
+                tags: const ['tool-args-invalid']);
+            result = '工具 "${tc.name}" 的参数不是合法 JSON（args 为空或非法），已跳过执行，请重试且调用时给出完整参数。';
           } else {
             try {
               final raw = await scenario.executeTool(tc.name, args, toolCallId: tc.id, context: context);
@@ -275,14 +284,33 @@ class AgentLoop {
     }
   }
 
-  Map<String, dynamic> _parseArgs(String raw, {String? traceId}) {
+  /// 解析 tool_call.arguments 为 JSON Map。
+  ///
+  /// 返回 `null` 表示解析失败（空串 / 非 JSON / 多对象拼接）。调用方拿到 null
+  /// 时应将这个 tool_call 标记为「参数缺失」并把失败原因写进 tool 消息，
+  /// 不再调用 executeTool —— 避免下游 `as int` 在空 Map 上抛 TypeError
+  /// 污染下一轮（k3 / 模型流式输出偶发吐空 arguments 或 `{...}{...}` 拼接）。
+  ///
+  /// 解析成功但不是 Map（如 JSON 数组/字符串）也视为失败 —— 工具参数必须是 object。
+  Map<String, dynamic>? _parseArgs(String raw, {String? traceId}) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      logger.log(LoggerLevel.warning, '工具参数为空',
+          category: 'ai', traceId: traceId, tags: const ['tool-args-empty']);
+      return null;
+    }
     try {
-      final decoded = jsonDecode(raw);
-      return decoded is Map ? Map<String, dynamic>.from(decoded) : {};
-    } catch (_) {
-      logger.log(LoggerLevel.warning, 'LLM 返回非法 JSON 参数: $raw',
-          category: 'ai', traceId: traceId, tags: const ['tool-args']);
-      return {};
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      logger.log(LoggerLevel.warning,
+          '工具参数不是 JSON object: ${raw.length > 80 ? "${raw.substring(0, 80)}..." : raw}',
+          category: 'ai', traceId: traceId, tags: const ['tool-args-not-object']);
+      return null;
+    } catch (e) {
+      logger.log(LoggerLevel.warning,
+          'LLM 返回非法 JSON 参数: ${raw.length > 80 ? "${raw.substring(0, 80)}..." : raw} — $e',
+          category: 'ai', traceId: traceId, tags: const ['tool-args-bad-json']);
+      return null;
     }
   }
 
