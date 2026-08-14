@@ -433,6 +433,12 @@ class ToolCall {
   final String arguments; // 原始 JSON 字符串
   const ToolCall({required this.id, required this.name, required this.arguments});
 
+  ToolCall copyWith({String? id, String? name, String? arguments}) => ToolCall(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        arguments: arguments ?? this.arguments,
+      );
+
   Map<String, Object?> toJson() => {
         'id': id,
         'type': 'function',

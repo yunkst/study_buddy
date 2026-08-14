@@ -34,6 +34,7 @@ export 'src/agent/context_compactor.dart';
 export 'src/agent/agent_tools.dart';
 export 'src/agent/plan_tools.dart';
 export 'src/agent/agent_loop.dart';
+export 'src/agent/tool_call_id_normalizer.dart';
 export 'src/agent/tool_output_truncator.dart';
 export 'src/agent/tool_definition.dart';
 export 'src/agent/ask_user.dart';
