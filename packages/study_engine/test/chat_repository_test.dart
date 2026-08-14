@@ -125,4 +125,28 @@ void main() {
     expect(any!.id, teachingId); // 教学会话更新晚，按 updated_at 排前
     await sdb.close();
   });
+
+  test('appendMessages 落库前剥离坏 ToolCall + loadMessages 走 sanitized 路径', () async {
+    final sdb = await StudyDatabase.open(
+        factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final repo = ChatRepository(sdb);
+    final sid = await repo.createSession('study_plan', 't');
+
+    await repo.appendMessages(sid, [
+      const ChatMessage(
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          ToolCall(id: 'c1', name: 'foo', arguments: '{}'),
+          ToolCall(id: '', name: 'foo', arguments: '{}'), // 坏:id 空
+          ToolCall(id: 'c2', name: 'foo', arguments: '{bad json'), // 坏:args 非法
+        ],
+      ),
+    ]);
+    final loaded = await repo.loadMessages(sid);
+    expect(loaded, hasLength(1));
+    expect(loaded.single.toolCalls, hasLength(1),
+        reason: '坏 ToolCall 不应在落库/加载后复活');
+    expect(loaded.single.toolCalls!.single.id, 'c1');
+  });
 }
