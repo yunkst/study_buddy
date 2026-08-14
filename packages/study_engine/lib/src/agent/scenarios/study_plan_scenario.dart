@@ -27,8 +27,8 @@ class ToolArgsException implements Exception {
   String toString() => 'ToolArgsException: $message';
 }
 
-/// 融合场景：学习伴侣 + 学习计划合一。26 工具（知识点 11 + 计划 14 + ask_user），
-/// 一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
+/// 融合场景：学习伴侣 + 学习计划合一。27 工具（知识点 11 + 计划 14 + ask_user +
+/// patch_memory），一份融合系统提示词，agent 同时具备批改/知识库/计划全部能力。
 /// 记忆来自 agent_memory 表（scenario_id='study_plan'，v9 迁移把旧 study/plan 归并）。
 ///
 /// system prompt 通过 [promptResolver] 获取（基线为 Dart 常量模板，
@@ -69,7 +69,7 @@ class StudyPlanScenario implements AgentScenario {
   @override String get displayName => '学习伴侣';
   @override List<Map<String, dynamic>> get tools => AskUserTools.combinedTools;
 
-  /// 工具定义表（26 个：知识点 11 + 计划 14 + ask_user）。
+  /// 工具定义表（27 个：知识点 11 + 计划 14 + ask_user + patch_memory）。
   /// schema 复用现有 const Map（AskUserTools.combinedTools 同源），execute 复用
   /// 下方私有实现方法；[executeTool] 按 id 查表分发。
   late final List<ToolDefinition> _defs = [
@@ -868,6 +868,9 @@ class StudyPlanScenario implements AgentScenario {
         successMsg = '已新增记忆';
         break;
       case ReplaceMemoryOp(:final target, :final newContent):
+        if (newContent.trim().isEmpty) {
+          return MemoryPatchResult(false, '新内容不能为空');
+        }
         final hits = _substringHits(all, target);
         if (hits.isEmpty) {
           return MemoryPatchResult(false, _notFoundError(allTexts, target));

@@ -11,7 +11,7 @@ class AgentScenarioContext {
 /// patch_memory 工具的结果。
 class MemoryPatchResult {
   final bool ok;
-  final String message; // 成功提示或编号越界时的可用编号列表
+  final String message; // 成功提示或失败时的诊断信息（如超限/未命中时附条目列表）
   MemoryPatchResult(this.ok, this.message);
 }
 

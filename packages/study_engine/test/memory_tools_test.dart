@@ -129,6 +129,20 @@ void main() {
     await sdb.close();
   });
 
+  test('replace 空 new_text 被拒', () async {
+    final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final sc = newScenario(sdb);
+    await sc.executeTool('patch_memory', {'action': 'add', 'new_text': '用户偏好简短回答'});
+    final r = await sc.executeTool('patch_memory', {
+      'action': 'replace', 'target_text': '简短回答', 'new_text': '   ',
+    });
+    expect(r, contains('新内容不能为空'));
+    // 库中该记忆内容未变（仍是原值，未被置空）
+    final mems = await AgentMemoryRepository(sdb).queryByScenario('study_plan');
+    expect(mems.single.content, '用户偏好简短回答');
+    await sdb.close();
+  });
+
   test('缓存同步：patch 后 composeApiMessages 记忆块反映新值', () async {
     final sdb = await StudyDatabase.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
     final sc = newScenario(sdb);
