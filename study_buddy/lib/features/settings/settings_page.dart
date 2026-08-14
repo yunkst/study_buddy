@@ -489,9 +489,9 @@ class _AboutRow extends ConsumerWidget {
       label: '关于',
       onTap: () => showAboutDialog(
         context: context,
-        applicationName: 'Study Buddy',
+        applicationName: '时习',
         applicationVersion: version,
-        applicationLegalese: '© Study Buddy',
+        applicationLegalese: '© 时习',
       ),
     );
   }

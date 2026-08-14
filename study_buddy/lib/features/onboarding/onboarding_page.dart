@@ -145,7 +145,7 @@ class _OnboardingMasthead extends StatelessWidget {
         border: Border(bottom: BorderSide(width: 2, color: theme.colorScheme.outlineVariant)),
       ),
       child: Center(
-        child: Text('Study Buddy · 欢迎',
+        child: Text('时习 · 欢迎',
             style: theme.textTheme.displayLarge?.copyWith(fontSize: 22)),
       ),
     );

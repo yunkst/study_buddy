@@ -87,7 +87,7 @@ class _StudyBuddyAppState extends ConsumerState<StudyBuddyApp> with WidgetsBindi
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Study Buddy',
+      title: '时习',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       // 偏好异步加载期间回退跟随系统(与改动前硬编码一致,无闪烁);
