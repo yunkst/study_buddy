@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>时习 · 学而时习之，不亦说乎</title>
+<meta name="description" content="把「苏格拉底式学习」与「遗忘曲线」做成日常习惯的学习 App。拍题问 AI、按记忆曲线复习、专注打卡。">
+<link rel="icon" href="assets/icon.png">
+<style>
+:root {
+  --paper: #F4F0E7;
+  --paper-deep: #EDE7D9;
+  --ink: #2E2A24;
+  --ink-soft: #6B6459;
+  --seal: #F42B45;
+  --seal-deep: #C81E36;
+  --line: #D8D0C0;
+  --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+/* 纸纹 */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(120,100,70,.014) 2px 3px),
+    repeating-linear-gradient(90deg, transparent 0 2px, rgba(120,100,70,.011) 2px 3px);
+  pointer-events: none;
+  z-index: 9999;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+/* ============ 顶部 ============ */
+header { border-bottom: 1px solid var(--line); }
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 0;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.seal-box {
+  width: 40px; height: 40px;
+  border: 2px solid var(--seal);
+  border-radius: 6px;
+  color: var(--seal);
+  font-family: var(--serif);
+  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  letter-spacing: 1px;
+  padding-left: 1px;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(244,43,69,.08), transparent 60%),
+    radial-gradient(circle at 75% 70%, rgba(244,43,69,.06), transparent 55%);
+}
+.brand b { font-family: var(--serif); font-size: 20px; letter-spacing: 2px; }
+.nav-links { display: flex; gap: 28px; align-items: center; font-size: 15px; }
+.nav-links a { color: var(--ink-soft); text-decoration: none; }
+.nav-links a:hover { color: var(--seal-deep); }
+.btn-download {
+  background: var(--seal); color: #FFF9F0;
+  padding: 9px 22px; border-radius: 6px;
+  font-size: 14px; text-decoration: none;
+  box-shadow: 0 2px 0 rgba(200,30,54,.25);
+}
+.btn-download:hover { background: var(--seal-deep); }
+
+/* ============ HERO ============ */
+.hero { padding: 76px 0 66px; position: relative; overflow: hidden; }
+.hero-kicker {
+  font-size: 14px; letter-spacing: 4px;
+  color: var(--ink-soft); margin-bottom: 18px;
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(38px, 6vw, 62px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  line-height: 1.28;
+}
+.hero h1 em {
+  font-style: normal; color: var(--seal);
+  position: relative;
+}
+.hero-sub {
+  margin-top: 22px; max-width: 560px;
+  font-size: 17px; color: var(--ink-soft);
+}
+.hero-cta { margin-top: 34px; display: flex; gap: 14px; flex-wrap: wrap; }
+.btn-primary {
+  background: var(--seal); color: #FFF9F0;
+  padding: 13px 30px; border-radius: 8px;
+  font-size: 16px; text-decoration: none; font-weight: 600;
+  box-shadow: 0 3px 0 rgba(200,30,54,.3);
+}
+.btn-primary:hover { background: var(--seal-deep); transform: translateY(-1px); }
+.btn-ghost {
+  color: var(--ink); text-decoration: none;
+  padding: 13px 26px; border-radius: 8px;
+  border: 1px solid var(--line); font-size: 16px;
+  background: rgba(255,255,255,.4);
+}
+.btn-ghost:hover { border-color: var(--ink-soft); }
+/* hero 侧手机 */
+.hero-visual { position: relative; margin-top: 54px; }
+.phone {
+  width: 252px; border-radius: 26px;
+  border: 1px solid var(--line);
+  box-shadow:
+    0 24px 48px -18px rgba(60,45,25,.35),
+    0 4px 12px rgba(60,45,25,.12);
+  display: block;
+}
+.phone-1 { position: relative; z-index: 3; }
+.phone-2 {
+  position: absolute; right: 8%; top: 44px; z-index: 2;
+  transform: rotate(3.2deg);
+}
+.phone-3 {
+  position: absolute; left: 8%; top: 56px; z-index: 1;
+  transform: rotate(-3.6deg);
+}
+@media (min-width: 900px) {
+  .hero-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; align-items: center; }
+  .hero-visual { margin-top: 0; height: 560px; }
+  .phone-1 { margin: 0 auto; }
+}
+
+/* ============ 章节通用 ============ */
+section { padding: 78px 0; }
+.sec-head { margin-bottom: 46px; }
+.sec-num {
+  font-family: var(--serif);
+  font-size: 13px; color: var(--seal);
+  letter-spacing: 3px;
+  border-bottom: 2px solid var(--seal);
+  padding-bottom: 4px;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+.sec-head h2 {
+  font-family: var(--serif);
+  font-size: clamp(26px, 3.6vw, 36px);
+  font-weight: 800; letter-spacing: 2px; line-height: 1.35;
+}
+.sec-head p { color: var(--ink-soft); margin-top: 10px; max-width: 640px; }
+
+/* ============ 两块基石 ============ */
+.stones { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+@media (max-width: 760px) { .stones { grid-template-columns: 1fr; } }
+.stone {
+  background: rgba(255,253,248,.72);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 34px 32px 30px;
+  position: relative;
+}
+.stone::after {
+  content: attr(data-seal);
+  position: absolute; top: 22px; right: 22px;
+  width: 34px; height: 34px;
+  border: 1.5px solid var(--seal); border-radius: 5px;
+  color: var(--seal);
+  font-family: var(--serif); font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  opacity: .85;
+  transform: rotate(3deg);
+}
+.stone h3 {
+  font-family: var(--serif);
+  font-size: 22px; letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+.stone p { font-size: 15px; color: var(--ink-soft); }
+.stone .foot {
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  font-size: 14px; color: var(--ink);
+}
+.stone .foot b { color: var(--seal-deep); }
+
+/* 遗忘曲线示意 */
+.curve-box {
+  margin-top: 20px; background: var(--paper-deep);
+  border-radius: 8px; padding: 14px 10px 8px;
+}
+.curve-box svg { display: block; width: 100%; height: auto; }
+
+/* ============ 功能展示 ============ */
+#features { background: linear-gradient(180deg, transparent, rgba(237,231,217,.55) 12%, rgba(237,231,217,.55) 88%, transparent); }
+.feat {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 52px; align-items: center;
+  padding: 44px 0;
+}
+.feat + .feat { border-top: 1px dashed var(--line); }
+.feat:nth-child(even) .feat-visual { order: -1; }
+@media (max-width: 860px) {
+  .feat { grid-template-columns: 1fr; gap: 28px; }
+  .feat:nth-child(even) .feat-visual { order: 0; }
+}
+.feat-tag {
+  display: inline-block;
+  font-size: 13px; letter-spacing: 2px;
+  color: var(--seal-deep);
+  border: 1px solid rgba(200,30,54,.35);
+  border-radius: 999px;
+  padding: 3px 14px;
+  margin-bottom: 14px;
+}
+.feat h3 {
+  font-family: var(--serif);
+  font-size: 26px; letter-spacing: 1.5px;
+  margin-bottom: 12px;
+}
+.feat p { color: var(--ink-soft); font-size: 15.5px; }
+.feat ul { margin-top: 14px; list-style: none; }
+.feat li {
+  font-size: 14.5px; color: var(--ink-soft);
+  padding-left: 22px; position: relative; margin-top: 6px;
+}
+.feat li::before {
+  content: "·"; position: absolute; left: 8px;
+  color: var(--seal); font-weight: 900; font-size: 18px; line-height: 1.2;
+}
+.feat-visual { display: flex; justify-content: center; }
+.feat-visual img {
+  width: 232px; border-radius: 18px;
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 36px -14px rgba(60,45,25,.32), 0 3px 10px rgba(60,45,25,.1);
+}
+.feat-visual img.tilt-l { transform: rotate(-1.6deg); }
+.feat-visual img.tilt-r { transform: rotate(1.4deg); }
+
+/* ============ 画廊 ============ */
+.gallery-title { text-align: center; margin-bottom: 38px; }
+.gallery-title h2 { font-family: var(--serif); font-size: clamp(24px,3.4vw,32px); letter-spacing: 2px; }
+.gallery-title p { color: var(--ink-soft); margin-top: 8px; font-size: 15px; }
+.shelf {
+  display: flex; gap: 22px;
+  overflow-x: auto; padding: 10px 4px 30px;
+  scrollbar-width: thin;
+}
+.shelf img {
+  height: 380px; width: auto; border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 30px -12px rgba(60,45,25,.3);
+  flex-shrink: 0;
+}
+.shelf img:nth-child(odd) { transform: rotate(-.7deg); }
+.shelf img:nth-child(even) { transform: rotate(.8deg); }
+
+/* ============ 下载 ============ */
+#download { text-align: center; }
+.dl-card {
+  background: rgba(255,253,248,.8);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 58px 30px 50px;
+  position: relative;
+  max-width: 720px; margin: 0 auto;
+}
+.dl-card::before {
+  content: "时习";
+  position: absolute; top: -24px; left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  border: 2px solid var(--seal); border-radius: 8px;
+  color: var(--seal);
+  font-family: var(--serif); font-weight: 900;
+  font-size: 20px; letter-spacing: 3px;
+  padding: 8px 14px 8px 17px;
+  background: var(--paper);
+}
+.dl-card h2 {
+  font-family: var(--serif); font-size: 30px; letter-spacing: 2px;
+}
+.dl-card > p { color: var(--ink-soft); margin-top: 10px; }
+.dl-buttons { margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.dl-note { margin-top: 20px; font-size: 13.5px; color: var(--ink-soft); }
+
+/* ============ 页脚 ============ */
+footer { border-top: 1px solid var(--line); padding: 34px 0 44px; }
+.foot-grid { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+.foot-links { display: flex; gap: 22px; font-size: 14px; }
+.foot-links a { color: var(--ink-soft); text-decoration: none; }
+.foot-links a:hover { color: var(--seal-deep); }
+.foot-quote { font-family: var(--serif); color: var(--ink-soft); font-size: 14px; letter-spacing: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">
+      <div class="seal-box">时习</div>
+      <b>时习</b>
+    </div>
+    <nav class="nav-links">
+      <a href="#stones">理念</a>
+      <a href="#features">功能</a>
+      <a href="#gallery">截图</a>
+      <a href="#download">下载</a>
+      <a class="btn-download" href="https://github.com/yunkst/study_buddy/releases" target="_blank" rel="noopener">获取 App</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<div class="wrap hero-grid">
+  <div class="hero">
+    <p class="hero-kicker">苏格拉底式学习 × 遗忘曲线复习</p>
+    <h1>学而时习之，<br>不亦<em>说</em>乎。</h1>
+    <p class="hero-sub">
+      时习是一个把「被问到懂」和「在该复习的时候复习」做成日常习惯的学习 App。
+      拍题问 AI、按记忆曲线复习、专注打卡 —— 你带 AI，时习出闭环。
+    </p>
+    <div class="hero-cta">
+      <a class="btn-primary" href="https://github.com/yunkst/study_buddy/releases" target="_blank" rel="noopener">下载 Android 版</a>
+      <a class="btn-ghost" href="#stones">了解它为什么不一样</a>
+    </div>
+  </div>
+  <div class="hero hero-visual">
+    <img class="phone phone-1" src="assets/home.jpg" alt="时习「今日」首页">
+    <img class="phone phone-2" src="assets/ask-ai.jpg" alt="拍题问 AI">
+    <img class="phone phone-3" src="assets/why.jpg" alt="「为什么？」苏格拉底式教学">
+  </div>
+</div>
+
+<!-- 两块基石 -->
+<section id="stones">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">壹 · 贰</span>
+      <h2>两条古老的智慧，一个现代的工具</h2>
+      <p>时习的一切功能，都从这两块基石上长出来。</p>
+    </div>
+    <div class="stones">
+      <div class="stone" data-seal="问">
+        <h3>苏格拉底学习法</h3>
+        <p>
+          苏格拉底从不直接给答案，只是提问 —— 一个接一个，顺你的回答往下走，直到你自己把道理想通。
+          被动听懂 ≠ 真懂；自己走完的推理链路，才最难遗忘。
+        </p>
+        <p style="margin-top:12px">
+          在时习里，每个知识点都有一枚「<b>为什么？</b>」按钮。AI 不给结论，只从具体场景出发反问你、引导你 ——
+          卡住给提示，跑偏拉回来，直到你说出那个「啊哈」。
+        </p>
+        <div class="foot">不是更聪明的搜题，而是<b>更耐心的陪练</b>。</div>
+      </div>
+      <div class="stone" data-seal="时">
+        <h3>遗忘曲线</h3>
+        <p>
+          1885 年，艾宾浩斯画出了著名的遗忘曲线：刚学完的内容几小时内快速遗忘，一天后可能只剩三分之一。
+          复习不是越多越好，而是<b>越准越好</b> —— 在遗忘临界点复习一次，记忆重置并加固。
+        </p>
+        <div class="curve-box">
+          <svg viewBox="0 0 360 150" role="img" aria-label="遗忘曲线示意图">
+            <polyline points="14,16 52,52 100,84 150,102 360,116"
+              fill="none" stroke="#6B6459" stroke-width="2.5" stroke-dasharray="1 0"/>
+            <polyline points="14,16 52,52 52,16 92,54 92,26 132,62 132,32 180,74 180,44 240,86 240,58 360,104"
+              fill="none" stroke="#F42B45" stroke-width="2.5"/>
+            <circle cx="52" cy="52" r="3.5" fill="#F42B45"/>
+            <circle cx="92" cy="54" r="3.5" fill="#F42B45"/>
+            <circle cx="132" cy="62" r="3.5" fill="#F42B45"/>
+            <circle cx="180" cy="74" r="3.5" fill="#F42B45"/>
+            <circle cx="240" cy="86" r="3.5" fill="#F42B45"/>
+            <text x="14" y="138" font-size="11" fill="#6B6459">刚学完</text>
+            <text x="86" y="138" font-size="11" fill="#6B6459">1 天后</text>
+            <text x="176" y="138" font-size="11" fill="#6B6459">1 周后</text>
+            <text x="256" y="34" font-size="11" fill="#F42B45">每次复习，记忆重置加固</text>
+          </svg>
+        </div>
+        <div class="foot">时习采用 FSRS 现代算法，为每个知识点维护「记忆稳定性」，<b>只复习该复习的那几张</b>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 功能展示 -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-num">叁</span>
+      <h2>从拍一道题，到长出整个知识库</h2>
+      <p>每个功能都为「学懂 + 记住」服务，没有多余的东西。</p>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">拍题 · 提问</span>
+        <h3>拍题问 AI</h3>
+        <p>拍一道题、选一张图，或直接打字。AI 帮你拆思路、给解析，还能把涉及的知识点自动沉淀进你的知识库。</p>
+        <ul>
+          <li>图片裁剪、题目主体自动框选</li>
+          <li>多轮对话、支持附图、上下文自动压缩</li>
+          <li>其他 App 分享图片，直接唤起时习分析</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-r" src="assets/ask-ai.jpg" alt="拍题问 AI"></div>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">知识库 · 沉淀</span>
+        <h3>知识点库</h3>
+        <p>按学科分类沉淀你学过的每个知识点，附「引子—答案—关联」。一眼看清自己学过什么、还差什么。</p>
+        <ul>
+          <li>分类下钻、搜索、掌握度标签</li>
+          <li>每个知识点可回看历史轨迹</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-l" src="assets/knowledge.jpg" alt="知识点库"></div>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">启发 · 教学</span>
+        <h3>「为什么？」苏格拉底式教学</h3>
+        <p>任意知识点点一下「为什么？」，AI 用提问带你从场景走到底层原理。想通了，才算懂。</p>
+        <ul>
+          <li>不直接给答案，一步步反问引导</li>
+          <li>卡住给提示，跑偏拉回来</li>
+          <li>教学会话独立保存，随时回看</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-r" src="assets/why.jpg" alt="为什么 · 苏格拉底式教学"></div>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">记忆 · 复习</span>
+        <h3>FSRS 间隔复习</h3>
+        <p>每天只复习到期的几张卡。四档自评 —— 忘了 / 困难 / 良好 / 简单 —— FSRS 自动排好下一次的时间。</p>
+        <ul>
+          <li>少而准，符合大脑规律</li>
+          <li>复习中可直接追问 AI 批改详解</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-l" src="assets/review-detail.jpg" alt="FSRS 间隔复习"></div>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">计划 · 里程碑</span>
+        <h3>备考拆里程碑</h3>
+        <p>告诉时习考试日期与目标，AI 帮你把漫长的备考期拆成一个个可执行的节点，月历打卡看得见进度。</p>
+        <ul>
+          <li>AI 生成学习计划</li>
+          <li>里程碑拆解、月历打卡</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-r" src="assets/plan.jpg" alt="备考计划与里程碑"></div>
+    </div>
+
+    <div class="feat">
+      <div>
+        <span class="feat-tag">专注 · 复盘</span>
+        <h3>专注时钟 + 学习日报</h3>
+        <p>一键开始专注，知识点自动关联到本场。结束自动汇总成当天学习日报，还能生成小红书风打卡文案。</p>
+        <ul>
+          <li>按日翻页的日报：时长 + 新增知识点</li>
+          <li>进步曲线：测评记录 + 手绘曲线</li>
+        </ul>
+      </div>
+      <div class="feat-visual"><img class="tilt-l" src="assets/focus.jpg" alt="专注时钟"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 截图画廊 -->
+<section id="gallery">
+  <div class="wrap">
+    <div class="gallery-title">
+      <h2>翻一翻时习的界面</h2>
+      <p>← 横向滑动查看更多 →</p>
+    </div>
+    <div class="shelf">
+      <img src="assets/home.jpg" alt="今日首页">
+      <img src="assets/ask-ai.jpg" alt="拍题问 AI">
+      <img src="assets/knowledge.jpg" alt="知识点库">
+      <img src="assets/why.jpg" alt="为什么">
+      <img src="assets/review.jpg" alt="间隔复习">
+      <img src="assets/plan.jpg" alt="学习计划">
+      <img src="assets/focus.jpg" alt="专注时钟">
+    </div>
+  </div>
+</section>
+
+<!-- 下载 -->
+<section id="download">
+  <div class="wrap">
+    <div class="dl-card">
+      <h2>今天，该复习的只有几张卡</h2>
+      <p>Android 用户前往 GitHub Releases 获取安装包。<br>时习使用你自备的 AI 接口（设置里填一次即可），提问全程走你信任的模型。</p>
+      <div class="dl-buttons">
+        <a class="btn-primary" href="https://github.com/yunkst/study_buddy/releases" target="_blank" rel="noopener">前往 Releases 下载</a>
+        <a class="btn-ghost" href="https://github.com/yunkst/study_buddy" target="_blank" rel="noopener">查看源码</a>
+      </div>
+      <p class="dl-note">数据全部本地 SQLite 存储，不上传。反馈与建议欢迎提 <a href="https://github.com/yunkst/study_buddy/issues" target="_blank" rel="noopener" style="color:var(--seal-deep)">Issues</a>。</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-grid">
+    <div class="foot-links">
+      <a href="https://github.com/yunkst/study_buddy" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/yunkst/study_buddy/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/yunkst/study_buddy/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+    <div class="foot-quote">学而时习之，不亦说乎。</div>
+  </div>
+</footer>
+
+</body>
+</html>
